@@ -9,6 +9,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
 	"github.com/StevenBuglione/spice/compiler/validate"
@@ -48,7 +49,7 @@ func run(arguments []string, stdout, stderr io.Writer, options load.Options, loa
 }
 
 func verify(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
-	result, ok := resolvePatterns(patterns, stderr, options, loader, "verification")
+	program, result, ok := resolvePatterns(patterns, stderr, options, loader, "verification")
 	if !ok {
 		return 1
 	}
@@ -61,12 +62,22 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 		fmt.Fprintf(stderr, "Spice verification failed: %d annotation validation error(s).\n", len(diagnostics))
 		return 1
 	}
+	catalog := provider.Build(program, result)
+	providerDiagnostics := catalog.Diagnostics()
+	if len(providerDiagnostics) > 0 {
+		for _, diagnostic := range providerDiagnostics {
+			fmt.Fprintln(stderr, diagnostic.Error())
+		}
+		fmt.Fprintf(stderr, "Spice verification failed: %d provider catalog error(s).\n", len(providerDiagnostics))
+		return 1
+	}
+
 	fmt.Fprintf(stdout, "Spice verification passed: %d annotations in %d Go files.\n", len(result.Occurrences), result.Files)
 	return 0
 }
 
 func annotations(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
-	result, ok := resolvePatterns(patterns, stderr, options, loader, "annotation resolution")
+	_, result, ok := resolvePatterns(patterns, stderr, options, loader, "annotation resolution")
 	if !ok {
 		return 1
 	}
@@ -86,11 +97,11 @@ func annotations(patterns []string, stdout, stderr io.Writer, options load.Optio
 	return 0
 }
 
-func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, loader programLoader, operation string) (resolve.Result, bool) {
+func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, loader programLoader, operation string) (*load.Program, resolve.Result, bool) {
 	program, err := loader(context.Background(), options, patterns...)
 	if err != nil {
 		fmt.Fprintf(stderr, "Spice %s failed: %v\n", operation, err)
-		return resolve.Result{}, false
+		return nil, resolve.Result{}, false
 	}
 	result := resolve.Annotations(program)
 	if len(result.Diagnostics) > 0 {
@@ -98,9 +109,9 @@ func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, 
 			fmt.Fprintln(stderr, diagnostic.Error())
 		}
 		fmt.Fprintf(stderr, "Spice %s failed: %d annotation resolution error(s).\n", operation, len(result.Diagnostics))
-		return result, false
+		return program, result, false
 	}
-	return result, true
+	return program, result, true
 }
 
 func validationDiagnostics(occurrences []resolve.Occurrence) []validate.Diagnostic {
