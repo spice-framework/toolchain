@@ -6,7 +6,9 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/scan"
+	"github.com/StevenBuglione/spice/compiler/validate"
 )
 
 const Version = "0.1.0-dev"
@@ -40,6 +42,14 @@ func verify(root string, stdout, stderr io.Writer) int {
 	result, err := scan.Tree(root)
 	if err != nil {
 		fmt.Fprintf(stderr, "Spice verification failed: %v\n", err)
+		return 1
+	}
+	diagnostics := validate.Occurrences(result.Occurrences, builtin.Registry())
+	if len(diagnostics) > 0 {
+		for _, diagnostic := range diagnostics {
+			fmt.Fprintln(stderr, diagnostic.Error())
+		}
+		fmt.Fprintf(stderr, "Spice verification failed: %d annotation validation error(s).\n", len(diagnostics))
 		return 1
 	}
 	fmt.Fprintf(stdout, "Spice verification passed: %d annotations in %d Go files.\n", len(result.Occurrences), result.Files)

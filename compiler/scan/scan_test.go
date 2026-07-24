@@ -3,6 +3,7 @@ package scan
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -61,6 +62,37 @@ type Controller struct{}
 	}
 	if _, err := Tree(root); err == nil {
 		t.Fatal("Tree() did not reject malformed annotation")
+	}
+}
+
+func TestTreeIsDeterministicAcrossRepeatedScans(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := `package sample
+
+// @Controller(prefix="/users")
+type Controller struct{}
+
+// @Get(path="/{id}")
+func (Controller) Get() {}
+`
+	if err := os.WriteFile(filepath.Join(root, "sample.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	first, err := Tree(root)
+	if err != nil {
+		t.Fatalf("first Tree() error = %v", err)
+	}
+	for run := 0; run < 5; run++ {
+		next, err := Tree(root)
+		if err != nil {
+			t.Fatalf("run %d Tree() error = %v", run, err)
+		}
+		if !reflect.DeepEqual(next, first) {
+			t.Fatalf("run %d result = %#v, want %#v", run, next, first)
+		}
 	}
 }
 

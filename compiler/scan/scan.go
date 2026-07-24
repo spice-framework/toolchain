@@ -16,15 +16,16 @@ import (
 )
 
 // Target identifies the Go declaration associated with an annotation.
-type Target string
+// It aliases the public annotation target model for compatibility.
+type Target = annotation.Target
 
 const (
-	TargetPackage  Target = "package"
-	TargetType     Target = "type"
-	TargetFunction Target = "function"
-	TargetMethod   Target = "method"
-	TargetVariable Target = "variable"
-	TargetConstant Target = "constant"
+	TargetPackage  = annotation.TargetPackage
+	TargetType     = annotation.TargetType
+	TargetFunction = annotation.TargetFunction
+	TargetMethod   = annotation.TargetMethod
+	TargetVariable = annotation.TargetVariable
+	TargetConstant = annotation.TargetConstant
 )
 
 // Occurrence associates one annotation with a Go declaration.
