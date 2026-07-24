@@ -2,19 +2,28 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
 
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
 	"github.com/StevenBuglione/spice/compiler/validate"
 )
 
 const Version = "0.1.0-dev"
 
+type programLoader func(context.Context, load.Options, ...string) (*load.Program, error)
+
 // Run executes Spice and returns a process exit code.
 func Run(arguments []string, stdout, stderr io.Writer) int {
+	return run(arguments, stdout, stderr, load.Options{}, load.Load)
+}
+
+func run(arguments []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
 	if len(arguments) == 0 {
 		printHelp(stdout)
 		return 0
@@ -28,9 +37,9 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "spice %s\n", Version)
 		return 0
 	case "verify":
-		return verify(pathArgument(arguments[1:]), stdout, stderr)
+		return verify(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
 	case "annotations":
-		return annotations(pathArgument(arguments[1:]), stdout, stderr)
+		return annotations(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", arguments[0])
 		printHelp(stderr)
@@ -38,13 +47,13 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func verify(root string, stdout, stderr io.Writer) int {
-	result, err := scan.Tree(root)
-	if err != nil {
-		fmt.Fprintf(stderr, "Spice verification failed: %v\n", err)
+func verify(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
+	result, ok := resolvePatterns(patterns, stderr, options, loader, "verification")
+	if !ok {
 		return 1
 	}
-	diagnostics := validate.Occurrences(result.Occurrences, builtin.Registry())
+
+	diagnostics := validationDiagnostics(result.Occurrences)
 	if len(diagnostics) > 0 {
 		for _, diagnostic := range diagnostics {
 			fmt.Fprintln(stderr, diagnostic.Error())
@@ -56,19 +65,18 @@ func verify(root string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func annotations(root string, stdout, stderr io.Writer) int {
-	result, err := scan.Tree(root)
-	if err != nil {
-		fmt.Fprintf(stderr, "Spice annotation scan failed: %v\n", err)
+func annotations(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
+	result, ok := resolvePatterns(patterns, stderr, options, loader, "annotation resolution")
+	if !ok {
 		return 1
 	}
 	for _, occurrence := range result.Occurrences {
-		path := filepath.ToSlash(occurrence.File)
+		path := filepath.ToSlash(occurrence.DisplayPosition.Filename)
 		fmt.Fprintf(
 			stdout,
 			"%s:%d %s %s @%s\n",
 			path,
-			occurrence.Annotation.Position.Line,
+			occurrence.DisplayPosition.Line,
 			occurrence.Target,
 			occurrence.Name,
 			occurrence.Annotation.Name,
@@ -78,11 +86,42 @@ func annotations(root string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func pathArgument(arguments []string) string {
-	if len(arguments) == 0 {
-		return "."
+func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, loader programLoader, operation string) (resolve.Result, bool) {
+	program, err := loader(context.Background(), options, patterns...)
+	if err != nil {
+		fmt.Fprintf(stderr, "Spice %s failed: %v\n", operation, err)
+		return resolve.Result{}, false
 	}
-	return scan.PathRoot(arguments[0])
+	result := resolve.Annotations(program)
+	if len(result.Diagnostics) > 0 {
+		for _, diagnostic := range result.Diagnostics {
+			fmt.Fprintln(stderr, diagnostic.Error())
+		}
+		fmt.Fprintf(stderr, "Spice %s failed: %d annotation resolution error(s).\n", operation, len(result.Diagnostics))
+		return result, false
+	}
+	return result, true
+}
+
+func validationDiagnostics(occurrences []resolve.Occurrence) []validate.Diagnostic {
+	diagnostics := make([]validate.Diagnostic, 0)
+	registry := builtin.Registry()
+	for _, occurrence := range occurrences {
+		diagnostics = append(diagnostics, validate.Occurrences([]scan.Occurrence{{
+			Annotation: occurrence.Annotation,
+			Target:     occurrence.Target,
+			Name:       occurrence.Name,
+			File:       occurrence.PhysicalFile,
+		}}, registry)...)
+	}
+	return diagnostics
+}
+
+func packagePatterns(arguments []string) []string {
+	if len(arguments) == 0 {
+		return []string{"."}
+	}
+	return append([]string(nil), arguments...)
 }
 
 func printHelp(writer io.Writer) {
@@ -90,11 +129,11 @@ func printHelp(writer io.Writer) {
 
 Usage:
   spice version
-  spice verify [path|./...]
-  spice annotations [path|./...]
+  spice verify [package-pattern ...]
+  spice annotations [package-pattern ...]
 
 Commands:
   version      Print the Spice version.
-  verify       Parse and validate Spice annotations in Go source.
-  annotations  List annotations and their associated declarations.`)
+  verify       Load, resolve, and validate Spice annotations for Go packages.
+  annotations  List annotations and their exact typed declarations.`)
 }
