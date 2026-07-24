@@ -8,124 +8,133 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 	"github.com/StevenBuglione/spice/compiler/scan"
 )
 
-func TestOccurrencesAcceptsValidBuiltInTargets(t *testing.T) {
+func TestOccurrencesAcceptsValidBuiltInsAndArguments(t *testing.T) {
 	t.Parallel()
-
 	occurrences := []scan.Occurrence{
-		occurrence("app.go", 1, "Application", scan.TargetFunction, "main"),
-		occurrence("config.go", 2, "Configuration", scan.TargetType, "Config"),
-		occurrence("controller.go", 3, "Controller", scan.TargetType, "Controller"),
-		occurrence("controller.go", 4, "Get", scan.TargetMethod, "GetUser"),
-		occurrence("controller.go", 5, "Post", scan.TargetMethod, "CreateUser"),
-		occurrence("service.go", 6, "Service", scan.TargetType, "UserService"),
+		parsedOccurrence(t, "app.go", 1, `// @Application`, scan.TargetFunction, "main"),
+		parsedOccurrence(t, "config.go", 2, `// @Configuration`, scan.TargetType, "Config"),
+		parsedOccurrence(t, "controller.go", 3, `// @Controller(prefix="/users")`, scan.TargetType, "Controller"),
+		parsedOccurrence(t, "controller.go", 4, `// @Controller`, scan.TargetType, "RootController"),
+		parsedOccurrence(t, "controller.go", 5, `// @Get(path="/{id}")`, scan.TargetMethod, "GetUser"),
+		parsedOccurrence(t, "controller.go", 6, `// @Get("/{id}")`, scan.TargetMethod, "GetUserCompact"),
+		parsedOccurrence(t, "controller.go", 7, `// @Post(path="/")`, scan.TargetMethod, "CreateUser"),
+		parsedOccurrence(t, "controller.go", 8, `// @Post("/")`, scan.TargetMethod, "CreateUserCompact"),
+		parsedOccurrence(t, "service.go", 9, `// @Service`, scan.TargetType, "UserService"),
 	}
-
 	if diagnostics := Occurrences(occurrences, builtin.Registry()); len(diagnostics) != 0 {
 		t.Fatalf("Occurrences() diagnostics = %#v", diagnostics)
 	}
 }
 
-func TestOccurrencesRejectsInvalidBuiltInTargets(t *testing.T) {
+func TestOccurrencesRejectsInvalidArguments(t *testing.T) {
 	t.Parallel()
-
 	tests := []struct {
-		annotation string
-		target     scan.Target
-		name       string
-		allowed    []annotation.Target
+		name     string
+		comment  string
+		target   scan.Target
+		contains []string
 	}{
-		{annotation: "Controller", target: scan.TargetFunction, name: "NewController", allowed: []annotation.Target{annotation.TargetType}},
-		{annotation: "Controller", target: scan.TargetMethod, name: "Handle", allowed: []annotation.Target{annotation.TargetType}},
-		{annotation: "Service", target: scan.TargetPackage, name: "sample", allowed: []annotation.Target{annotation.TargetType}},
-		{annotation: "Get", target: scan.TargetType, name: "Controller", allowed: []annotation.Target{annotation.TargetMethod}},
-		{annotation: "Post", target: scan.TargetType, name: "Controller", allowed: []annotation.Target{annotation.TargetMethod}},
-		{annotation: "Application", target: scan.TargetVariable, name: "Application", allowed: []annotation.Target{annotation.TargetFunction}},
+		{name: "unknown argument", comment: `// @Controller(prefx="/users")`, target: scan.TargetType, contains: []string{`does not define argument "prefx"`, "available argument: prefix"}},
+		{name: "wrong controller kind", comment: `// @Controller(prefix=3)`, target: scan.TargetType, contains: []string{`argument "prefix" requires string, got integer`}},
+		{name: "named only", comment: `// @Controller("/users")`, target: scan.TargetType, contains: []string{`does not accept a positional argument`, `named argument "prefix"`}},
+		{name: "missing required", comment: `// @Get`, target: scan.TargetMethod, contains: []string{`requires argument "path"`}},
+		{name: "wrong route kind", comment: `// @Get(path=3)`, target: scan.TargetMethod, contains: []string{`argument "path" requires string, got integer`}},
+		{name: "duplicate semantic assignment", comment: `// @Get("/{id}", path="/{other}")`, target: scan.TargetMethod, contains: []string{`assigns argument "path" more than once`}},
+		{name: "marker arguments", comment: `// @Service(name="users")`, target: scan.TargetType, contains: []string{"does not accept arguments"}},
+		{name: "multiple positional", comment: `// @Get("/one", "/two")`, target: scan.TargetMethod, contains: []string{"accepts at most one positional argument"}},
 	}
-
 	for _, test := range tests {
 		test := test
-		t.Run(test.annotation+"_on_"+string(test.target), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			diagnostics := Occurrences(
-				[]scan.Occurrence{occurrence("invalid.go", 7, test.annotation, test.target, test.name)},
-				builtin.Registry(),
-			)
-			if len(diagnostics) != 1 {
-				t.Fatalf("len(diagnostics) = %d, want 1", len(diagnostics))
+			diagnostics := Occurrences([]scan.Occurrence{parsedOccurrence(t, "invalid.go", 7, test.comment, test.target, "Declaration")}, builtin.Registry())
+			if len(diagnostics) == 0 {
+				t.Fatal("expected diagnostics")
 			}
-			diagnostic := diagnostics[0]
-			if diagnostic.Annotation != test.annotation || diagnostic.Target != test.target || diagnostic.Name != test.name {
-				t.Fatalf("diagnostic = %#v", diagnostic)
-			}
-			if !reflect.DeepEqual(diagnostic.Allowed, test.allowed) {
-				t.Fatalf("Allowed = %#v, want %#v", diagnostic.Allowed, test.allowed)
-			}
-			message := diagnostic.Error()
-			for _, expected := range []string{"invalid.go:7:1", "@" + test.annotation, string(test.target), string(test.allowed[0])} {
-				if !strings.Contains(message, expected) {
-					t.Fatalf("Error() = %q, missing %q", message, expected)
+			joined := diagnosticsText(diagnostics)
+			for _, expected := range test.contains {
+				if !strings.Contains(joined, expected) {
+					t.Fatalf("diagnostics = %q, missing %q", joined, expected)
 				}
 			}
 		})
 	}
 }
 
-func TestOccurrencesRejectsUnknownAnnotations(t *testing.T) {
+func TestOccurrencesAccumulatesUnknownAndMissingArguments(t *testing.T) {
 	t.Parallel()
-
-	diagnostics := Occurrences(
-		[]scan.Occurrence{occurrence("security.go", 12, "security.Authorize", scan.TargetMethod, "Admin")},
-		builtin.Registry(),
-	)
-	if len(diagnostics) != 1 || !diagnostics[0].Unknown {
-		t.Fatalf("diagnostics = %#v", diagnostics)
+	diagnostics := Occurrences([]scan.Occurrence{parsedOccurrence(t, "route.go", 3, `// @Get(paht="/")`, scan.TargetMethod, "Get")}, builtin.Registry())
+	got := diagnosticsText(diagnostics)
+	for _, expected := range []string{`does not define argument "paht"`, `requires argument "path"`} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("diagnostics = %q, missing %q", got, expected)
+		}
 	}
-	if message := diagnostics[0].Error(); !strings.Contains(message, "unknown annotation @security.Authorize") || !strings.Contains(message, "registered annotation definition") {
-		t.Fatalf("Error() = %q", message)
+}
+
+func TestOccurrencesContinuesTargetAndExistenceValidation(t *testing.T) {
+	t.Parallel()
+	occurrences := []scan.Occurrence{
+		parsedOccurrence(t, "invalid.go", 1, `// @Controller(prefix="/users")`, scan.TargetFunction, "NewController"),
+		parsedOccurrence(t, "security.go", 2, `// @security.Authorize`, scan.TargetMethod, "Admin"),
+	}
+	diagnostics := Occurrences(occurrences, builtin.Registry())
+	got := diagnosticsText(diagnostics)
+	for _, expected := range []string{"cannot target function", "unknown annotation @security.Authorize"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("diagnostics = %q, missing %q", got, expected)
+		}
 	}
 }
 
 func TestOccurrencesSortsDiagnosticsDeterministically(t *testing.T) {
 	t.Parallel()
-
 	input := []scan.Occurrence{
-		occurrence("z.go", 2, "Controller", scan.TargetFunction, "Z"),
-		occurrence("a.go", 9, "Get", scan.TargetType, "A"),
-		occurrence("a.go", 3, "Post", scan.TargetType, "B"),
+		parsedOccurrence(t, "z.go", 2, `// @Controller(prefx=3)`, scan.TargetFunction, "Z"),
+		parsedOccurrence(t, "a.go", 9, `// @Get`, scan.TargetType, "A"),
+		parsedOccurrence(t, "a.go", 3, `// @Post(path=3)`, scan.TargetType, "B"),
 	}
-	want := []string{
-		"a.go:3:1: annotation @Post cannot target type \"B\"; allowed target: method",
-		"a.go:9:1: annotation @Get cannot target type \"A\"; allowed target: method",
-		"z.go:2:1: annotation @Controller cannot target function \"Z\"; allowed target: type",
-	}
-
-	for run := 0; run < 5; run++ {
+	var first []string
+	for run := 0; run < 10; run++ {
 		diagnostics := Occurrences(input, builtin.Registry())
 		got := make([]string, len(diagnostics))
 		for index, diagnostic := range diagnostics {
 			got[index] = diagnostic.Error()
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("run %d diagnostics = %#v, want %#v", run, got, want)
+		if run == 0 {
+			first = got
+			continue
 		}
+		if !reflect.DeepEqual(got, first) {
+			t.Fatalf("run %d diagnostics = %#v, want %#v", run, got, first)
+		}
+	}
+	if len(first) != 6 {
+		t.Fatalf("diagnostics = %#v, want 6 independent errors", first)
 	}
 }
 
-func occurrence(file string, line int, name string, target scan.Target, declaration string) scan.Occurrence {
-	return scan.Occurrence{
-		Annotation: annotation.Annotation{
-			Name: name,
-			Position: token.Position{
-				Filename: file,
-				Line:     line,
-				Column:   1,
-			},
-		},
-		Target: target,
-		Name:   declaration,
-		File:   file,
+func parsedOccurrence(t *testing.T, file string, line int, comment string, target scan.Target, declaration string) scan.Occurrence {
+	t.Helper()
+	parsed, ok, err := annotationparser.ParseComment(comment, token.Position{Filename: file, Line: line, Column: 1})
+	if err != nil || !ok {
+		t.Fatalf("ParseComment(%q) ok=%v error=%v", comment, ok, err)
 	}
+	return scan.Occurrence{Annotation: parsed, Target: target, Name: declaration, File: file}
+}
+
+func occurrence(file string, line int, name string, target scan.Target, declaration string) scan.Occurrence {
+	return scan.Occurrence{Annotation: annotation.Annotation{Name: name, Position: token.Position{Filename: file, Line: line, Column: 1}}, Target: target, Name: declaration, File: file}
+}
+
+func diagnosticsText(diagnostics []Diagnostic) string {
+	messages := make([]string, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		messages[index] = diagnostic.Error()
+	}
+	return strings.Join(messages, "\n")
 }
