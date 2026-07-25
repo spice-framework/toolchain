@@ -53,6 +53,8 @@ type cycleDocument struct {
 
 type moduleGraphDocument struct {
 	Schema             string           `json:"schema"`
+	Focus              string           `json:"focus,omitempty"`
+	DependencyOrder    []string         `json:"dependency_order,omitempty"`
 	Modules            []moduleDocument `json:"modules"`
 	Edges              []edgeDocument   `json:"edges"`
 	Cycles             []cycleDocument  `json:"cycles"`
@@ -84,6 +86,8 @@ func Render(model Model, format Format) ([]byte, error) {
 func renderJSON(model Model) ([]byte, error) {
 	document := moduleGraphDocument{
 		Schema:             documentSchema,
+		Focus:              model.FocusID(),
+		DependencyOrder:    model.DependencyOrder(),
 		Modules:            make([]moduleDocument, 0),
 		Edges:              make([]edgeDocument, 0),
 		Cycles:             make([]cycleDocument, 0),
@@ -193,6 +197,10 @@ func renderMermaid(model Model) []byte {
 	if len(unassigned) != 0 {
 		output.WriteString("  classDef unassigned fill:#f3f4f6,stroke:#6b7280,stroke-dasharray: 5 5\n")
 	}
+	if focus := model.FocusID(); focus != "" {
+		fmt.Fprintf(&output, "  class %s focus\n", aliases[focus])
+		output.WriteString("  classDef focus fill:#dbeafe,stroke:#2563eb,stroke-width:2px\n")
+	}
 	return output.Bytes()
 }
 
@@ -203,11 +211,16 @@ func renderPlantUML(model Model) []byte {
 	output.WriteString("left to right direction\n")
 	aliases := moduleAliases(model.Modules())
 	for _, module := range model.Modules() {
+		color := ""
+		if module.ID == model.FocusID() {
+			color = " #LightBlue"
+		}
 		fmt.Fprintf(
 			&output,
-			"component %s as %s\n",
+			"component %s as %s%s\n",
 			strconv.Quote(module.ID),
 			aliases[module.ID],
+			color,
 		)
 	}
 	for index, pkg := range model.UnassignedPackages() {

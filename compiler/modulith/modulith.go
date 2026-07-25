@@ -131,12 +131,25 @@ func (d Diagnostic) Error() string {
 
 // Model is the immutable-by-convention module discovery result.
 type Model struct {
-	modules      []Module
-	edges        []Edge
-	cycles       []Cycle
-	unassigned   []Package
-	diagnostics  []Diagnostic
-	packageOwner map[string]int
+	modules         []Module
+	edges           []Edge
+	cycles          []Cycle
+	unassigned      []Package
+	diagnostics     []Diagnostic
+	packageOwner    map[string]int
+	focusID         string
+	dependencyOrder []string
+}
+
+// FocusID returns the selected module for a focused test graph, or an empty
+// string for the complete architecture model.
+func (m Model) FocusID() string {
+	return m.focusID
+}
+
+// DependencyOrder returns focused modules in dependency-first order.
+func (m Model) DependencyOrder() []string {
+	return append([]string(nil), m.dependencyOrder...)
 }
 
 // Edges returns distinct cross-module package imports in stable order.
@@ -184,6 +197,59 @@ func (m Model) Owner(packagePath string) (Module, bool) {
 		return Module{}, false
 	}
 	return cloneModule(m.modules[index]), true
+}
+
+// Focus retains moduleID plus only its transitively observed dependencies.
+// The returned dependency order is suitable for composing a module test graph.
+func (m Model) Focus(moduleID string) (Model, error) {
+	found := false
+	for _, module := range m.modules {
+		if module.ID == moduleID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Model{}, fmt.Errorf("focus module %q was not found", moduleID)
+	}
+
+	adjacency := moduleAdjacency(m.modules, m.edges)
+	order, err := focusedDependencyOrder(moduleID, adjacency)
+	if err != nil {
+		return Model{}, err
+	}
+	included := make(map[string]struct{}, len(order))
+	for _, id := range order {
+		included[id] = struct{}{}
+	}
+	result := Model{
+		packageOwner:    make(map[string]int),
+		focusID:         moduleID,
+		dependencyOrder: order,
+	}
+	for _, module := range m.modules {
+		if _, ok := included[module.ID]; ok {
+			result.modules = append(result.modules, cloneModule(module))
+		}
+	}
+	for _, edge := range m.edges {
+		_, fromIncluded := included[edge.FromModule]
+		_, toIncluded := included[edge.ToModule]
+		if fromIncluded && toIncluded {
+			result.edges = append(result.edges, edge)
+		}
+	}
+	for _, cycle := range m.cycles {
+		if cycleIncluded(cycle, included) {
+			result.cycles = append(result.cycles, Cycle{
+				Members: append([]string(nil), cycle.Members...),
+				Path:    append([]string(nil), cycle.Path...),
+			})
+		}
+	}
+	sortModel(&result)
+	rebuildPackageOwners(&result)
+	return result, nil
 }
 
 // Build discovers module roots, package ownership, named interfaces, allowed
@@ -843,6 +909,42 @@ func representativeCycle(members []string, adjacency map[string][]string) []stri
 		return path
 	}
 	return append(append([]string(nil), members...), start)
+}
+
+func focusedDependencyOrder(moduleID string, adjacency map[string][]string) ([]string, error) {
+	state := make(map[string]uint8, len(adjacency))
+	var order []string
+	var visit func(string) error
+	visit = func(current string) error {
+		switch state[current] {
+		case 1:
+			return fmt.Errorf("focus module %s belongs to a module dependency cycle", moduleID)
+		case 2:
+			return nil
+		}
+		state[current] = 1
+		for _, dependency := range adjacency[current] {
+			if err := visit(dependency); err != nil {
+				return err
+			}
+		}
+		state[current] = 2
+		order = append(order, current)
+		return nil
+	}
+	if err := visit(moduleID); err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
+func cycleIncluded(cycle Cycle, included map[string]struct{}) bool {
+	for _, member := range cycle.Members {
+		if _, ok := included[member]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func findCyclePath(

@@ -90,6 +90,7 @@ func runWithBuilder(
 type moduleArguments struct {
 	format    modulith.Format
 	formatSet bool
+	focus     string
 	patterns  []string
 }
 
@@ -141,6 +142,16 @@ func modulesCommand(
 		}
 		return 1
 	}
+	if parsed.focus != "" {
+		focused, focusErr := model.Focus(parsed.focus)
+		if focusErr != nil {
+			if writeErr := writef(stderr, "Spice module documentation failed: %v\n", focusErr); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+		model = focused
+	}
 	content, err := modulith.Render(model, parsed.format)
 	if err != nil {
 		if writeErr := writef(stderr, "Spice module documentation failed: %v\n", err); writeErr != nil {
@@ -159,25 +170,33 @@ func parseModuleArguments(arguments []string) (moduleArguments, error) {
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		switch {
-		case argument == "--format":
-			if result.formatSet {
-				return moduleArguments{}, errors.New("--format may be specified only once")
+		case argument == "--format" || strings.HasPrefix(argument, "--format="):
+			value, next, err := moduleOptionValue(
+				arguments,
+				index,
+				"--format",
+				result.formatSet,
+				"json, mermaid, or plantuml",
+			)
+			if err != nil {
+				return moduleArguments{}, err
 			}
-			index++
-			if index >= len(arguments) || strings.HasPrefix(arguments[index], "-") {
-				return moduleArguments{}, errors.New("--format requires json, mermaid, or plantuml")
-			}
-			result.format = modulith.Format(arguments[index])
+			index = next
+			result.format = modulith.Format(value)
 			result.formatSet = true
-		case strings.HasPrefix(argument, "--format="):
-			if result.formatSet {
-				return moduleArguments{}, errors.New("--format may be specified only once")
+		case argument == "--focus" || strings.HasPrefix(argument, "--focus="):
+			value, next, err := moduleOptionValue(
+				arguments,
+				index,
+				"--focus",
+				result.focus != "",
+				"a full module import path",
+			)
+			if err != nil {
+				return moduleArguments{}, err
 			}
-			result.format = modulith.Format(strings.TrimPrefix(argument, "--format="))
-			if result.format == "" {
-				return moduleArguments{}, errors.New("--format requires json, mermaid, or plantuml")
-			}
-			result.formatSet = true
+			index = next
+			result.focus = value
 		case strings.HasPrefix(argument, "-"):
 			return moduleArguments{}, fmt.Errorf("unknown module option %q", argument)
 		default:
@@ -193,6 +212,31 @@ func parseModuleArguments(arguments []string) (moduleArguments, error) {
 			result.format,
 		)
 	}
+}
+
+func moduleOptionValue(
+	arguments []string,
+	index int,
+	name string,
+	alreadySet bool,
+	expected string,
+) (string, int, error) {
+	if alreadySet {
+		return "", index, fmt.Errorf("%s may be specified only once", name)
+	}
+	argument := arguments[index]
+	if argument == name {
+		next := index + 1
+		if next >= len(arguments) || strings.HasPrefix(arguments[next], "-") {
+			return "", index, fmt.Errorf("%s requires %s", name, expected)
+		}
+		return arguments[next], next, nil
+	}
+	value := strings.TrimPrefix(argument, name+"=")
+	if value == "" {
+		return "", index, fmt.Errorf("%s requires %s", name, expected)
+	}
+	return value, index, nil
 }
 
 type generationArguments struct {
@@ -711,7 +755,7 @@ Usage:
   spice version
   spice verify [package-pattern ...]
   spice annotations [package-pattern ...]
-  spice modules [--format json|mermaid|plantuml] [package-pattern ...]
+  spice modules [--format json|mermaid|plantuml] [--focus module] [package-pattern ...]
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
   spice build [--target name] [package-pattern ...]
 

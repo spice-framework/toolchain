@@ -120,6 +120,42 @@ type Request struct{}
 			t.Fatalf("PlantUML output missing %q:\n%s", expected, plantUML)
 		}
 	}
+
+	focused, err := model.Focus("example.com/shop/orders")
+	if err != nil {
+		t.Fatalf("Focus() error = %v", err)
+	}
+	focusedJSON, err := Render(focused, FormatJSON)
+	if err != nil {
+		t.Fatalf("Render(focused JSON) error = %v", err)
+	}
+	for _, expected := range []string{
+		`"focus": "example.com/shop/orders"`,
+		`"dependency_order": [`,
+		`"example.com/shop/payments"`,
+		`"example.com/shop/orders"`,
+	} {
+		if !bytes.Contains(focusedJSON, []byte(expected)) {
+			t.Fatalf("focused JSON missing %q:\n%s", expected, focusedJSON)
+		}
+	}
+	focusedMermaid, err := Render(focused, FormatMermaid)
+	if err != nil {
+		t.Fatalf("Render(focused Mermaid) error = %v", err)
+	}
+	if !bytes.Contains(focusedMermaid, []byte("class M0 focus")) {
+		t.Fatalf("focused Mermaid does not highlight M0:\n%s", focusedMermaid)
+	}
+	focusedPlantUML, err := Render(focused, FormatPlantUML)
+	if err != nil {
+		t.Fatalf("Render(focused PlantUML) error = %v", err)
+	}
+	if !bytes.Contains(
+		focusedPlantUML,
+		[]byte(`component "example.com/shop/orders" as M0 #LightBlue`),
+	) {
+		t.Fatalf("focused PlantUML does not highlight M0:\n%s", focusedPlantUML)
+	}
 }
 
 func TestRenderRejectsUnknownFormatAndUsesEmptyArrays(t *testing.T) {

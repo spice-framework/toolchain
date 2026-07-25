@@ -105,6 +105,21 @@ func TestRunModulesRendersEverySupportedFormat(t *testing.T) {
 			arguments: []string{"modules", "--format", "plantuml", "./..."},
 			expected:  []string{"@startuml", "M1 --> M0 : default", "@enduml"},
 		},
+		{
+			name: "focused-json",
+			arguments: []string{
+				"modules",
+				"--focus=example.com/fixture/orders",
+				"--format=json",
+				"./...",
+			},
+			expected: []string{
+				`"focus": "example.com/fixture/orders"`,
+				`"dependency_order": [`,
+				`"example.com/fixture/inventory"`,
+				`"example.com/fixture/orders"`,
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -130,6 +145,9 @@ func TestParseModuleArgumentsRejectsInvalidOptions(t *testing.T) {
 		{"--format=dot"},
 		{"--unknown"},
 		{"--format=json", "--format", "mermaid"},
+		{"--focus"},
+		{"--focus="},
+		{"--focus=example.com/one", "--focus", "example.com/two"},
 	}
 	for _, arguments := range tests {
 		if _, err := parseModuleArguments(arguments); err == nil {
@@ -141,8 +159,20 @@ func TestParseModuleArgumentsRejectsInvalidOptions(t *testing.T) {
 		t.Fatalf("parseModuleArguments(valid) error = %v", err)
 	}
 	if parsed.format != modulith.FormatMermaid ||
+		parsed.focus != "" ||
 		!slices.Equal(parsed.patterns, []string{"./orders", "./inventory"}) {
 		t.Fatalf("parseModuleArguments(valid) = %#v", parsed)
+	}
+
+	root := moduleDocumentationFixture(t)
+	code, stdout, stderr := runModule(
+		root,
+		"modules",
+		"--focus=example.com/fixture/missing",
+		"./...",
+	)
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "focus module") {
+		t.Fatalf("unknown focus code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 

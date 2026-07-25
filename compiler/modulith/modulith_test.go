@@ -384,6 +384,94 @@ var A a.API
 	if model.Edges()[0].FromModule == "changed" {
 		t.Fatal("Edges returned mutable storage")
 	}
+	if _, err := model.Focus("example.com/shop/a"); err == nil ||
+		!strings.Contains(err.Error(), "dependency cycle") {
+		t.Fatalf("Focus(cyclic module) error = %v", err)
+	}
+}
+
+func TestFocusIncludesOnlyObservedTransitiveDependencies(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"inventory/package.go": `// Package inventory owns inventory.
+//
+// @Module
+package inventory
+
+type Store struct{}
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/shop/inventory"])
+package orders
+
+type Order struct{}
+`,
+		"orders/use/use.go": `package use
+
+import "example.com/shop/inventory"
+
+var Store inventory.Store
+`,
+		"reporting/package.go": `// Package reporting owns reports.
+//
+// @Module(allowedDependencies=["example.com/shop/orders"])
+package reporting
+`,
+		"reporting/use/use.go": `package use
+
+import "example.com/shop/orders"
+
+var Order orders.Order
+`,
+		"shipping/package.go": `// Package shipping owns shipping.
+//
+// @Module
+package shipping
+`,
+		"shared/shared.go": "package shared\n",
+	})
+	model := buildModel(t, root)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	focused, err := model.Focus("example.com/shop/orders")
+	if err != nil {
+		t.Fatalf("Focus() error = %v", err)
+	}
+	if focused.FocusID() != "example.com/shop/orders" {
+		t.Fatalf("FocusID() = %q", focused.FocusID())
+	}
+	if got, want := moduleIDs(focused.Modules()), []string{
+		"example.com/shop/inventory",
+		"example.com/shop/orders",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("focused modules = %v, want %v", got, want)
+	}
+	if got, want := focused.DependencyOrder(), []string{
+		"example.com/shop/inventory",
+		"example.com/shop/orders",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("dependency order = %v, want %v", got, want)
+	}
+	if len(focused.Edges()) != 1 || len(focused.UnassignedPackages()) != 0 {
+		t.Fatalf(
+			"focused edges/unassigned = %d/%d",
+			len(focused.Edges()),
+			len(focused.UnassignedPackages()),
+		)
+	}
+	if owner, ok := focused.Owner("example.com/shop/orders/use"); !ok ||
+		owner.ID != "example.com/shop/orders" {
+		t.Fatalf("focused owner = %#v, %t", owner, ok)
+	}
+	order := focused.DependencyOrder()
+	order[0] = "changed"
+	if focused.DependencyOrder()[0] == "changed" {
+		t.Fatal("DependencyOrder returned mutable storage")
+	}
+	if _, err := model.Focus("example.com/shop/missing"); err == nil {
+		t.Fatal("Focus(unknown) error = nil")
+	}
 }
 
 func buildModel(t *testing.T, root string) Model {
