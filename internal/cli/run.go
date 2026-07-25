@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/compiler/graph"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -69,6 +70,15 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 			fmt.Fprintln(stderr, diagnostic.Error())
 		}
 		fmt.Fprintf(stderr, "Spice verification failed: %d provider catalog error(s).\n", len(providerDiagnostics))
+		return 1
+	}
+	providerGraph := graph.Build(catalog)
+	graphDiagnostics := providerGraph.Diagnostics()
+	if len(graphDiagnostics) > 0 {
+		for _, diagnostic := range graphDiagnostics {
+			fmt.Fprintln(stderr, diagnostic.Error())
+		}
+		fmt.Fprintf(stderr, "Spice verification failed: %d provider graph error(s).\n", len(graphDiagnostics))
 		return 1
 	}
 

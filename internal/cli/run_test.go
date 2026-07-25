@@ -203,6 +203,72 @@ func TestRunFailsBeforeValidationForBrokenOrMissingPackage(t *testing.T) {
 	}
 }
 
+func TestRunVerifyProviderGraph(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		source     string
+		wantCode   int
+		wantOutput []string
+	}{
+		{
+			name: "valid",
+			source: `package sample
+
+type Config struct{}
+type Service struct{}
+// @Bean
+func ConfigProvider() Config { panic("must not execute") }
+// @Bean
+func ServiceProvider(Config) Service { panic("must not execute") }
+`,
+			wantCode:   0,
+			wantOutput: []string{"verification passed"},
+		},
+		{
+			name: "missing",
+			source: `package sample
+
+type Service struct{}
+// @Bean
+func ServiceProvider(config string) Service { panic("must not execute") }
+`,
+			wantCode:   1,
+			wantOutput: []string{"requires exact type string", `parameter 0 "config"`, "provider graph error"},
+		},
+		{
+			name: "cycle",
+			source: `package sample
+
+type A struct{}
+type B struct{}
+// @Bean
+func AProvider(B) A { panic("must not execute") }
+// @Bean
+func BProvider(A) B { panic("must not execute") }
+`,
+			wantCode:   1,
+			wantOutput: []string{"provider dependency cycle", "AProvider", "BProvider", "provider graph error"},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			code, stdout, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
+			if code != test.wantCode {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			output := stdout + stderr
+			for _, expected := range test.wantOutput {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("output=%q missing=%q", output, expected)
+				}
+			}
+		})
+	}
+}
+
 func TestRunUnknownCommand(t *testing.T) {
 	t.Parallel()
 	var stdout bytes.Buffer
