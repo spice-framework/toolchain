@@ -397,8 +397,10 @@ func Web(*api.API) {}
 		`spiceweb "github.com/StevenBuglione/spice/web"`,
 		"type ApplicationOptions struct",
 		"func (application *Application) Handler() http.Handler",
-		`spiceweb.Register(routeMux, "GET /users/{id}"`,
-		`spiceweb.Register(routeMux, "POST /users/{id}"`,
+		`spiceweb.RegisterObserved(routeMux, "GET /users/{id}"`,
+		`spiceweb.RegisterObserved(routeMux, "POST /users/{id}"`,
+		"spiceweb.ObservationMiddleware(",
+		"[]spiceweb.HTTPObserver",
 		"options.Middleware...",
 		"spiceweb.Parameter(",
 		"spiceweb.DecodeJSON(",
@@ -830,6 +832,21 @@ import (
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
+type recordingHTTPObserver struct {
+	routes []spiceweb.RouteMetadata
+	results []spiceweb.HTTPResult
+}
+
+func (observer *recordingHTTPObserver) BeginHTTP(
+	ctx context.Context,
+	route spiceweb.RouteMetadata,
+) (context.Context, func(spiceweb.HTTPResult)) {
+	observer.routes = append(observer.routes, route)
+	return ctx, func(result spiceweb.HTTPResult) {
+		observer.results = append(observer.results, result)
+	}
+}
+
 func TestGeneratedHTTPAdapters(t *testing.T) {
 	var middlewareOrder []string
 	namedMiddleware := func(name string) spiceweb.Middleware {
@@ -841,7 +858,9 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 			})
 		}
 	}
+	httpObserver := &recordingHTTPObserver{}
 	application, err := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		HTTPObservers: []spiceweb.HTTPObserver{httpObserver},
 		Middleware: []spiceweb.Middleware{
 			namedMiddleware("first"),
 			namedMiddleware("second"),
@@ -870,6 +889,15 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	}
 	if got, want := strings.Join(middlewareOrder, ","), "first:before,second:before,second:after,first:after"; got != want {
 		t.Fatalf("middleware order = %q, want %q", got, want)
+	}
+	if len(httpObserver.routes) != 1 || len(httpObserver.results) != 1 ||
+		httpObserver.routes[0].Module != "example.com/web/api" ||
+		httpObserver.routes[0].Method != http.MethodGet ||
+		httpObserver.routes[0].Pattern != "/users/{id}" ||
+		httpObserver.results[0].Status != http.StatusOK ||
+		httpObserver.results[0].Bytes == 0 ||
+		httpObserver.results[0].Panicked {
+		t.Fatalf("HTTP observation = routes=%#v results=%#v", httpObserver.routes, httpObserver.results)
 	}
 
 	response = request(t, application.Handler(), http.MethodGet, "/users/42?verbose=secret-invalid", "", map[string]string{
@@ -925,6 +953,13 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	if invalidApplication != nil || constructionErr == nil ||
 		!strings.Contains(constructionErr.Error(), "middleware 0 is nil") {
 		t.Fatalf("nil middleware construction = %#v, %v", invalidApplication, constructionErr)
+	}
+	invalidApplication, constructionErr = NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		HTTPObservers: []spiceweb.HTTPObserver{nil},
+	})
+	if invalidApplication != nil || constructionErr == nil ||
+		!strings.Contains(constructionErr.Error(), "observer 0 is nil") {
+		t.Fatalf("nil HTTP observer construction = %#v, %v", invalidApplication, constructionErr)
 	}
 
 	var nilApplication *Application

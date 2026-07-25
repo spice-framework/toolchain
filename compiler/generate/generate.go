@@ -441,24 +441,58 @@ func writeControllerRoutes(
 		fmt.Fprintf(source, "\trouteMux := %s\n", muxVariable)
 	}
 	source.WriteString("\tapplication.handler = routeMux\n")
+	routeIndex := 0
 	for _, item := range controllers {
 		receiver := providerVariables[item.ProviderID]
 		for _, route := range item.Routes() {
 			pattern := route.HTTPMethod + " " + route.Path
+			observation := writeRouteObservation(source, route, pattern, routeIndex)
 			if route.Raw {
 				fmt.Fprintf(
 					source,
-					"\tif routeErr := spiceweb.Register(routeMux, %s, http.HandlerFunc(%s.%s), options.Middleware...); routeErr != nil {\n",
+					"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(%s.%s), %s, options.Middleware...); routeErr != nil {\n",
 					strconv.Quote(pattern),
 					receiver,
 					route.Name,
+					observation,
 				)
 				writeRouteRegistrationError(source, pattern)
+				routeIndex++
 				continue
 			}
-			writeTypedRoute(source, route, receiver, pattern, aliases)
+			writeTypedRoute(source, route, receiver, pattern, observation, aliases)
+			routeIndex++
 		}
 	}
+}
+
+func writeRouteObservation(
+	source *bytes.Buffer,
+	route controller.Route,
+	pattern string,
+	index int,
+) string {
+	observation := "routeObservation" + strconv.Itoa(index)
+	observationErr := "routeObservationErr" + strconv.Itoa(index)
+	fmt.Fprintf(
+		source,
+		"\t%s, %s := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: %s, Module: %s, Method: %s, Pattern: %s}, options.HTTPObservers...)\n",
+		observation,
+		observationErr,
+		strconv.Quote(route.SymbolID),
+		strconv.Quote(route.Module),
+		strconv.Quote(route.HTTPMethod),
+		strconv.Quote(route.Path),
+	)
+	fmt.Fprintf(source, "\tif %s != nil {\n", observationErr)
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, %s))\n",
+		strconv.Quote("configure generated route "+pattern+" observation: %w"),
+		observationErr,
+	)
+	source.WriteString("\t}\n")
+	return observation
 }
 
 func writeTypedRoute(
@@ -466,11 +500,12 @@ func writeTypedRoute(
 	route controller.Route,
 	receiver string,
 	pattern string,
+	observation string,
 	aliases map[string]string,
 ) {
 	fmt.Fprintf(
 		source,
-		"\tif routeErr := spiceweb.Register(routeMux, %s, http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {\n",
+		"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {\n",
 		strconv.Quote(pattern),
 	)
 	if !route.NoContent {
@@ -523,7 +558,11 @@ func writeTypedRoute(
 	}
 	source.WriteString("\t\t\treturn\n")
 	source.WriteString("\t\t}\n")
-	source.WriteString("\t}), options.Middleware...); routeErr != nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t}), %s, options.Middleware...); routeErr != nil {\n",
+		observation,
+	)
 	writeRouteRegistrationError(source, pattern)
 }
 
@@ -688,6 +727,7 @@ func writeApplicationOptions(source *bytes.Buffer, hasConfiguration, hasControll
 	if hasControllers {
 		source.WriteString("\tErrorMapper spiceweb.ErrorMapper\n")
 		source.WriteString("\tMaxRequestBodyBytes int64\n")
+		source.WriteString("\tHTTPObservers []spiceweb.HTTPObserver\n")
 		source.WriteString("\tMiddleware []spiceweb.Middleware\n")
 	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")

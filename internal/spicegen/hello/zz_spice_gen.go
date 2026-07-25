@@ -24,6 +24,7 @@ type Application struct {
 type ApplicationOptions struct {
 	ErrorMapper         spiceweb.ErrorMapper
 	MaxRequestBodyBytes int64
+	HTTPObservers       []spiceweb.HTTPObserver
 	Middleware          []spiceweb.Middleware
 	Observers           []spicelifecycle.Observer
 }
@@ -53,7 +54,11 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	_ = provider3
 	routeMux := provider0
 	application.handler = routeMux
-	if routeErr := spiceweb.Register(routeMux, "GET /users/{id}", http.HandlerFunc(provider1.GetUser), options.Middleware...); routeErr != nil {
+	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/hello-world/app|14:UserController|7:GetUser", Module: "github.com/StevenBuglione/spice/examples/hello-world/app", Method: "GET", Pattern: "/users/{id}"}, options.HTTPObservers...)
+	if routeObservationErr0 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /users/{id} observation: %w", routeObservationErr0))
+	}
+	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /users/{id}", http.HandlerFunc(provider1.GetUser), routeObservation0, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /users/{id}: %w", routeErr))
 	}
 	application.hooks = []spicelifecycle.Hook{
