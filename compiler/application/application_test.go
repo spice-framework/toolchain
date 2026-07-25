@@ -83,6 +83,12 @@ func Worker(Config) {
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
 	}
+	if len(model.Modules()) != 0 ||
+		len(model.ModuleEdges()) != 0 ||
+		len(model.ModuleCycles()) != 0 ||
+		len(model.UnassignedPackages()) != 0 {
+		t.Fatal("application without @Module markers has module metadata")
+	}
 
 	providers := model.Providers()
 	if got := providerNames(providers); !slices.Equal(got, []string{"ZConfig", "AServer"}) {
@@ -125,6 +131,87 @@ func Worker(Config) {
 	if roots := targets[1].Roots(); len(roots) != 1 ||
 		roots[0].ProviderID != providers[0].SymbolID {
 		t.Fatalf("Worker roots = %#v", roots)
+	}
+}
+
+func TestBuildIncludesValidatedModuleArchitecture(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/modules\n\ngo 1.26.0\n",
+		"inventory/package.go": `// Package inventory owns inventory.
+//
+// @Module
+package inventory
+
+type Store struct{}
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/modules/inventory"])
+package orders
+`,
+		"orders/use/use.go": `package use
+
+import "example.com/modules/inventory"
+
+var Store inventory.Store
+`,
+		"shared/shared.go": "package shared\n",
+	})
+	program, resolution := loadAndResolve(t, root, "./...")
+	model := Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	if got := len(model.Modules()); got != 2 {
+		t.Fatalf("module count = %d, want 2", got)
+	}
+	if got := len(model.ModuleEdges()); got != 1 {
+		t.Fatalf("module edge count = %d, want 1", got)
+	}
+	if got := len(model.ModuleCycles()); got != 0 {
+		t.Fatalf("module cycle count = %d, want 0", got)
+	}
+	unassigned := model.UnassignedPackages()
+	if len(unassigned) != 1 || unassigned[0].Path != "example.com/modules/shared" {
+		t.Fatalf("unassigned packages = %#v", unassigned)
+	}
+}
+
+func TestBuildStopsAtModuleArchitectureErrors(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/modules\n\ngo 1.26.0\n",
+		"inventory/package.go": `// Package inventory owns inventory.
+//
+// @Module
+package inventory
+`,
+		"inventory/storage/storage.go": `package storage
+
+type Store struct{}
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/modules/inventory"])
+package orders
+`,
+		"orders/use/use.go": `package use
+
+import "example.com/modules/inventory/storage"
+
+var Store storage.Store
+`,
+	})
+	program, resolution := loadAndResolve(t, root, "./...")
+	model := Build(program, resolution)
+	diagnostics := model.Diagnostics()
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Stage != StageModule ||
+		diagnostics[0].Kind != "internal-access" ||
+		!strings.Contains(diagnostics[0].Message, "imports internal package") {
+		t.Fatalf("Build() diagnostics = %#v", diagnostics)
+	}
+	if len(model.Providers()) != 0 || len(model.Targets()) != 0 {
+		t.Fatal("model continued into providers or application roots after module failure")
 	}
 }
 

@@ -198,6 +198,194 @@ package orders
 	}
 }
 
+func TestBuildValidatesRootAndNamedInterfaceImportEdges(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"catalog/package.go": `// Package catalog exposes the product catalog.
+//
+// @Module
+package catalog
+
+type Product struct{}
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/shop/catalog", "example.com/shop/payments::spi"])
+package orders
+`,
+		"orders/use/catalog.go": `package use
+
+import "example.com/shop/catalog"
+
+var Product catalog.Product
+`,
+		"orders/use/payments.go": `package use
+
+import paymentspi "example.com/shop/payments/spi"
+
+var Payment paymentspi.Request
+`,
+		"payments/package.go": `// Package payments owns payments.
+//
+// @Module
+package payments
+`,
+		"payments/spi/package.go": `// Package spi exposes payment contracts.
+//
+// @NamedInterface("spi")
+package spi
+
+type Request struct{}
+`,
+	})
+	model := buildModel(t, root)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	if got, want := edgeSummaries(model.Edges()), []string{
+		"example.com/shop/orders->example.com/shop/catalog:=true:true",
+		"example.com/shop/orders->example.com/shop/payments:spi=true:true",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("edges = %v, want %v", got, want)
+	}
+}
+
+func TestBuildRejectsInternalAndUndeclaredImports(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"inventory/storage/storage.go": `package storage
+
+type Store struct{}
+`,
+		"inventory/package.go": `// Package inventory owns inventory.
+//
+// @Module
+package inventory
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/shop/inventory"])
+package orders
+`,
+		"orders/use/use.go": `package use
+
+import (
+	"example.com/shop/inventory/storage"
+	"example.com/shop/payments"
+)
+
+var (
+	Store storage.Store
+	Payment payments.Payment
+)
+`,
+		"payments/package.go": `// Package payments owns payments.
+//
+// @Module
+package payments
+
+type Payment struct{}
+`,
+	})
+	model := buildModel(t, root)
+	diagnostics := normalizedDiagnosticStrings(model.Diagnostics(), root)
+	for _, expected := range []string{
+		"imports internal package example.com/shop/inventory/storage",
+		"imports example.com/shop/payments through package example.com/shop/payments without declaring it",
+	} {
+		if !containsDiagnostic(diagnostics, expected) {
+			t.Fatalf("diagnostics %v do not contain %q", diagnostics, expected)
+		}
+	}
+	if got, want := edgeSummaries(model.Edges()), []string{
+		"example.com/shop/orders->example.com/shop/inventory:=false:false",
+		"example.com/shop/orders->example.com/shop/payments:=true:false",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("edges = %v, want %v", got, want)
+	}
+}
+
+func TestBuildDetectsDeterministicModuleCycles(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"a/package.go": `// Package a is a module.
+//
+// @Module(allowedDependencies=["example.com/shop/b"])
+package a
+
+type API struct{}
+`,
+		"a/use/first.go": `package use
+
+import "example.com/shop/b"
+
+var First b.API
+`,
+		"a/use/second.go": `package use
+
+import "example.com/shop/b"
+
+var Second b.API
+`,
+		"b/package.go": `// Package b is a module.
+//
+// @Module(allowedDependencies=["example.com/shop/c"])
+package b
+
+type API struct{}
+`,
+		"b/use/use.go": `package use
+
+import "example.com/shop/c"
+
+var C c.API
+`,
+		"c/package.go": `// Package c is a module.
+//
+// @Module(allowedDependencies=["example.com/shop/a"])
+package c
+
+type API struct{}
+`,
+		"c/use/use.go": `package use
+
+import "example.com/shop/a"
+
+var A a.API
+`,
+	})
+	model := buildModel(t, root)
+	if got := len(model.Edges()); got != 3 {
+		t.Fatalf("edge count = %d, want 3 distinct package edges", got)
+	}
+	cycles := model.Cycles()
+	if len(cycles) != 1 {
+		t.Fatalf("Cycles() = %#v, want one", cycles)
+	}
+	wantMembers := []string{"example.com/shop/a", "example.com/shop/b", "example.com/shop/c"}
+	wantPath := []string{
+		"example.com/shop/a",
+		"example.com/shop/b",
+		"example.com/shop/c",
+		"example.com/shop/a",
+	}
+	if !slices.Equal(cycles[0].Members, wantMembers) || !slices.Equal(cycles[0].Path, wantPath) {
+		t.Fatalf("cycle = %#v, want members=%v path=%v", cycles[0], wantMembers, wantPath)
+	}
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 1 ||
+		!strings.Contains(diagnostics[0].Message, strings.Join(wantPath, " -> ")) {
+		t.Fatalf("diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+
+	cycles[0].Members[0] = "changed"
+	cycles[0].Path[0] = "changed"
+	if fresh := model.Cycles()[0]; fresh.Members[0] != wantMembers[0] || fresh.Path[0] != wantPath[0] {
+		t.Fatal("Cycles returned mutable storage")
+	}
+	edges := model.Edges()
+	edges[0].FromModule = "changed"
+	if model.Edges()[0].FromModule == "changed" {
+		t.Fatal("Edges returned mutable storage")
+	}
+}
+
 func buildModel(t *testing.T, root string) Model {
 	t.Helper()
 	program, err := load.Load(context.Background(), load.Options{Dir: root}, "./...")
@@ -271,6 +459,21 @@ func dependencyStrings(dependencies []Dependency) []string {
 	result := make([]string, len(dependencies))
 	for index, dependency := range dependencies {
 		result[index] = dependency.String()
+	}
+	return result
+}
+
+func edgeSummaries(edges []Edge) []string {
+	result := make([]string, len(edges))
+	for index, edge := range edges {
+		result[index] = fmt.Sprintf(
+			"%s->%s:%s=%t:%t",
+			edge.FromModule,
+			edge.ToModule,
+			edge.API,
+			edge.Exported,
+			edge.Allowed,
+		)
 	}
 	return result
 }

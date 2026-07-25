@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
@@ -42,6 +43,28 @@ type Dependency struct {
 	Interface        string
 	Position         token.Position
 	PhysicalPosition token.Position
+}
+
+// Edge is one distinct cross-module Go package import. API is empty for a
+// root-package default API, a named-interface name for an exposed descendant,
+// and empty with Exported false for an internal target.
+type Edge struct {
+	FromModule       string
+	ToModule         string
+	FromPackage      string
+	ToPackage        string
+	API              string
+	Exported         bool
+	Allowed          bool
+	Position         token.Position
+	PhysicalPosition token.Position
+}
+
+// Cycle describes one strongly connected module component and a deterministic
+// representative closed path through it.
+type Cycle struct {
+	Members []string
+	Path    []string
 }
 
 // String renders the portable dependency identity accepted by @Module.
@@ -109,9 +132,28 @@ func (d Diagnostic) Error() string {
 // Model is the immutable-by-convention module discovery result.
 type Model struct {
 	modules      []Module
+	edges        []Edge
+	cycles       []Cycle
 	unassigned   []Package
 	diagnostics  []Diagnostic
 	packageOwner map[string]int
+}
+
+// Edges returns distinct cross-module package imports in stable order.
+func (m Model) Edges() []Edge {
+	return append([]Edge(nil), m.edges...)
+}
+
+// Cycles returns module strongly connected components in stable member order.
+func (m Model) Cycles() []Cycle {
+	result := make([]Cycle, len(m.cycles))
+	for index, cycle := range m.cycles {
+		result[index] = Cycle{
+			Members: append([]string(nil), cycle.Members...),
+			Path:    append([]string(nil), cycle.Path...),
+		}
+	}
+	return result
 }
 
 // Modules returns modules sorted by full import-path identity.
@@ -166,6 +208,8 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 	assignPackages(&model, packages)
 	discoverNamedInterfaces(&model, resolution.Occurrences, packages)
 	validateDependencies(&model)
+	discoverImportEdges(&model, program.Packages())
+	discoverCycles(&model)
 	sortModel(&model)
 	rebuildPackageOwners(&model)
 	return model
@@ -520,6 +564,317 @@ func hasNamedInterface(module Module, name string) bool {
 	return false
 }
 
+type packageImport struct {
+	path     string
+	position token.Position
+	physical token.Position
+}
+
+func discoverImportEdges(model *Model, packages []load.Package) {
+	seen := make(map[string]struct{})
+	for _, pkg := range packages {
+		fromIndex, assigned := model.packageOwner[pkg.Path]
+		if !assigned {
+			continue
+		}
+		for _, imported := range packageImports(pkg) {
+			toIndex, targetAssigned := model.packageOwner[imported.path]
+			if !targetAssigned || fromIndex == toIndex {
+				continue
+			}
+			key := pkg.Path + "\x00" + imported.path
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			from := model.modules[fromIndex]
+			to := model.modules[toIndex]
+			api, exported, allowed := importedAPI(from, to, imported.path)
+			edge := Edge{
+				FromModule:       from.ID,
+				ToModule:         to.ID,
+				FromPackage:      pkg.Path,
+				ToPackage:        imported.path,
+				API:              api,
+				Exported:         exported,
+				Allowed:          allowed,
+				Position:         imported.position,
+				PhysicalPosition: imported.physical,
+			}
+			model.edges = append(model.edges, edge)
+			switch {
+			case !exported:
+				model.diagnostics = append(model.diagnostics, importDiagnostic(
+					edge,
+					"internal-access",
+					fmt.Sprintf(
+						"module %s package %s imports internal package %s of module %s; import the root API or a declared @NamedInterface package",
+						from.ID,
+						pkg.Path,
+						imported.path,
+						to.ID,
+					),
+				))
+			case !allowed:
+				model.diagnostics = append(model.diagnostics, importDiagnostic(
+					edge,
+					"undeclared-dependency",
+					fmt.Sprintf(
+						"module %s package %s imports %s through package %s without declaring it in @Module allowedDependencies",
+						from.ID,
+						pkg.Path,
+						dependencyIdentity(to.ID, api),
+						imported.path,
+					),
+				))
+			}
+		}
+	}
+}
+
+func packageImports(pkg load.Package) []packageImport {
+	if pkg.Raw == nil || pkg.Raw.Fset == nil {
+		return nil
+	}
+	var result []packageImport
+	for _, source := range pkg.Files {
+		if source.Syntax == nil {
+			continue
+		}
+		for _, specification := range source.Syntax.Imports {
+			importPath, err := strconv.Unquote(specification.Path.Value)
+			if err != nil {
+				continue
+			}
+			result = append(result, packageImport{
+				path:     importPath,
+				position: pkg.Raw.Fset.PositionFor(specification.Path.Pos(), true),
+				physical: pkg.Raw.Fset.PositionFor(specification.Path.Pos(), false),
+			})
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].physical.Filename != result[j].physical.Filename {
+			return result[i].physical.Filename < result[j].physical.Filename
+		}
+		if result[i].physical.Offset != result[j].physical.Offset {
+			return result[i].physical.Offset < result[j].physical.Offset
+		}
+		return result[i].path < result[j].path
+	})
+	return result
+}
+
+func importedAPI(from, to Module, packagePath string) (string, bool, bool) {
+	if packagePath == to.RootPackage {
+		return "", true, allowsDependency(from, to.ID, "")
+	}
+	var names []string
+	for _, item := range to.namedInterfaces {
+		if item.PackagePath == packagePath {
+			names = append(names, item.Name)
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return "", false, false
+	}
+	for _, name := range names {
+		if allowsDependency(from, to.ID, name) {
+			return name, true, true
+		}
+	}
+	return names[0], true, false
+}
+
+func allowsDependency(module Module, targetModule, targetInterface string) bool {
+	for _, dependency := range module.allowed {
+		if dependency.ModuleID == targetModule && dependency.Interface == targetInterface {
+			return true
+		}
+	}
+	return false
+}
+
+func dependencyIdentity(moduleID, interfaceName string) string {
+	if interfaceName == "" {
+		return moduleID
+	}
+	return moduleID + dependencySeparator + interfaceName
+}
+
+func importDiagnostic(edge Edge, kind, message string) Diagnostic {
+	return Diagnostic{
+		Position:         edge.Position,
+		PhysicalPosition: edge.PhysicalPosition,
+		ModuleID:         edge.FromModule,
+		PackagePath:      edge.FromPackage,
+		Kind:             kind,
+		Message:          message,
+	}
+}
+
+func discoverCycles(model *Model) {
+	adjacency := moduleAdjacency(model.modules, model.edges)
+	components := stronglyConnectedComponents(adjacency)
+	moduleByID := make(map[string]Module, len(model.modules))
+	for _, module := range model.modules {
+		moduleByID[module.ID] = module
+	}
+	for _, members := range components {
+		if len(members) < 2 {
+			continue
+		}
+		path := representativeCycle(members, adjacency)
+		cycle := Cycle{
+			Members: append([]string(nil), members...),
+			Path:    path,
+		}
+		model.cycles = append(model.cycles, cycle)
+		module := moduleByID[members[0]]
+		model.diagnostics = append(model.diagnostics, Diagnostic{
+			Position:         module.Position,
+			PhysicalPosition: module.PhysicalPosition,
+			ModuleID:         module.ID,
+			PackagePath:      module.RootPackage,
+			Kind:             "module-cycle",
+			Message:          "module dependency cycle: " + strings.Join(path, " -> "),
+		})
+	}
+}
+
+func moduleAdjacency(modules []Module, edges []Edge) map[string][]string {
+	result := make(map[string][]string, len(modules))
+	seen := make(map[string]struct{})
+	for _, module := range modules {
+		result[module.ID] = nil
+	}
+	for _, edge := range edges {
+		key := edge.FromModule + "\x00" + edge.ToModule
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		result[edge.FromModule] = append(result[edge.FromModule], edge.ToModule)
+	}
+	for moduleID := range result {
+		sort.Strings(result[moduleID])
+	}
+	return result
+}
+
+type componentSearch struct {
+	adjacency map[string][]string
+	index     int
+	indices   map[string]int
+	low       map[string]int
+	stack     []string
+	onStack   map[string]bool
+	result    [][]string
+}
+
+func stronglyConnectedComponents(adjacency map[string][]string) [][]string {
+	search := componentSearch{
+		adjacency: adjacency,
+		indices:   make(map[string]int, len(adjacency)),
+		low:       make(map[string]int, len(adjacency)),
+		onStack:   make(map[string]bool, len(adjacency)),
+	}
+	nodes := make([]string, 0, len(adjacency))
+	for node := range adjacency {
+		nodes = append(nodes, node)
+	}
+	sort.Strings(nodes)
+	for _, node := range nodes {
+		if _, visited := search.indices[node]; !visited {
+			search.connect(node)
+		}
+	}
+	sort.SliceStable(search.result, func(i, j int) bool {
+		return search.result[i][0] < search.result[j][0]
+	})
+	return search.result
+}
+
+func (search *componentSearch) connect(node string) {
+	search.indices[node] = search.index
+	search.low[node] = search.index
+	search.index++
+	search.stack = append(search.stack, node)
+	search.onStack[node] = true
+
+	for _, next := range search.adjacency[node] {
+		if _, visited := search.indices[next]; !visited {
+			search.connect(next)
+			search.low[node] = min(search.low[node], search.low[next])
+		} else if search.onStack[next] {
+			search.low[node] = min(search.low[node], search.indices[next])
+		}
+	}
+	if search.low[node] != search.indices[node] {
+		return
+	}
+
+	var component []string
+	for len(search.stack) != 0 {
+		last := len(search.stack) - 1
+		member := search.stack[last]
+		search.stack = search.stack[:last]
+		search.onStack[member] = false
+		component = append(component, member)
+		if member == node {
+			break
+		}
+	}
+	sort.Strings(component)
+	search.result = append(search.result, component)
+}
+
+func representativeCycle(members []string, adjacency map[string][]string) []string {
+	inComponent := make(map[string]struct{}, len(members))
+	for _, member := range members {
+		inComponent[member] = struct{}{}
+	}
+	start := members[0]
+	path := []string{start}
+	onPath := map[string]bool{start: true}
+	if findCyclePath(start, start, adjacency, inComponent, onPath, &path) {
+		return path
+	}
+	return append(append([]string(nil), members...), start)
+}
+
+func findCyclePath(
+	start string,
+	current string,
+	adjacency map[string][]string,
+	inComponent map[string]struct{},
+	onPath map[string]bool,
+	path *[]string,
+) bool {
+	for _, next := range adjacency[current] {
+		if _, included := inComponent[next]; !included {
+			continue
+		}
+		if next == start && len(*path) > 1 {
+			*path = append(*path, start)
+			return true
+		}
+		if onPath[next] {
+			continue
+		}
+		onPath[next] = true
+		*path = append(*path, next)
+		if findCyclePath(start, next, adjacency, inComponent, onPath, path) {
+			return true
+		}
+		*path = (*path)[:len(*path)-1]
+		delete(onPath, next)
+	}
+	return false
+}
+
 func sortModel(model *Model) {
 	for index := range model.modules {
 		module := &model.modules[index]
@@ -539,6 +894,22 @@ func sortModel(model *Model) {
 	})
 	sort.SliceStable(model.unassigned, func(i, j int) bool {
 		return model.unassigned[i].Path < model.unassigned[j].Path
+	})
+	sort.SliceStable(model.edges, func(i, j int) bool {
+		left, right := model.edges[i], model.edges[j]
+		if left.FromModule != right.FromModule {
+			return left.FromModule < right.FromModule
+		}
+		if left.ToModule != right.ToModule {
+			return left.ToModule < right.ToModule
+		}
+		if left.FromPackage != right.FromPackage {
+			return left.FromPackage < right.FromPackage
+		}
+		return left.ToPackage < right.ToPackage
+	})
+	sort.SliceStable(model.cycles, func(i, j int) bool {
+		return model.cycles[i].Members[0] < model.cycles[j].Members[0]
 	})
 	sort.SliceStable(model.diagnostics, func(i, j int) bool {
 		left, right := model.diagnostics[i], model.diagnostics[j]

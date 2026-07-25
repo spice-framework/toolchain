@@ -455,6 +455,8 @@ func verificationSummary(diagnostics []application.Diagnostic) string {
 			label = "provider graph"
 		case application.StageLifecycle:
 			label = "lifecycle hook"
+		case application.StageModule:
+			label = "module architecture"
 		case application.StageApplication:
 		}
 	}

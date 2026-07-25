@@ -12,6 +12,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/graph"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
@@ -30,6 +31,8 @@ const (
 	StageGraph Stage = "graph"
 	// StageLifecycle identifies lifecycle hook validation.
 	StageLifecycle Stage = "lifecycle"
+	// StageModule identifies application-module architecture validation.
+	StageModule Stage = "module"
 	// StageApplication identifies application marker and root validation.
 	StageApplication Stage = "application"
 )
@@ -94,6 +97,7 @@ type Model struct {
 	edges       []graph.Edge
 	components  []lifecycle.Component
 	targets     []Target
+	moduleModel modulith.Model
 	diagnostics []Diagnostic
 }
 
@@ -132,6 +136,26 @@ func (m Model) Targets() []Target {
 	return result
 }
 
+// Modules returns discovered application modules in stable import-path order.
+func (m Model) Modules() []modulith.Module {
+	return m.moduleModel.Modules()
+}
+
+// ModuleEdges returns distinct cross-module Go import edges.
+func (m Model) ModuleEdges() []modulith.Edge {
+	return m.moduleModel.Edges()
+}
+
+// ModuleCycles returns deterministic strongly connected module components.
+func (m Model) ModuleCycles() []modulith.Cycle {
+	return m.moduleModel.Cycles()
+}
+
+// UnassignedPackages returns selected packages not owned by any module root.
+func (m Model) UnassignedPackages() []modulith.Package {
+	return m.moduleModel.UnassignedPackages()
+}
+
 // Diagnostics returns deterministic diagnostics. A model with diagnostics must
 // not be used for generation.
 func (m Model) Diagnostics() []Diagnostic {
@@ -153,6 +177,12 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 	}
 	if len(resolution.Diagnostics) != 0 {
 		model.diagnostics = resolutionDiagnostics(resolution.Diagnostics)
+		return model
+	}
+
+	model.moduleModel = modulith.Build(program, resolution)
+	if diagnostics := model.moduleModel.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = moduleDiagnostics(diagnostics)
 		return model
 	}
 
@@ -527,6 +557,22 @@ func lifecycleDiagnostics(diagnostics []lifecycle.Diagnostic) []Diagnostic {
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.MethodID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func moduleDiagnostics(diagnostics []modulith.Diagnostic) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageModule,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.ModuleID,
 			Kind:             diagnostic.Kind,
 			Message:          diagnostic.Message,
 		}
