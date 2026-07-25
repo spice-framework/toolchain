@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"go/types"
 	"io"
 	"os"
@@ -402,6 +403,7 @@ func catalogSummary(catalog Catalog) string {
 		builder.WriteString(provider.SymbolID)
 		builder.WriteByte('|')
 		builder.WriteString(provider.OutputTypeID)
+		fmt.Fprintf(&builder, "|cleanup=%t|error=%t", provider.ReturnsCleanup, provider.ReturnsError)
 		for _, dependency := range provider.Dependencies {
 			builder.WriteByte('|')
 			builder.WriteString(dependency.TypeID)
@@ -413,4 +415,197 @@ func catalogSummary(catalog Catalog) string {
 		builder.WriteByte('\n')
 	}
 	return builder.String()
+}
+
+func TestCatalogAcceptsCleanupSignatures(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"lifecycle/cleanup.go": `package lifecycle
+import "context"
+type Cleanup func(context.Context) error
+`,
+		"app/providers.go": `package app
+
+import life "github.com/StevenBuglione/spice/lifecycle"
+
+type Config struct{}
+type PlainValue struct{}
+type ErrorValue struct{}
+type CleanupValue struct{}
+type CleanupErrorValue struct{}
+type AliasValue struct{}
+type AliasErrorValue struct{}
+type CleanupAlias = life.Cleanup
+type ErrorAlias = error
+
+// @Bean
+func ConfigProvider() Config { panic("provider body must not execute") }
+
+// @Bean
+func PlainProvider() PlainValue { panic("provider body must not execute") }
+
+// @Bean
+func ErrorProvider(Config) (ErrorValue, error) { panic("provider body must not execute") }
+
+// @Bean
+func CleanupProvider(Config) (CleanupValue, life.Cleanup) {
+	panic("provider and cleanup bodies must not execute")
+}
+
+// @Bean
+func CleanupErrorProvider(Config) (CleanupErrorValue, life.Cleanup, error) {
+	panic("provider and cleanup bodies must not execute")
+}
+
+// @Bean
+func AliasProvider(Config) (AliasValue, CleanupAlias) {
+	panic("provider and cleanup bodies must not execute")
+}
+
+// @Bean
+func AliasErrorProvider(Config) (AliasErrorValue, CleanupAlias, ErrorAlias) {
+	panic("provider and cleanup bodies must not execute")
+}
+
+// @Bean
+func CleanupAsOutputProvider() life.Cleanup {
+	panic("provider body must not execute")
+}
+`,
+	})
+
+	program, resolved := loadAndResolve(t, root, "./app")
+	catalog := buildQuiet(t, program, resolved)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	providers := catalog.Providers()
+	checks := map[string]struct {
+		cleanup bool
+		err     bool
+	}{
+		"PlainProvider":           {},
+		"ErrorProvider":           {err: true},
+		"CleanupProvider":         {cleanup: true},
+		"CleanupErrorProvider":    {cleanup: true, err: true},
+		"AliasProvider":           {cleanup: true},
+		"AliasErrorProvider":      {cleanup: true, err: true},
+		"CleanupAsOutputProvider": {},
+	}
+	for name, want := range checks {
+		item := providerByName(providers, name)
+		if item == nil {
+			t.Fatalf("missing provider %s in %#v", name, providers)
+		}
+		if item.ReturnsCleanup != want.cleanup || item.ReturnsError != want.err {
+			t.Fatalf("%s flags cleanup=%v error=%v, want cleanup=%v error=%v", name, item.ReturnsCleanup, item.ReturnsError, want.cleanup, want.err)
+		}
+	}
+	cleanupOutput := providerByName(providers, "CleanupAsOutputProvider")
+	if cleanupOutput.OutputTypeID != "github.com/StevenBuglione/spice/lifecycle.Cleanup" || cleanupOutput.ReturnsCleanup {
+		t.Fatalf("cleanup primary output = %#v", cleanupOutput)
+	}
+	cleanupProvider := providerByName(providers, "CleanupProvider")
+	if len(cleanupProvider.Dependencies) != 1 || cleanupProvider.Dependencies[0].TypeID != "github.com/StevenBuglione/spice/app.Config" {
+		t.Fatalf("cleanup provider dependencies = %#v", cleanupProvider.Dependencies)
+	}
+}
+
+func TestCatalogRejectsInvalidCleanupSignatures(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"lifecycle/cleanup.go": `package lifecycle
+import "context"
+type Cleanup func(context.Context) error
+`,
+		"app/providers.go": `package app
+
+import (
+	"context"
+	life "github.com/StevenBuglione/spice/lifecycle"
+)
+
+type Value struct{}
+type OtherCleanup func(context.Context) error
+
+// @Bean
+func UnnamedCleanup() (Value, func(context.Context) error) { panic("must not execute") }
+
+// @Bean
+func DistinctCleanup() (Value, OtherCleanup) { panic("must not execute") }
+
+// @Bean
+func WrongShape() (Value, func() error) { panic("must not execute") }
+
+// @Bean
+func ErrorBeforeCleanup() (Value, error, life.Cleanup) { panic("must not execute") }
+
+// @Bean
+func TwoCleanup() (Value, life.Cleanup, life.Cleanup) { panic("must not execute") }
+
+// @Bean
+func TwoErrors() (Value, error, error) { panic("must not execute") }
+
+// @Bean
+func ExtraResult() (Value, life.Cleanup, error, int) { panic("must not execute") }
+
+// @Bean
+func CleanupInFinalPosition() (Value, int, life.Cleanup) { panic("must not execute") }
+`,
+	})
+
+	program, resolved := loadAndResolve(t, root, "./app")
+	catalog := buildQuiet(t, program, resolved)
+	if len(catalog.Providers()) != 0 {
+		t.Fatalf("invalid cleanup providers entered catalog: %#v", catalog.Providers())
+	}
+	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
+	for _, expected := range []string{
+		"UnnamedCleanup", "DistinctCleanup", "WrongShape", "ErrorBeforeCleanup",
+		"TwoCleanup", "TwoErrors", "ExtraResult", "CleanupInFinalPosition",
+		"lifecycle.Cleanup", "accepted forms are",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("diagnostics missing %q:\n%s", expected, joined)
+		}
+	}
+}
+
+func TestCatalogCleanupMetadataDeterministic(t *testing.T) {
+	files := map[string]string{
+		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"lifecycle/cleanup.go": `package lifecycle
+import "context"
+type Cleanup func(context.Context) error
+`,
+		"app/z.go": `package app
+import life "github.com/StevenBuglione/spice/lifecycle"
+type Z struct{}
+// @Bean
+func ZProvider() (Z, life.Cleanup) { panic("must not execute") }
+`,
+		"app/a.go": `package app
+import life "github.com/StevenBuglione/spice/lifecycle"
+type A struct{}
+// @Bean
+func AProvider() (A, life.Cleanup, error) { panic("must not execute") }
+`,
+	}
+	var first string
+	for run := 0; run < 20; run++ {
+		program, resolved := loadAndResolve(t, writeModule(t, files), "./app")
+		catalog := buildQuiet(t, program, resolved)
+		if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+			t.Fatalf("run %d diagnostics = %v", run, diagnosticStrings(diagnostics))
+		}
+		summary := catalogSummary(catalog)
+		if run == 0 {
+			first = summary
+		} else if summary != first {
+			t.Fatalf("run %d summary changed:\nfirst=%s\nnext=%s", run, first, summary)
+		}
+	}
+	if !strings.Contains(first, "cleanup=true|error=false") || !strings.Contains(first, "cleanup=true|error=true") {
+		t.Fatalf("cleanup flags absent from deterministic summary: %s", first)
+	}
 }

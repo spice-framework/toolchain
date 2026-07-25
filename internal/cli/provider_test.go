@@ -156,3 +156,90 @@ func Provider() Config { return Config{} }
 		})
 	}
 }
+
+func TestRunVerifyAcceptsCleanupSignaturesWithoutExecutingBodies(t *testing.T) {
+	t.Parallel()
+	root := writeModule(t, map[string]string{
+		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"lifecycle/cleanup.go": `package lifecycle
+import "context"
+type Cleanup func(context.Context) error
+`,
+		"app/providers.go": `package app
+
+import life "github.com/StevenBuglione/spice/lifecycle"
+
+type Config struct{}
+type Plain struct{}
+type WithError struct{}
+type WithCleanup struct{}
+type WithBoth struct{}
+type CleanupAlias = life.Cleanup
+
+// @Bean
+func ConfigProvider() Config { panic("provider body must not execute") }
+
+// @Bean
+func PlainProvider() Plain { panic("provider body must not execute") }
+
+// @Bean
+func ErrorProvider(Config) (WithError, error) { panic("provider body must not execute") }
+
+// @Bean
+func CleanupProvider(Config) (WithCleanup, CleanupAlias) {
+	panic("provider and cleanup bodies must not execute")
+}
+
+// @Bean
+func CleanupErrorProvider(WithCleanup) (WithBoth, life.Cleanup, error) {
+	panic("provider and cleanup bodies must not execute")
+}
+`,
+	})
+	code, stdout, stderr := runModule(root, "verify", "./app")
+	if code != 0 || !strings.Contains(stdout, "5 annotations") || stderr != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestRunVerifyRejectsInvalidCleanupSignatures(t *testing.T) {
+	t.Parallel()
+	root := writeModule(t, map[string]string{
+		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"lifecycle/cleanup.go": `package lifecycle
+import "context"
+type Cleanup func(context.Context) error
+`,
+		"app/providers.go": `package app
+
+import (
+	"context"
+	life "github.com/StevenBuglione/spice/lifecycle"
+)
+
+type Value struct{}
+type OtherCleanup func(context.Context) error
+
+// @Bean
+func UnnamedCleanup() (Value, func(context.Context) error) { panic("must not execute") }
+
+// @Bean
+func DistinctCleanup() (Value, OtherCleanup) { panic("must not execute") }
+
+// @Bean
+func ErrorBeforeCleanup() (Value, error, life.Cleanup) { panic("must not execute") }
+`,
+	})
+	code, stdout, stderr := runModule(root, "verify", "./app")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "3 provider catalog error(s)") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	for _, expected := range []string{
+		"UnnamedCleanup", "DistinctCleanup", "ErrorBeforeCleanup",
+		"lifecycle.Cleanup", "accepted forms are",
+	} {
+		if !strings.Contains(stderr, expected) {
+			t.Fatalf("stderr=%q missing %q", stderr, expected)
+		}
+	}
+}

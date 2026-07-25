@@ -429,3 +429,59 @@ func providerNames(items []provider.Provider) []string {
 	}
 	return result
 }
+
+func TestGraphIgnoresProviderCleanupMetadata(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"lifecycle/cleanup.go": `package lifecycle
+import "context"
+type Cleanup func(context.Context) error
+`,
+		"app/providers.go": `package app
+
+import life "github.com/StevenBuglione/spice/lifecycle"
+
+type Config struct{}
+type Store struct{}
+type Service struct{}
+
+// @Bean
+func ConfigProvider() Config { panic("must not execute") }
+
+// @Bean
+func StoreProvider(Config) (Store, life.Cleanup) { panic("must not execute") }
+
+// @Bean
+func ServiceProvider(Store) (Service, life.Cleanup, error) { panic("must not execute") }
+`,
+	})
+
+	result := buildModuleGraph(t, root)
+	if diagnostics := result.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Diagnostics() = %v", diagnosticStrings(diagnostics))
+	}
+	if len(result.Nodes()) != 3 || len(result.Edges()) != 2 || len(result.ConstructionOrder()) != 3 {
+		t.Fatalf("nodes=%d edges=%d order=%d", len(result.Nodes()), len(result.Edges()), len(result.ConstructionOrder()))
+	}
+	assertBefore(t, result.ConstructionOrder(), "ConfigProvider", "StoreProvider")
+	assertBefore(t, result.ConstructionOrder(), "StoreProvider", "ServiceProvider")
+
+	cleanupProviders := 0
+	for _, node := range result.Nodes() {
+		item := node.Provider()
+		if item.ReturnsCleanup {
+			cleanupProviders++
+		}
+		if item.OutputTypeID == "github.com/StevenBuglione/spice/lifecycle.Cleanup" {
+			t.Fatalf("cleanup metadata became a graph output node: %#v", item)
+		}
+	}
+	if cleanupProviders != 2 {
+		t.Fatalf("cleanup provider metadata count = %d, want 2", cleanupProviders)
+	}
+	for _, edge := range result.Edges() {
+		if edge.RequiredTypeID == "github.com/StevenBuglione/spice/lifecycle.Cleanup" {
+			t.Fatalf("cleanup metadata became a graph dependency edge: %#v", edge)
+		}
+	}
+}
