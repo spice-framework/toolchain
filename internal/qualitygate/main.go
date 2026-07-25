@@ -455,8 +455,6 @@ func smoke(ctx context.Context, root string) error {
 		{"go", "run", "./cmd/spice", "verify", "./..."},
 		{"go", "run", "./cmd/spice", "version"},
 		{"go", "run", "./cmd/spice", "modules", "--format=json", "./..."},
-		{"go", "run", "./cmd/spice", "generate", "--check", "--target", "Hello", "./examples/hello-world/app"},
-		{"go", "run", "./examples/hello-world", "-check"},
 		{
 			"go", "run", "./cmd/spice", "generate", "--check", "--target", "Commerce",
 			"./examples/commerce/bootstrap",

@@ -6,6 +6,7 @@ package spicegen
 import (
 	context "context"
 	fmt "fmt"
+	http "net/http"
 	time "time"
 
 	spiceconfig "github.com/StevenBuglione/spice/config"
@@ -14,6 +15,7 @@ import (
 	payments "github.com/StevenBuglione/spice/examples/commerce/payments"
 	platform "github.com/StevenBuglione/spice/examples/commerce/platform"
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
 const TargetID = "commerce"
@@ -21,12 +23,17 @@ const TargetID = "commerce"
 type Application struct {
 	coordinator *spicelifecycle.Coordinator
 	hooks       []spicelifecycle.Hook
+	handler     http.Handler
 }
 
 type ApplicationOptions struct {
 	Profiles                  []string
 	Sources                   []spiceconfig.Source
 	AllowUnknownConfiguration bool
+	ErrorMapper               spiceweb.ErrorMapper
+	MaxRequestBodyBytes       int64
+	HTTPObservers             []spiceweb.HTTPObserver
+	Middleware                []spiceweb.Middleware
 	Observers                 []spicelifecycle.Observer
 }
 
@@ -138,7 +145,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, fmt.Errorf("resolve configuration for application commerce: %w", err)
 	}
 	_ = configurationSnapshot
-	provider0 := platform.NewRouter()
+	provider0 := platform.Mux()
 	_ = provider0
 	provider1 := orders.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.orders.sku"); configured {
@@ -257,6 +264,94 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService (*github.com/StevenBuglione/spice/examples/commerce/orders.Service): %w", err))
 	}
 	_ = provider8
+	provider9 := orders.NewController(provider8)
+	_ = provider9
+	routeMux := provider0
+	application.handler = routeMux
+	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|3:Get", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "GET", Pattern: "/orders/{id}"}, options.HTTPObservers...)
+	if routeObservationErr0 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /orders/{id} observation: %w", routeObservationErr0))
+	}
+	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /orders/{id}", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
+			problem := spiceweb.Problem{
+				Type:   "about:blank",
+				Title:  "Not Acceptable",
+				Status: http.StatusNotAcceptable,
+				Detail: "the endpoint produces application/json",
+			}
+			if writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {
+				return
+			}
+			return
+		}
+		requestValue := orders.GetOrderRequest{}
+		raw0, present0, bindErr0 := spiceweb.Parameter(spiceweb.LocationPath, "id", []string{httpRequest.PathValue("id")}, true)
+		if bindErr0 != nil {
+			if writeErr := spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper); writeErr != nil {
+				return
+			}
+			return
+		}
+		if present0 {
+			requestValue.ID = string(raw0)
+		}
+		responseValue, routeErr := provider9.Get(httpRequest.Context(), requestValue)
+		if routeErr != nil {
+			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
+				return
+			}
+			return
+		}
+		if writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {
+			return
+		}
+	}), routeObservation0, options.Middleware...); routeErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /orders/{id}: %w", routeErr))
+	}
+	routeObservation1, routeObservationErr1 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|5:Place", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "POST", Pattern: "/orders"}, options.HTTPObservers...)
+	if routeObservationErr1 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /orders observation: %w", routeObservationErr1))
+	}
+	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /orders", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
+			problem := spiceweb.Problem{
+				Type:   "about:blank",
+				Title:  "Not Acceptable",
+				Status: http.StatusNotAcceptable,
+				Detail: "the endpoint produces application/json",
+			}
+			if writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {
+				return
+			}
+			return
+		}
+		requestValue := orders.PlaceOrderRequest{}
+		if bindErr := spiceweb.DecodeJSON(httpRequest, &requestValue.Body, options.MaxRequestBodyBytes); bindErr != nil {
+			if writeErr := spiceweb.WriteError(writer, httpRequest, bindErr, options.ErrorMapper); writeErr != nil {
+				return
+			}
+			return
+		}
+		if validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {
+			if writeErr := spiceweb.WriteError(writer, httpRequest, validationErr, options.ErrorMapper); writeErr != nil {
+				return
+			}
+			return
+		}
+		responseValue, routeErr := provider9.Place(httpRequest.Context(), requestValue)
+		if routeErr != nil {
+			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
+				return
+			}
+			return
+		}
+		if writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {
+			return
+		}
+	}), routeObservation1, options.Middleware...); routeErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /orders: %w", routeErr))
+	}
 	application.hooks = []spicelifecycle.Hook{
 		{
 			ID:     "spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer",
@@ -301,4 +396,11 @@ func (application *Application) Run(ctx context.Context, shutdown spicelifecycle
 		return fmt.Errorf("run application: application is nil")
 	}
 	return application.coordinator.Run(ctx, application.hooks, shutdown)
+}
+
+func (application *Application) Handler() http.Handler {
+	if application == nil {
+		return nil
+	}
+	return application.handler
 }
