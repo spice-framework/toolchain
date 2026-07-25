@@ -6,9 +6,11 @@ package spicegen
 import (
 	context "context"
 	fmt "fmt"
+	http "net/http"
 
 	app "github.com/StevenBuglione/spice/examples/hello-world/app"
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
 const TargetID = "hello"
@@ -16,26 +18,43 @@ const TargetID = "hello"
 type Application struct {
 	coordinator *spicelifecycle.Coordinator
 	hooks       []spicelifecycle.Hook
+	handler     http.Handler
+}
+
+type ApplicationOptions struct {
+	ErrorMapper         spiceweb.ErrorMapper
+	MaxRequestBodyBytes int64
+	Observers           []spicelifecycle.Observer
 }
 
 func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {
+	return NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})
+}
+
+func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) (*Application, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("construct application hello: context is nil")
 	}
 	application := &Application{coordinator: spicelifecycle.NewCoordinator()}
+	observers := options.Observers
 	for index, observer := range observers {
 		if err := application.coordinator.RegisterObserver(observer); err != nil {
 			return nil, fmt.Errorf("register lifecycle observer %d: %w", index, err)
 		}
 	}
-	provider0 := app.ControllerProvider()
+	provider0 := app.MuxProvider()
 	_ = provider0
-	provider1 := app.HandlerProvider(provider0)
+	provider1 := app.ControllerProvider()
 	_ = provider1
 	provider2 := app.HTTPConfigProvider()
 	_ = provider2
-	provider3 := app.ServerProvider(provider2, provider1)
+	provider3 := app.ServerProvider(provider2, provider0)
 	_ = provider3
+	routeMux := provider0
+	application.handler = routeMux
+	if routeErr := spiceweb.Register(routeMux, "GET /users/{id}", http.HandlerFunc(provider1.GetUser)); routeErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /users/{id}: %w", routeErr))
+	}
 	application.hooks = []spicelifecycle.Hook{
 		{
 			ID:     "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/hello-world/app|0:|14:ServerProvider",
@@ -80,4 +99,11 @@ func (application *Application) Run(ctx context.Context, shutdown spicelifecycle
 		return fmt.Errorf("run application: application is nil")
 	}
 	return application.coordinator.Run(ctx, application.hooks, shutdown)
+}
+
+func (application *Application) Handler() http.Handler {
+	if application == nil {
+		return nil
+	}
+	return application.handler
 }

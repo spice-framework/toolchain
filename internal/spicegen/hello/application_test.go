@@ -2,9 +2,13 @@ package spicegen
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/StevenBuglione/spice/examples/hello-world/app"
 	"github.com/StevenBuglione/spice/lifecycle"
 )
 
@@ -22,6 +26,23 @@ func TestGeneratedApplicationRunsAndDrainsHTTP(t *testing.T) {
 	}
 	if got := application.State(); got != lifecycle.StateConstructed {
 		t.Fatalf("State() = %q, want %q", got, lifecycle.StateConstructed)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/users/42", nil)
+	response := httptest.NewRecorder()
+	handler := application.Handler()
+	if handler == nil {
+		t.Fatal("generated Handler() = nil")
+	}
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("generated route status = %d, body=%s", response.Code, response.Body.String())
+	}
+	var body app.UserResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode generated route: %v", err)
+	}
+	if body.ID != "42" || body.Message != "hello from Spice" {
+		t.Fatalf("generated route body = %#v", body)
 	}
 
 	runContext, cancelRun := context.WithCancel(context.Background())
@@ -81,6 +102,9 @@ func TestGeneratedApplicationRejectsInvalidUse(t *testing.T) {
 		},
 	); err == nil {
 		t.Fatal("nil Run() error = nil")
+	}
+	if application.Handler() != nil {
+		t.Fatal("nil Handler() is non-nil")
 	}
 }
 

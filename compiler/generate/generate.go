@@ -20,6 +20,7 @@ import (
 
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/configuration"
+	"github.com/StevenBuglione/spice/compiler/controller"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	runtimeconfig "github.com/StevenBuglione/spice/config"
@@ -40,6 +41,7 @@ const (
 	generatedFilename = "zz_spice_gen.go"
 	configPath        = "github.com/StevenBuglione/spice/config"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
+	webPath           = "github.com/StevenBuglione/spice/web"
 )
 
 var targetIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -282,7 +284,9 @@ func renderSource(
 ) ([]byte, error) {
 	providers := model.Providers()
 	configTypes := model.Configurations()
-	aliases := importAliases(providers, configTypes)
+	controllers := model.Controllers()
+	aliases := importAliases(providers, configTypes, controllers)
+	hasOptions := len(configTypes) != 0 || len(controllers) != 0
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
 	if err != nil {
@@ -302,9 +306,17 @@ func renderSource(
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
+	if len(controllers) != 0 {
+		source.WriteString("\thandler http.Handler\n")
+	}
 	source.WriteString("}\n\n")
+	if hasOptions {
+		writeApplicationOptions(&source, len(configTypes) != 0, len(controllers) != 0)
+	}
 	if len(configTypes) != 0 {
 		writeConfigurationAPI(&source, configTypes)
+	}
+	if hasOptions {
 		source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
 		source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
 		source.WriteString("}\n\n")
@@ -318,7 +330,7 @@ func renderSource(
 		strconv.Quote("construct application "+target.ID+": context is nil"),
 	)
 	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
-	if len(configTypes) != 0 {
+	if hasOptions {
 		source.WriteString("\tobservers := options.Observers\n")
 	}
 	source.WriteString("\tfor index, observer := range observers {\n")
@@ -329,12 +341,48 @@ func renderSource(
 	if len(configTypes) != 0 {
 		writeConfigurationResolution(&source, target)
 	}
+	if providerErr := writeProviders(
+		&source,
+		providers,
+		configTypes,
+		aliases,
+		dependencies,
+		providerModules,
+	); providerErr != nil {
+		return nil, providerErr
+	}
+	if len(controllers) != 0 {
+		writeControllerRoutes(&source, controllers, providers, providerVariables, aliases)
+	}
+	writeHooks(&source, model, providerVariables, providerModules)
+	source.WriteString("\treturn application, nil\n")
+	source.WriteString("}\n\n")
+	writeLifecycleMethods(&source)
+	if len(controllers) != 0 {
+		writeHandlerMethod(&source)
+	}
+
+	formatted, err := format.Source(source.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("format generated source for %s: %w", applicationTarget.SymbolID, err)
+	}
+	return formatted, nil
+}
+
+func writeProviders(
+	source *bytes.Buffer,
+	providers []provider.Provider,
+	configTypes []configuration.Type,
+	aliases map[string]string,
+	dependencies map[string][]string,
+	providerModules map[string]string,
+) error {
 	configByProvider := configurationProviderIndex(configTypes)
 	for index, item := range providers {
 		switch item.Source {
 		case provider.SourceBean:
 			writeProviderCall(
-				&source,
+				source,
 				item,
 				index,
 				aliases,
@@ -344,32 +392,283 @@ func renderSource(
 		case provider.SourceConfiguration:
 			configType, ok := configByProvider[item.SymbolID]
 			if !ok {
-				return nil, fmt.Errorf("configuration provider %s has no typed configuration metadata", item.SymbolID)
+				return fmt.Errorf("configuration provider %s has no typed configuration metadata", item.SymbolID)
 			}
-			writeConfigurationBinder(&source, configType, index, aliases)
+			writeConfigurationBinder(source, configType, index, aliases)
 		default:
-			return nil, fmt.Errorf("provider %s has unsupported source %q", item.SymbolID, item.Source)
+			return fmt.Errorf("provider %s has unsupported source %q", item.SymbolID, item.Source)
 		}
 	}
-	writeHooks(&source, model, providerVariables, providerModules)
-	source.WriteString("\treturn application, nil\n")
-	source.WriteString("}\n\n")
-	writeLifecycleMethods(&source)
+	return nil
+}
 
-	formatted, err := format.Source(source.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("format generated source for %s: %w", applicationTarget.SymbolID, err)
+func writeControllerRoutes(
+	source *bytes.Buffer,
+	controllers []controller.Controller,
+	providers []provider.Provider,
+	providerVariables map[string]string,
+	aliases map[string]string,
+) {
+	muxVariable := ""
+	for _, item := range providers {
+		if pointerNamedType(item.Output, "net/http", "ServeMux") {
+			muxVariable = providerVariables[item.SymbolID]
+			break
+		}
 	}
-	return formatted, nil
+	if muxVariable == "" {
+		source.WriteString("\trouteMux := http.NewServeMux()\n")
+	} else {
+		fmt.Fprintf(source, "\trouteMux := %s\n", muxVariable)
+	}
+	source.WriteString("\tapplication.handler = routeMux\n")
+	for _, item := range controllers {
+		receiver := providerVariables[item.ProviderID]
+		for _, route := range item.Routes() {
+			pattern := route.HTTPMethod + " " + route.Path
+			if route.Raw {
+				fmt.Fprintf(
+					source,
+					"\tif routeErr := spiceweb.Register(routeMux, %s, http.HandlerFunc(%s.%s)); routeErr != nil {\n",
+					strconv.Quote(pattern),
+					receiver,
+					route.Name,
+				)
+				writeRouteRegistrationError(source, pattern)
+				continue
+			}
+			writeTypedRoute(source, route, receiver, pattern, aliases)
+		}
+	}
+}
+
+func writeTypedRoute(
+	source *bytes.Buffer,
+	route controller.Route,
+	receiver string,
+	pattern string,
+	aliases map[string]string,
+) {
+	fmt.Fprintf(
+		source,
+		"\tif routeErr := spiceweb.Register(routeMux, %s, http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {\n",
+		strconv.Quote(pattern),
+	)
+	if !route.NoContent {
+		source.WriteString("\t\tif !spiceweb.AcceptsJSON(httpRequest.Header.Get(\"Accept\")) {\n")
+		source.WriteString("\t\t\tproblem := spiceweb.Problem{\n")
+		source.WriteString("\t\t\t\tType: \"about:blank\",\n")
+		source.WriteString("\t\t\t\tTitle: \"Not Acceptable\",\n")
+		source.WriteString("\t\t\t\tStatus: http.StatusNotAcceptable,\n")
+		source.WriteString("\t\t\t\tDetail: \"the endpoint produces application/json\",\n")
+		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\tif writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {\n")
+		source.WriteString("\t\t\t\treturn\n")
+		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\treturn\n")
+		source.WriteString("\t\t}\n")
+	}
+	fmt.Fprintf(source, "\t\trequestValue := %s{}\n", renderedType(route.Request, aliases))
+	for _, binding := range route.Bindings() {
+		writeRequestBinding(source, binding, aliases)
+	}
+	if route.NoContent {
+		fmt.Fprintf(
+			source,
+			"\t\t_, routeErr := %s.%s(httpRequest.Context(), requestValue)\n",
+			receiver,
+			route.Name,
+		)
+	} else {
+		fmt.Fprintf(
+			source,
+			"\t\tresponseValue, routeErr := %s.%s(httpRequest.Context(), requestValue)\n",
+			receiver,
+			route.Name,
+		)
+	}
+	source.WriteString("\t\tif routeErr != nil {\n")
+	writeGeneratedError(source, "routeErr", 3)
+	source.WriteString("\t\t\treturn\n")
+	source.WriteString("\t\t}\n")
+	if route.NoContent {
+		source.WriteString("\t\tif writeErr := spiceweb.WriteNoContent(writer); writeErr != nil {\n")
+	} else {
+		source.WriteString("\t\tif writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {\n")
+	}
+	source.WriteString("\t\t\treturn\n")
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t})); routeErr != nil {\n")
+	writeRouteRegistrationError(source, pattern)
+}
+
+func writeRouteRegistrationError(source *bytes.Buffer, pattern string) {
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, routeErr))\n",
+		strconv.Quote("register generated route "+pattern+": %w"),
+	)
+	source.WriteString("\t}\n")
+}
+
+func writeRequestBinding(source *bytes.Buffer, binding controller.Binding, aliases map[string]string) {
+	if binding.Location == controller.Body {
+		fmt.Fprintf(
+			source,
+			"\t\tif bindErr := spiceweb.DecodeJSON(httpRequest, &requestValue.%s, options.MaxRequestBodyBytes); bindErr != nil {\n",
+			binding.Field,
+		)
+		writeGeneratedError(source, "bindErr", 3)
+		source.WriteString("\t\t\treturn\n")
+		source.WriteString("\t\t}\n")
+		return
+	}
+	index := strconv.Itoa(binding.Index)
+	values := bindingValues(binding)
+	fmt.Fprintf(
+		source,
+		"\t\traw%s, present%s, bindErr%s := spiceweb.Parameter(%s, %s, %s, %t)\n",
+		index,
+		index,
+		index,
+		bindingLocation(binding.Location),
+		strconv.Quote(binding.Name),
+		values,
+		binding.Required,
+	)
+	fmt.Fprintf(source, "\t\tif bindErr%s != nil {\n", index)
+	writeGeneratedError(source, "bindErr"+index, 3)
+	source.WriteString("\t\t\treturn\n")
+	source.WriteString("\t\t}\n")
+	fmt.Fprintf(source, "\t\tif present%s {\n", index)
+	writeScalarAssignment(source, binding, index, aliases)
+	source.WriteString("\t\t}\n")
+}
+
+func writeScalarAssignment(
+	source *bytes.Buffer,
+	binding controller.Binding,
+	index string,
+	aliases map[string]string,
+) {
+	typeName := renderedType(binding.Type, aliases)
+	if binding.Kind == controller.ScalarString {
+		fmt.Fprintf(source, "\t\t\trequestValue.%s = %s(raw%s)\n", binding.Field, typeName, index)
+		return
+	}
+	accessor := "Boolean"
+	extra := ""
+	if binding.Kind == controller.ScalarInteger {
+		accessor = "Integer"
+		extra = ", " + strconv.Itoa(integerBitSize(binding.Type))
+	}
+	if binding.Kind == controller.ScalarDuration {
+		accessor = "Duration"
+	}
+	fmt.Fprintf(
+		source,
+		"\t\t\tparsed%s, parseErr%s := spiceweb.%s(%s, %s, raw%s%s)\n",
+		index,
+		index,
+		accessor,
+		bindingLocation(binding.Location),
+		strconv.Quote(binding.Name),
+		index,
+		extra,
+	)
+	fmt.Fprintf(source, "\t\t\tif parseErr%s != nil {\n", index)
+	writeGeneratedError(source, "parseErr"+index, 4)
+	source.WriteString("\t\t\t\treturn\n")
+	source.WriteString("\t\t\t}\n")
+	fmt.Fprintf(source, "\t\t\trequestValue.%s = %s(parsed%s)\n", binding.Field, typeName, index)
+}
+
+func writeGeneratedError(source *bytes.Buffer, variable string, tabs int) {
+	indent := strings.Repeat("\t", tabs)
+	fmt.Fprintf(
+		source,
+		"%sif writeErr := spiceweb.WriteError(writer, httpRequest, %s, options.ErrorMapper); writeErr != nil {\n",
+		indent,
+		variable,
+	)
+	fmt.Fprintf(source, "%s\treturn\n", indent)
+	fmt.Fprintf(source, "%s}\n", indent)
+}
+
+func bindingValues(binding controller.Binding) string {
+	switch binding.Location {
+	case controller.Path:
+		return "[]string{httpRequest.PathValue(" + strconv.Quote(binding.Name) + ")}"
+	case controller.Query:
+		return "httpRequest.URL.Query()[" + strconv.Quote(binding.Name) + "]"
+	case controller.Header:
+		return "httpRequest.Header.Values(" + strconv.Quote(binding.Name) + ")"
+	case controller.Body:
+		return "nil"
+	}
+	return "nil"
+}
+
+func bindingLocation(location controller.Location) string {
+	switch location {
+	case controller.Path:
+		return "spiceweb.LocationPath"
+	case controller.Query:
+		return "spiceweb.LocationQuery"
+	case controller.Header:
+		return "spiceweb.LocationHeader"
+	case controller.Body:
+		return "spiceweb.LocationBody"
+	}
+	return "spiceweb.LocationQuery"
+}
+
+func integerBitSize(value types.Type) int {
+	basic, ok := types.Unalias(value).Underlying().(*types.Basic)
+	if !ok {
+		return 0
+	}
+	if basic.Kind() == types.Int8 {
+		return 8
+	}
+	if basic.Kind() == types.Int16 {
+		return 16
+	}
+	if basic.Kind() == types.Int32 {
+		return 32
+	}
+	if basic.Kind() == types.Int64 {
+		return 64
+	}
+	return 0
+}
+
+func pointerNamedType(value types.Type, packagePath, name string) bool {
+	pointer, ok := types.Unalias(value).(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := types.Unalias(pointer.Elem()).(*types.Named)
+	return ok && named.Obj() != nil && named.Obj().Pkg() != nil &&
+		named.Obj().Pkg().Path() == packagePath && named.Obj().Name() == name
+}
+
+func writeApplicationOptions(source *bytes.Buffer, hasConfiguration, hasControllers bool) {
+	source.WriteString("type ApplicationOptions struct {\n")
+	if hasConfiguration {
+		source.WriteString("\tProfiles []string\n")
+		source.WriteString("\tSources []spiceconfig.Source\n")
+		source.WriteString("\tAllowUnknownConfiguration bool\n")
+	}
+	if hasControllers {
+		source.WriteString("\tErrorMapper spiceweb.ErrorMapper\n")
+		source.WriteString("\tMaxRequestBodyBytes int64\n")
+	}
+	source.WriteString("\tObservers []spicelifecycle.Observer\n")
+	source.WriteString("}\n\n")
 }
 
 func writeConfigurationAPI(source *bytes.Buffer, configTypes []configuration.Type) {
-	source.WriteString("type ApplicationOptions struct {\n")
-	source.WriteString("\tProfiles []string\n")
-	source.WriteString("\tSources []spiceconfig.Source\n")
-	source.WriteString("\tAllowUnknownConfiguration bool\n")
-	source.WriteString("\tObservers []spicelifecycle.Observer\n")
-	source.WriteString("}\n\n")
 	source.WriteString("func ConfigurationSchema() (spiceconfig.Schema, error) {\n")
 	source.WriteString("\treturn spiceconfig.NewSchema(\n")
 	for _, configType := range configTypes {
@@ -675,6 +974,17 @@ func (application *Application) Run(ctx context.Context, shutdown spicelifecycle
 `)
 }
 
+func writeHandlerMethod(source *bytes.Buffer) {
+	source.WriteString(`
+func (application *Application) Handler() http.Handler {
+	if application == nil {
+		return nil
+	}
+	return application.handler
+}
+`)
+}
+
 func providerModuleIDs(
 	model application.Model,
 	providers []provider.Provider,
@@ -695,6 +1005,7 @@ func providerModuleIDs(
 func importAliases(
 	providers []provider.Provider,
 	configTypes []configuration.Type,
+	controllers []controller.Controller,
 ) map[string]string {
 	aliases := map[string]string{
 		"context":     "context",
@@ -703,6 +1014,10 @@ func importAliases(
 	}
 	if len(configTypes) != 0 {
 		aliases[configPath] = "spiceconfig"
+	}
+	if len(controllers) != 0 {
+		aliases["net/http"] = "http"
+		aliases[webPath] = "spiceweb"
 	}
 	used := map[string]struct{}{
 		"Application":               {},
@@ -713,26 +1028,12 @@ func importAliases(
 		"TargetID":                  {},
 		"context":                   {},
 		"fmt":                       {},
+		"http":                      {},
 		"spiceconfig":               {},
 		"spicelifecycle":            {},
+		"spiceweb":                  {},
 	}
-	names := make(map[string]string)
-	for _, item := range providers {
-		if _, fixed := aliases[item.PackagePath]; fixed {
-			continue
-		}
-		name := "provider"
-		if item.Symbol.Object != nil && item.Symbol.Object.Pkg() != nil {
-			name = item.Symbol.Object.Pkg().Name()
-		}
-		names[item.PackagePath] = name
-	}
-	for _, configType := range configTypes {
-		for _, field := range configType.Fields() {
-			addTypeImportName(names, aliases, field.Type)
-		}
-	}
-
+	names := importNames(providers, configTypes, controllers, aliases)
 	paths := make([]string, 0, len(names))
 	for importPath := range names {
 		paths = append(paths, importPath)
@@ -751,6 +1052,38 @@ func importAliases(
 		aliases[importPath] = alias
 	}
 	return aliases
+}
+
+func importNames(
+	providers []provider.Provider,
+	configTypes []configuration.Type,
+	controllers []controller.Controller,
+	aliases map[string]string,
+) map[string]string {
+	names := make(map[string]string)
+	for _, item := range providers {
+		if _, fixed := aliases[item.PackagePath]; fixed {
+			continue
+		}
+		name := "provider"
+		if item.Symbol.Object != nil && item.Symbol.Object.Pkg() != nil {
+			name = item.Symbol.Object.Pkg().Name()
+		}
+		names[item.PackagePath] = name
+	}
+	for _, configType := range configTypes {
+		for _, field := range configType.Fields() {
+			addTypeImportName(names, aliases, field.Type)
+		}
+	}
+	for _, item := range controllers {
+		for _, route := range item.Routes() {
+			for _, binding := range route.Bindings() {
+				addTypeImportName(names, aliases, binding.Type)
+			}
+		}
+	}
+	return names
 }
 
 func addTypeImportName(names, aliases map[string]string, value types.Type) {
@@ -979,12 +1312,40 @@ func modelHash(
 		Module string                    `json:"module,omitempty"`
 		Fields []inputConfigurationField `json:"fields"`
 	}
+	type inputBinding struct {
+		Index    int                   `json:"index"`
+		Field    string                `json:"field"`
+		Name     string                `json:"name,omitempty"`
+		Location controller.Location   `json:"location"`
+		Required bool                  `json:"required"`
+		Kind     controller.ScalarKind `json:"kind,omitempty"`
+		Type     string                `json:"type"`
+	}
+	type inputRoute struct {
+		ID        string         `json:"id"`
+		Method    string         `json:"method"`
+		Path      string         `json:"path"`
+		Provider  string         `json:"provider"`
+		Request   string         `json:"request,omitempty"`
+		Response  string         `json:"response,omitempty"`
+		Raw       bool           `json:"raw,omitempty"`
+		NoContent bool           `json:"no_content,omitempty"`
+		Bindings  []inputBinding `json:"bindings"`
+	}
+	type inputController struct {
+		ID       string       `json:"id"`
+		Module   string       `json:"module,omitempty"`
+		Provider string       `json:"provider"`
+		Prefix   string       `json:"prefix,omitempty"`
+		Routes   []inputRoute `json:"routes"`
+	}
 	type input struct {
 		Schema         int                  `json:"schema"`
 		Target         TargetSummary        `json:"target"`
 		Symbol         string               `json:"symbol"`
 		Providers      []inputProvider      `json:"providers"`
 		Configurations []inputConfiguration `json:"configurations"`
+		Controllers    []inputController    `json:"controllers"`
 		Edges          []inputEdge          `json:"edges"`
 		Components     []inputComponent     `json:"components"`
 		Roots          []inputRoot          `json:"roots"`
@@ -1034,6 +1395,39 @@ func modelHash(
 			})
 		}
 		value.Configurations = append(value.Configurations, item)
+	}
+	for _, item := range model.Controllers() {
+		inputItem := inputController{
+			ID:       item.SymbolID,
+			Module:   item.Module,
+			Provider: item.ProviderID,
+			Prefix:   item.Prefix,
+		}
+		for _, route := range item.Routes() {
+			routeInput := inputRoute{
+				ID:        route.SymbolID,
+				Method:    route.HTTPMethod,
+				Path:      route.Path,
+				Provider:  route.ProviderID,
+				Request:   route.RequestTypeID,
+				Response:  route.ResponseTypeID,
+				Raw:       route.Raw,
+				NoContent: route.NoContent,
+			}
+			for _, binding := range route.Bindings() {
+				routeInput.Bindings = append(routeInput.Bindings, inputBinding{
+					Index:    binding.Index,
+					Field:    binding.Field,
+					Name:     binding.Name,
+					Location: binding.Location,
+					Required: binding.Required,
+					Kind:     binding.Kind,
+					Type:     binding.TypeID,
+				})
+			}
+			inputItem.Routes = append(inputItem.Routes, routeInput)
+		}
+		value.Controllers = append(value.Controllers, inputItem)
 	}
 	for _, edge := range model.Edges() {
 		value.Edges = append(value.Edges, inputEdge{

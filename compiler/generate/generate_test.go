@@ -250,6 +250,119 @@ func Configured(*components.Server) {}
 	runGoTest(t, root, "./internal/spicegen/configured")
 }
 
+func TestRenderGeneratesExecutableHTTPAdapters(t *testing.T) {
+	root := writeModule(t, "example.com/web", map[string]string{
+		"api/api.go": `// Package api owns HTTP delivery.
+//
+// @Module
+package api
+
+import (
+	"context"
+	"net/http"
+
+	spiceweb "github.com/StevenBuglione/spice/web"
+)
+
+type UserID string
+
+type GetRequest struct {
+	ID UserID ` + "`path:\"id\"`" + `
+	Verbose bool ` + "`query:\"verbose\"`" + `
+	Limit int8 ` + "`header:\"X-Limit,required\"`" + `
+}
+
+type CreateBody struct {
+	Name string ` + "`json:\"name\"`" + `
+}
+
+type CreateRequest struct {
+	ID UserID ` + "`path:\"id\"`" + `
+	Body CreateBody ` + "`body:\"\"`" + `
+}
+
+type Response struct {
+	ID string ` + "`json:\"id\"`" + `
+	Verbose bool ` + "`json:\"verbose\"`" + `
+	Limit int8 ` + "`json:\"limit\"`" + `
+}
+
+// @Controller(prefix="/users")
+type API struct{}
+
+var mux *http.ServeMux
+
+func Mux() *http.ServeMux { return mux }
+
+// @Bean
+func NewMux() *http.ServeMux {
+	mux = http.NewServeMux()
+	return mux
+}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("/{id}")
+func (*API) Get(_ context.Context, request GetRequest) (Response, error) {
+	if request.ID == "conflict" {
+		return Response{}, spiceweb.NewError(spiceweb.Problem{
+			Title: "Conflict",
+			Status: http.StatusConflict,
+		}, nil)
+	}
+	return Response{ID: string(request.ID), Verbose: request.Verbose, Limit: request.Limit}, nil
+}
+
+// @Post("/{id}")
+func (*API) Create(context.Context, CreateRequest) (spiceweb.NoContent, error) {
+	return spiceweb.NoContent{}, nil
+}
+
+// @Get("/raw/status")
+func (*API) Raw(writer http.ResponseWriter, _ *http.Request) {
+	writer.WriteHeader(http.StatusAccepted)
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/web/api"
+
+// @Application
+func Web(*api.API) {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	plan, diagnostics := Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	source := string(plan.Files()[0].Content())
+	for _, expected := range []string{
+		`http "net/http"`,
+		`spiceweb "github.com/StevenBuglione/spice/web"`,
+		"type ApplicationOptions struct",
+		"func (application *Application) Handler() http.Handler",
+		`spiceweb.Register(routeMux, "GET /users/{id}"`,
+		`spiceweb.Register(routeMux, "POST /users/{id}"`,
+		"spiceweb.Parameter(",
+		"spiceweb.DecodeJSON(",
+		"spiceweb.WriteError(",
+		"spiceweb.WriteNoContent(",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("generated source missing %q:\n%s", expected, source)
+		}
+	}
+	writePlan(t, root, plan)
+	writeTestFile(t, root, "internal/spicegen/web/http_test.go", generatedHTTPTest)
+	runGoTest(t, root, "./internal/spicegen/web")
+}
+
 func TestRenderRejectsCodeThatGeneratedPackageCannotAccess(t *testing.T) {
 	root := writeModule(t, "example.com/access", map[string]string{
 		"app/application.go": `package app
@@ -648,6 +761,103 @@ func TestGeneratedConfigurationApplication(t *testing.T) {
 	}); application == nil || constructionErr != nil {
 		t.Fatalf("allowed unknown application = %#v, %v", application, constructionErr)
 	}
+}
+`
+
+const generatedHTTPTest = `package spicegen
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"example.com/web/api"
+)
+
+func TestGeneratedHTTPAdapters(t *testing.T) {
+	application, err := NewApplication(context.Background())
+	if err != nil {
+		t.Fatalf("NewApplication() error = %v", err)
+	}
+	if application.Handler() == nil || application.Handler() != api.Mux() {
+		t.Fatalf("Handler() = %#v, mux=%#v", application.Handler(), api.Mux())
+	}
+
+	response := request(t, application.Handler(), http.MethodGet, "/users/42?verbose=true", "", map[string]string{
+		"Accept":  "application/json",
+		"X-Limit": "7",
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body=%s", response.Code, response.Body.String())
+	}
+	var body api.Response
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ID != "42" || !body.Verbose || body.Limit != 7 {
+		t.Fatalf("GET body = %#v", body)
+	}
+
+	response = request(t, application.Handler(), http.MethodGet, "/users/42?verbose=secret-invalid", "", map[string]string{
+		"Accept":  "application/json",
+		"X-Limit": "7",
+	})
+	if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "secret-invalid") {
+		t.Fatalf("binding response = %d %s", response.Code, response.Body.String())
+	}
+
+	response = request(t, application.Handler(), http.MethodGet, "/users/42", "", map[string]string{
+		"Accept": "text/plain",
+	})
+	if response.Code != http.StatusNotAcceptable {
+		t.Fatalf("negotiation status = %d, body=%s", response.Code, response.Body.String())
+	}
+
+	response = request(t, application.Handler(), http.MethodGet, "/users/conflict", "", map[string]string{
+		"Accept":  "application/json",
+		"X-Limit": "1",
+	})
+	if response.Code != http.StatusConflict {
+		t.Fatalf("controller error status = %d, body=%s", response.Code, response.Body.String())
+	}
+
+	response = request(t, application.Handler(), http.MethodPost, "/users/42", ` + "`" + `{"name":"Spice"}` + "`" + `, map[string]string{
+		"Content-Type": "application/json",
+	})
+	if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+		t.Fatalf("POST response = %d %q", response.Code, response.Body.String())
+	}
+
+	response = request(t, application.Handler(), http.MethodGet, "/users/raw/status", "", nil)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("raw status = %d", response.Code)
+	}
+
+	var nilApplication *Application
+	if nilApplication.Handler() != nil {
+		t.Fatal("nil Application.Handler() is non-nil")
+	}
+}
+
+func request(
+	t *testing.T,
+	handler http.Handler,
+	method string,
+	target string,
+	body string,
+	headers map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
 }
 `
 
