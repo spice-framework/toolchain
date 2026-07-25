@@ -429,7 +429,7 @@ func writeControllerRoutes(
 			if route.Raw {
 				fmt.Fprintf(
 					source,
-					"\tif routeErr := spiceweb.Register(routeMux, %s, http.HandlerFunc(%s.%s)); routeErr != nil {\n",
+					"\tif routeErr := spiceweb.Register(routeMux, %s, http.HandlerFunc(%s.%s), options.Middleware...); routeErr != nil {\n",
 					strconv.Quote(pattern),
 					receiver,
 					route.Name,
@@ -504,7 +504,7 @@ func writeTypedRoute(
 	}
 	source.WriteString("\t\t\treturn\n")
 	source.WriteString("\t\t}\n")
-	source.WriteString("\t})); routeErr != nil {\n")
+	source.WriteString("\t}), options.Middleware...); routeErr != nil {\n")
 	writeRouteRegistrationError(source, pattern)
 }
 
@@ -669,6 +669,7 @@ func writeApplicationOptions(source *bytes.Buffer, hasConfiguration, hasControll
 	if hasControllers {
 		source.WriteString("\tErrorMapper spiceweb.ErrorMapper\n")
 		source.WriteString("\tMaxRequestBodyBytes int64\n")
+		source.WriteString("\tMiddleware []spiceweb.Middleware\n")
 	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
 	source.WriteString("}\n\n")

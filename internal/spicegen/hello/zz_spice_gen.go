@@ -24,6 +24,7 @@ type Application struct {
 type ApplicationOptions struct {
 	ErrorMapper         spiceweb.ErrorMapper
 	MaxRequestBodyBytes int64
+	Middleware          []spiceweb.Middleware
 	Observers           []spicelifecycle.Observer
 }
 
@@ -52,7 +53,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	_ = provider3
 	routeMux := provider0
 	application.handler = routeMux
-	if routeErr := spiceweb.Register(routeMux, "GET /users/{id}", http.HandlerFunc(provider1.GetUser)); routeErr != nil {
+	if routeErr := spiceweb.Register(routeMux, "GET /users/{id}", http.HandlerFunc(provider1.GetUser), options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /users/{id}: %w", routeErr))
 	}
 	application.hooks = []spicelifecycle.Hook{

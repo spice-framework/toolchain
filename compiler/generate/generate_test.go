@@ -357,6 +357,7 @@ func Web(*api.API) {}
 		"func (application *Application) Handler() http.Handler",
 		`spiceweb.Register(routeMux, "GET /users/{id}"`,
 		`spiceweb.Register(routeMux, "POST /users/{id}"`,
+		"options.Middleware...",
 		"spiceweb.Parameter(",
 		"spiceweb.DecodeJSON(",
 		"spiceweb.Validate(",
@@ -784,10 +785,26 @@ import (
 	"testing"
 
 	"example.com/web/api"
+	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
 func TestGeneratedHTTPAdapters(t *testing.T) {
-	application, err := NewApplication(context.Background())
+	var middlewareOrder []string
+	namedMiddleware := func(name string) spiceweb.Middleware {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				middlewareOrder = append(middlewareOrder, name+":before")
+				next.ServeHTTP(writer, request)
+				middlewareOrder = append(middlewareOrder, name+":after")
+			})
+		}
+	}
+	application, err := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Middleware: []spiceweb.Middleware{
+			namedMiddleware("first"),
+			namedMiddleware("second"),
+		},
+	})
 	if err != nil {
 		t.Fatalf("NewApplication() error = %v", err)
 	}
@@ -808,6 +825,9 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	}
 	if body.ID != "42" || !body.Verbose || body.Limit != 7 {
 		t.Fatalf("GET body = %#v", body)
+	}
+	if got, want := strings.Join(middlewareOrder, ","), "first:before,second:before,second:after,first:after"; got != want {
+		t.Fatalf("middleware order = %q, want %q", got, want)
 	}
 
 	response = request(t, application.Handler(), http.MethodGet, "/users/42?verbose=secret-invalid", "", map[string]string{
@@ -848,9 +868,21 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 		t.Fatalf("POST response = %d %q", response.Code, response.Body.String())
 	}
 
+	middlewareOrder = nil
 	response = request(t, application.Handler(), http.MethodGet, "/users/raw/status", "", nil)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("raw status = %d", response.Code)
+	}
+	if got, want := strings.Join(middlewareOrder, ","), "first:before,second:before,second:after,first:after"; got != want {
+		t.Fatalf("raw middleware order = %q, want %q", got, want)
+	}
+
+	invalidApplication, constructionErr := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Middleware: []spiceweb.Middleware{nil},
+	})
+	if invalidApplication != nil || constructionErr == nil ||
+		!strings.Contains(constructionErr.Error(), "middleware 0 is nil") {
+		t.Fatalf("nil middleware construction = %#v, %v", invalidApplication, constructionErr)
 	}
 
 	var nilApplication *Application
