@@ -374,6 +374,8 @@ func fuzz(ctx context.Context, root string) error {
 	}{
 		{"./compiler/parser", "FuzzParseComment"},
 		{"./compiler/validate", "FuzzOccurrences"},
+		{"./config", "FuzzDecodeJSONObject"},
+		{"./config", "FuzzResolveScalars"},
 	}
 	for _, target := range targets {
 		if err := runExternal(

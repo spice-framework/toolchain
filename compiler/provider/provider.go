@@ -33,8 +33,21 @@ type Dependency struct {
 	PhysicalPosition token.Position
 }
 
-// Provider describes one validated package-level @Bean factory function.
+// Source identifies how a provider value is constructed.
+type Source string
+
+const (
+	// SourceBean identifies a direct package-level @Bean factory call.
+	SourceBean Source = "bean"
+	// SourceConfiguration identifies a generated typed configuration binder.
+	SourceConfiguration Source = "configuration"
+)
+
+// Provider describes one exact-type construction node. Bean providers call a
+// validated package-level function; configuration providers are synthesized
+// from validated @Configuration metadata.
 type Provider struct {
+	Source           Source
 	Symbol           load.Symbol
 	SymbolID         string
 	Name             string
@@ -92,6 +105,28 @@ func (c Catalog) Providers() []Provider {
 // Diagnostics returns a defensive copy of deterministic diagnostics.
 func (c Catalog) Diagnostics() []Diagnostic {
 	return append([]Diagnostic(nil), c.diagnostics...)
+}
+
+// Add returns a catalog extended with validated compiler-synthesized provider
+// records. It preserves existing diagnostics and rechecks exact output
+// uniqueness across the combined catalog.
+func Add(catalog Catalog, additions ...Provider) Catalog {
+	result := Catalog{
+		providers:   catalog.Providers(),
+		diagnostics: catalog.Diagnostics(),
+	}
+	for _, addition := range additions {
+		addition.Dependencies = append([]Dependency(nil), addition.Dependencies...)
+		result.providers = append(result.providers, addition)
+	}
+	sort.SliceStable(result.providers, func(i, j int) bool {
+		return result.providers[i].SymbolID < result.providers[j].SymbolID
+	})
+	if len(result.diagnostics) == 0 {
+		result.diagnostics = duplicateDiagnostics(result.providers)
+	}
+	sortDiagnostics(result.diagnostics)
+	return result
 }
 
 // Build validates resolved @Bean annotations using the exact live symbols and
@@ -179,6 +214,7 @@ func analyzeProvider(
 
 	dependencies := providerDependencies(signature, fileSet)
 	return Provider{
+		Source:           SourceBean,
 		Symbol:           symbol,
 		SymbolID:         symbol.ID,
 		Name:             symbol.Name,
@@ -513,7 +549,7 @@ func duplicateDiagnostics(providers []Provider) []Diagnostic {
 			ProviderID:       first.SymbolID,
 			Kind:             "duplicate-output",
 			Message: fmt.Sprintf(
-				"multiple @Bean providers produce exact type %s: %s; qualifiers and implicit interface bindings are not supported",
+				"multiple providers produce exact type %s: %s; qualifiers and implicit interface bindings are not supported",
 				displayTypeID,
 				strings.Join(conflicts, ", "),
 			),

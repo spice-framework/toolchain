@@ -272,6 +272,50 @@ func DistinctProvider() Distinct { panic("provider body must not execute") }
 	}
 }
 
+func TestAddExtendsCatalogDefensivelyAndRechecksExactOutputs(t *testing.T) {
+	base := Catalog{providers: []Provider{{
+		Source:       SourceBean,
+		SymbolID:     "z",
+		Output:       types.Typ[types.String],
+		OutputTypeID: "string",
+		Dependencies: []Dependency{{Name: "original"}},
+	}}}
+	added := Provider{
+		Source:       SourceConfiguration,
+		SymbolID:     "a",
+		Output:       types.Typ[types.Int],
+		OutputTypeID: "int",
+	}
+	combined := Add(base, added)
+	providers := combined.Providers()
+	if len(providers) != 2 || providers[0].SymbolID != "a" ||
+		providers[0].Source != SourceConfiguration || providers[1].SymbolID != "z" {
+		t.Fatalf("Add() providers = %#v", providers)
+	}
+	providers[1].Dependencies[0].Name = "changed"
+	if got := combined.Providers()[1].Dependencies[0].Name; got != "original" {
+		t.Fatalf("Add() exposed dependency storage: %q", got)
+	}
+	if got := base.Providers()[0].Dependencies[0].Name; got != "original" {
+		t.Fatalf("Add() mutated source catalog: %q", got)
+	}
+
+	duplicate := added
+	duplicate.SymbolID = "duplicate"
+	duplicate.Symbol.DisplayLabel = "duplicate"
+	if diagnostics := Add(combined, duplicate).Diagnostics(); len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "duplicate-output" ||
+		!strings.Contains(diagnostics[0].Message, "multiple providers produce exact type int") {
+		t.Fatalf("duplicate diagnostics = %#v", diagnostics)
+	}
+
+	existing := Catalog{diagnostics: []Diagnostic{{Kind: "existing", Message: "preserved"}}}
+	if diagnostics := Add(existing, added).Diagnostics(); len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "existing" {
+		t.Fatalf("existing diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestCatalogDeterministic(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/deterministic\n\ngo 1.23.0\n",

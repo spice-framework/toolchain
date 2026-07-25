@@ -239,6 +239,12 @@ func configurationType(occurrence resolve.Occurrence, symbol load.Symbol) (*type
 			message: fmt.Sprintf("@Configuration %s must target a named struct type", label),
 		}
 	}
+	if !token.IsExported(symbol.Name) {
+		return nil, &problem{
+			kind:    "unexported-type",
+			message: fmt.Sprintf("@Configuration %s must be exported so target-scoped generated code can construct it", label),
+		}
+	}
 	typeName, ok := symbol.Object.(*types.TypeName)
 	if !ok || typeName.IsAlias() {
 		return nil, &problem{
@@ -359,6 +365,22 @@ func analyzeField(
 		)
 		return Field{}, &diagnostic, false
 	}
+	if !accessibleType(variable.Type()) {
+		diagnostic := fieldDiagnostic(
+			owner,
+			variable.Name(),
+			position,
+			physical,
+			"unexported-type",
+			fmt.Sprintf(
+				"@Configuration field %s.%s uses unexported type %s, which target-scoped generated code cannot name",
+				owner.Name,
+				variable.Name(),
+				provider.TypeID(variable.Type()),
+			),
+		)
+		return Field{}, &diagnostic, false
+	}
 	key := options.key
 	if owner.Prefix != "" {
 		key = owner.Prefix + "." + key
@@ -384,6 +406,17 @@ func analyzeField(
 		return Field{}, &diagnostic, false
 	}
 	return field, nil, true
+}
+
+func accessibleType(value types.Type) bool {
+	switch typed := value.(type) {
+	case *types.Named:
+		return typed.Obj() == nil || token.IsExported(typed.Obj().Name())
+	case *types.Alias:
+		return typed.Obj() == nil || token.IsExported(typed.Obj().Name())
+	default:
+		return true
+	}
 }
 
 type fieldOptions struct {

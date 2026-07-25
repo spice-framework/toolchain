@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"go/format"
 	"go/token"
+	"go/types"
 	"io/fs"
 	"path"
 	"regexp"
@@ -18,8 +19,10 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/compiler/application"
+	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
+	runtimeconfig "github.com/StevenBuglione/spice/config"
 )
 
 const (
@@ -35,6 +38,7 @@ const (
 	AnalysisBuildTag = "spice_generate"
 
 	generatedFilename = "zz_spice_gen.go"
+	configPath        = "github.com/StevenBuglione/spice/config"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
 )
 
@@ -277,7 +281,8 @@ func renderSource(
 	target Target,
 ) ([]byte, error) {
 	providers := model.Providers()
-	aliases := importAliases(providers)
+	configTypes := model.Configurations()
+	aliases := importAliases(providers, configTypes)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
 	if err != nil {
@@ -298,27 +303,53 @@ func renderSource(
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
 	source.WriteString("}\n\n")
-	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
+	if len(configTypes) != 0 {
+		writeConfigurationAPI(&source, configTypes)
+		source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
+		source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
+		source.WriteString("}\n\n")
+		source.WriteString("func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) (*Application, error) {\n")
+	} else {
+		source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
+	}
 	fmt.Fprintf(
 		&source,
 		"\tif ctx == nil {\n\t\treturn nil, fmt.Errorf(%s)\n\t}\n",
 		strconv.Quote("construct application "+target.ID+": context is nil"),
 	)
 	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
+	if len(configTypes) != 0 {
+		source.WriteString("\tobservers := options.Observers\n")
+	}
 	source.WriteString("\tfor index, observer := range observers {\n")
 	source.WriteString("\t\tif err := application.coordinator.RegisterObserver(observer); err != nil {\n")
 	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
 	source.WriteString("\t\t}\n")
 	source.WriteString("\t}\n")
+	if len(configTypes) != 0 {
+		writeConfigurationResolution(&source, target)
+	}
+	configByProvider := configurationProviderIndex(configTypes)
 	for index, item := range providers {
-		writeProviderCall(
-			&source,
-			item,
-			index,
-			aliases,
-			dependencies[item.SymbolID],
-			providerModules[item.SymbolID],
-		)
+		switch item.Source {
+		case provider.SourceBean:
+			writeProviderCall(
+				&source,
+				item,
+				index,
+				aliases,
+				dependencies[item.SymbolID],
+				providerModules[item.SymbolID],
+			)
+		case provider.SourceConfiguration:
+			configType, ok := configByProvider[item.SymbolID]
+			if !ok {
+				return nil, fmt.Errorf("configuration provider %s has no typed configuration metadata", item.SymbolID)
+			}
+			writeConfigurationBinder(&source, configType, index, aliases)
+		default:
+			return nil, fmt.Errorf("provider %s has unsupported source %q", item.SymbolID, item.Source)
+		}
 	}
 	writeHooks(&source, model, providerVariables, providerModules)
 	source.WriteString("\treturn application, nil\n")
@@ -332,10 +363,176 @@ func renderSource(
 	return formatted, nil
 }
 
+func writeConfigurationAPI(source *bytes.Buffer, configTypes []configuration.Type) {
+	source.WriteString("type ApplicationOptions struct {\n")
+	source.WriteString("\tProfiles []string\n")
+	source.WriteString("\tSources []spiceconfig.Source\n")
+	source.WriteString("\tAllowUnknownConfiguration bool\n")
+	source.WriteString("\tObservers []spicelifecycle.Observer\n")
+	source.WriteString("}\n\n")
+	source.WriteString("func ConfigurationSchema() (spiceconfig.Schema, error) {\n")
+	source.WriteString("\treturn spiceconfig.NewSchema(\n")
+	for _, configType := range configTypes {
+		for _, field := range configType.Fields() {
+			source.WriteString("\t\tspiceconfig.Property{\n")
+			fmt.Fprintf(source, "\t\t\tKey: %s,\n", strconv.Quote(field.Key))
+			fmt.Fprintf(source, "\t\t\tKind: %s,\n", configurationKindName(field.Kind))
+			if field.Module != "" {
+				fmt.Fprintf(source, "\t\t\tModule: %s,\n", strconv.Quote(field.Module))
+			}
+			if field.Environment != "" {
+				fmt.Fprintf(source, "\t\t\tEnvironment: %s,\n", strconv.Quote(field.Environment))
+			}
+			if field.HasDefault {
+				fmt.Fprintf(source, "\t\t\tDefault: %s,\n", strconv.Quote(field.Default))
+				source.WriteString("\t\t\tHasDefault: true,\n")
+			}
+			if field.Required {
+				source.WriteString("\t\t\tRequired: true,\n")
+			}
+			if field.Secret {
+				source.WriteString("\t\t\tSecret: true,\n")
+			}
+			source.WriteString("\t\t},\n")
+		}
+	}
+	source.WriteString("\t)\n")
+	source.WriteString("}\n\n")
+}
+
+func configurationKindName(kind runtimeconfig.Kind) string {
+	switch kind {
+	case runtimeconfig.KindString:
+		return "spiceconfig.KindString"
+	case runtimeconfig.KindBoolean:
+		return "spiceconfig.KindBoolean"
+	case runtimeconfig.KindInteger:
+		return "spiceconfig.KindInteger"
+	case runtimeconfig.KindDuration:
+		return "spiceconfig.KindDuration"
+	default:
+		return strconv.Quote(string(kind))
+	}
+}
+
+func writeConfigurationResolution(source *bytes.Buffer, target Target) {
+	source.WriteString("\tconfigurationSchema, err := ConfigurationSchema()\n")
+	source.WriteString("\tif err != nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, fmt.Errorf(%s, err)\n",
+		strconv.Quote("construct configuration schema for application "+target.ID+": %w"),
+	)
+	source.WriteString("\t}\n")
+	source.WriteString("\tconfigurationSnapshot, err := spiceconfig.Resolve(\n")
+	source.WriteString("\t\tctx,\n")
+	source.WriteString("\t\tconfigurationSchema,\n")
+	source.WriteString("\t\tspiceconfig.Options{\n")
+	source.WriteString("\t\t\tProfiles: options.Profiles,\n")
+	source.WriteString("\t\t\tAllowUnknown: options.AllowUnknownConfiguration,\n")
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t\toptions.Sources...,\n")
+	source.WriteString("\t)\n")
+	source.WriteString("\tif err != nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, fmt.Errorf(%s, err)\n",
+		strconv.Quote("resolve configuration for application "+target.ID+": %w"),
+	)
+	source.WriteString("\t}\n")
+	source.WriteString("\t_ = configurationSnapshot\n")
+}
+
+func writeConfigurationBinder(
+	source *bytes.Buffer,
+	configType configuration.Type,
+	index int,
+	aliases map[string]string,
+) {
+	variable := providerVariable(index)
+	fmt.Fprintf(source, "\t%s := %s{}\n", variable, renderedType(configType.Type, aliases))
+	for _, field := range configType.Fields() {
+		source.WriteString("\tif _, configured := configurationSnapshot.Lookup(")
+		source.WriteString(strconv.Quote(field.Key))
+		source.WriteString("); configured {\n")
+		fmt.Fprintf(
+			source,
+			"\t\trawValue, valueErr := configurationSnapshot.%s(%s)\n",
+			configurationAccessor(field.Kind),
+			strconv.Quote(field.Key),
+		)
+		source.WriteString("\t\tif valueErr != nil {\n")
+		fmt.Fprintf(
+			source,
+			"\t\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, valueErr))\n",
+			strconv.Quote(
+				"decode configuration property "+field.Key+" for "+
+					configType.TypeID+"."+field.Name+": %w",
+			),
+		)
+		source.WriteString("\t\t}\n")
+		fmt.Fprintf(
+			source,
+			"\t\tconvertedValue := %s(rawValue)\n",
+			renderedType(field.Type, aliases),
+		)
+		if field.Kind == runtimeconfig.KindInteger {
+			source.WriteString("\t\tif int64(convertedValue) != rawValue {\n")
+			fmt.Fprintf(
+				source,
+				"\t\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s))\n",
+				strconv.Quote(
+					"decode configuration property "+field.Key+" for "+
+						configType.TypeID+"."+field.Name+": value is outside "+field.TypeID,
+				),
+			)
+			source.WriteString("\t\t}\n")
+		}
+		fmt.Fprintf(source, "\t\t%s.%s = convertedValue\n", variable, field.Name)
+		source.WriteString("\t}\n")
+	}
+	fmt.Fprintf(source, "\t_ = %s\n", variable)
+}
+
+func configurationAccessor(kind runtimeconfig.Kind) string {
+	switch kind {
+	case runtimeconfig.KindString:
+		return "RequiredString"
+	case runtimeconfig.KindBoolean:
+		return "Boolean"
+	case runtimeconfig.KindInteger:
+		return "Integer"
+	case runtimeconfig.KindDuration:
+		return "Duration"
+	default:
+		return "RequiredString"
+	}
+}
+
+func configurationProviderIndex(configTypes []configuration.Type) map[string]configuration.Type {
+	result := make(map[string]configuration.Type, len(configTypes))
+	for _, configType := range configTypes {
+		result[configType.SymbolID] = configType
+	}
+	return result
+}
+
+func renderedType(value types.Type, aliases map[string]string) string {
+	return types.TypeString(value, func(pkg *types.Package) string {
+		if pkg == nil {
+			return ""
+		}
+		if alias, ok := aliases[pkg.Path()]; ok {
+			return alias
+		}
+		return pkg.Name()
+	})
+}
+
 func writeImports(source *bytes.Buffer, aliases map[string]string) {
 	var standardPaths, applicationPaths []string
 	for importPath := range aliases {
-		if importPath == "context" || importPath == "fmt" {
+		if isStandardImport(importPath) {
 			standardPaths = append(standardPaths, importPath)
 		} else {
 			applicationPaths = append(applicationPaths, importPath)
@@ -350,6 +547,11 @@ func writeImports(source *bytes.Buffer, aliases map[string]string) {
 	}
 	writeImportGroup(source, aliases, applicationPaths)
 	source.WriteString(")\n\n")
+}
+
+func isStandardImport(importPath string) bool {
+	first, _, _ := strings.Cut(importPath, "/")
+	return !strings.Contains(first, ".")
 }
 
 func writeImportGroup(source *bytes.Buffer, aliases map[string]string, paths []string) {
@@ -490,19 +692,29 @@ func providerModuleIDs(
 	return result
 }
 
-func importAliases(providers []provider.Provider) map[string]string {
+func importAliases(
+	providers []provider.Provider,
+	configTypes []configuration.Type,
+) map[string]string {
 	aliases := map[string]string{
 		"context":     "context",
 		"fmt":         "fmt",
 		lifecyclePath: "spicelifecycle",
 	}
+	if len(configTypes) != 0 {
+		aliases[configPath] = "spiceconfig"
+	}
 	used := map[string]struct{}{
-		"Application":    {},
-		"NewApplication": {},
-		"TargetID":       {},
-		"context":        {},
-		"fmt":            {},
-		"spicelifecycle": {},
+		"Application":               {},
+		"ApplicationOptions":        {},
+		"ConfigurationSchema":       {},
+		"NewApplication":            {},
+		"NewApplicationWithOptions": {},
+		"TargetID":                  {},
+		"context":                   {},
+		"fmt":                       {},
+		"spiceconfig":               {},
+		"spicelifecycle":            {},
 	}
 	names := make(map[string]string)
 	for _, item := range providers {
@@ -514,6 +726,11 @@ func importAliases(providers []provider.Provider) map[string]string {
 			name = item.Symbol.Object.Pkg().Name()
 		}
 		names[item.PackagePath] = name
+	}
+	for _, configType := range configTypes {
+		for _, field := range configType.Fields() {
+			addTypeImportName(names, aliases, field.Type)
+		}
 	}
 
 	paths := make([]string, 0, len(names))
@@ -534,6 +751,26 @@ func importAliases(providers []provider.Provider) map[string]string {
 		aliases[importPath] = alias
 	}
 	return aliases
+}
+
+func addTypeImportName(names, aliases map[string]string, value types.Type) {
+	var object *types.TypeName
+	switch typed := value.(type) {
+	case *types.Named:
+		object = typed.Obj()
+	case *types.Alias:
+		object = typed.Obj()
+	default:
+		return
+	}
+	if object == nil || object.Pkg() == nil {
+		return
+	}
+	importPath := object.Pkg().Path()
+	if _, fixed := aliases[importPath]; fixed {
+		return
+	}
+	names[importPath] = object.Pkg().Name()
 }
 
 func dependencyVariables(
@@ -700,6 +937,7 @@ func modelHash(
 	}
 	type inputProvider struct {
 		ID      string            `json:"id"`
+		Source  provider.Source   `json:"source"`
 		Module  string            `json:"module,omitempty"`
 		Output  string            `json:"output"`
 		Cleanup bool              `json:"cleanup"`
@@ -721,14 +959,35 @@ func modelHash(
 		Type     string `json:"type"`
 		Provider string `json:"provider"`
 	}
+	type inputConfigurationField struct {
+		Index       int                `json:"index"`
+		Name        string             `json:"name"`
+		Type        string             `json:"type"`
+		Key         string             `json:"key"`
+		Kind        runtimeconfig.Kind `json:"kind"`
+		Module      string             `json:"module,omitempty"`
+		Environment string             `json:"environment,omitempty"`
+		Default     string             `json:"default,omitempty"`
+		HasDefault  bool               `json:"has_default,omitempty"`
+		Required    bool               `json:"required,omitempty"`
+		Secret      bool               `json:"secret,omitempty"`
+	}
+	type inputConfiguration struct {
+		ID     string                    `json:"id"`
+		Type   string                    `json:"type"`
+		Prefix string                    `json:"prefix,omitempty"`
+		Module string                    `json:"module,omitempty"`
+		Fields []inputConfigurationField `json:"fields"`
+	}
 	type input struct {
-		Schema     int              `json:"schema"`
-		Target     TargetSummary    `json:"target"`
-		Symbol     string           `json:"symbol"`
-		Providers  []inputProvider  `json:"providers"`
-		Edges      []inputEdge      `json:"edges"`
-		Components []inputComponent `json:"components"`
-		Roots      []inputRoot      `json:"roots"`
+		Schema         int                  `json:"schema"`
+		Target         TargetSummary        `json:"target"`
+		Symbol         string               `json:"symbol"`
+		Providers      []inputProvider      `json:"providers"`
+		Configurations []inputConfiguration `json:"configurations"`
+		Edges          []inputEdge          `json:"edges"`
+		Components     []inputComponent     `json:"components"`
+		Roots          []inputRoot          `json:"roots"`
 	}
 	value := input{
 		Schema: SchemaVersion,
@@ -744,12 +1003,37 @@ func modelHash(
 		}
 		value.Providers = append(value.Providers, inputProvider{
 			ID:      item.SymbolID,
+			Source:  item.Source,
 			Module:  providerModules[item.SymbolID],
 			Output:  item.OutputTypeID,
 			Cleanup: item.ReturnsCleanup,
 			Error:   item.ReturnsError,
 			Inputs:  inputs,
 		})
+	}
+	for _, configType := range model.Configurations() {
+		item := inputConfiguration{
+			ID:     configType.SymbolID,
+			Type:   configType.TypeID,
+			Prefix: configType.Prefix,
+			Module: configType.Module,
+		}
+		for _, field := range configType.Fields() {
+			item.Fields = append(item.Fields, inputConfigurationField{
+				Index:       field.Index,
+				Name:        field.Name,
+				Type:        field.TypeID,
+				Key:         field.Key,
+				Kind:        field.Kind,
+				Module:      field.Module,
+				Environment: field.Environment,
+				Default:     field.Default,
+				HasDefault:  field.HasDefault,
+				Required:    field.Required,
+				Secret:      field.Secret,
+			})
+		}
+		value.Configurations = append(value.Configurations, item)
 	}
 	for _, edge := range model.Edges() {
 		value.Edges = append(value.Edges, inputEdge{

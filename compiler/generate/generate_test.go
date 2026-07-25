@@ -163,6 +163,93 @@ func Collision(shareda.AlphaValue, sharedb.BetaValue) {}
 	}
 }
 
+func TestRenderGeneratesTypedConfigurationProviders(t *testing.T) {
+	root := writeModule(t, "example.com/configured", map[string]string{
+		"shared/level.go": `package shared
+
+type Level string
+`,
+		"components/application.go": `// Package components owns configured services.
+//
+// @Module
+package components
+
+import (
+	"time"
+
+	"example.com/configured/shared"
+)
+
+type WorkerCount int8
+
+// @Configuration(prefix="server")
+type Settings struct {
+	Host string ` + "`spice:\"host,default=localhost\"`" + `
+	Port WorkerCount ` + "`spice:\"port,required,env=SERVER_PORT\"`" + `
+	Debug bool ` + "`spice:\"debug\"`" + `
+	Timeout time.Duration ` + "`spice:\"timeout,default=5s\"`" + `
+	Level shared.Level ` + "`spice:\"level,required\"`" + `
+	Token string ` + "`spice:\"token,secret\"`" + `
+}
+
+type Server struct {
+	Settings Settings
+}
+
+var captured Settings
+
+func Captured() Settings {
+	return captured
+}
+
+// @Bean
+func NewServer(settings Settings) *Server {
+	captured = settings
+	return &Server{Settings: settings}
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/configured/components"
+
+// @Application
+func Configured(*components.Server) {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	plan, diagnostics := Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	source := string(plan.Files()[0].Content())
+	for _, expected := range []string{
+		`spiceconfig "github.com/StevenBuglione/spice/config"`,
+		"type ApplicationOptions struct",
+		"func ConfigurationSchema() (spiceconfig.Schema, error)",
+		"func NewApplicationWithOptions(",
+		"components.Settings{}",
+		"components.WorkerCount(rawValue)",
+		"shared.Level(rawValue)",
+		"if int64(convertedValue) != rawValue",
+		`Key:         "server.port"`,
+		`Environment: "SERVER_PORT"`,
+		"NewServer(provider0)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("generated source missing %q:\n%s", expected, source)
+		}
+	}
+	assertOrdered(t, source, "components.Settings{}", "components.NewServer(provider0)")
+
+	writePlan(t, root, plan)
+	writeTestFile(t, root, "internal/spicegen/configured/configuration_test.go", generatedConfigurationTest)
+	runGoTest(t, root, "./internal/spicegen/configured")
+}
+
 func TestRenderRejectsCodeThatGeneratedPackageCannotAccess(t *testing.T) {
 	root := writeModule(t, "example.com/access", map[string]string{
 		"app/application.go": `package app
@@ -463,6 +550,103 @@ func TestGeneratedApplication(t *testing.T) {
 	want = []string{"construct config", "construct store", "construct server", "cleanup store"}
 	if got := components.Trace(); !slices.Equal(got, want) {
 		t.Fatalf("failure trace = %v, want %v", got, want)
+	}
+}
+`
+
+const generatedConfigurationTest = `package spicegen
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"example.com/configured/components"
+	"example.com/configured/shared"
+	"github.com/StevenBuglione/spice/config"
+)
+
+func TestGeneratedConfigurationApplication(t *testing.T) {
+	schema, err := ConfigurationSchema()
+	if err != nil {
+		t.Fatalf("ConfigurationSchema() error = %v", err)
+	}
+	properties := schema.Properties()
+	if len(properties) != 6 {
+		t.Fatalf("schema properties = %#v", properties)
+	}
+	if properties[3].Key != "server.port" || properties[3].Environment != "SERVER_PORT" ||
+		properties[3].Module != "example.com/configured/components" {
+		t.Fatalf("port property = %#v", properties[3])
+	}
+	if properties[4].Key != "server.timeout" || properties[5].Key != "server.token" ||
+		!properties[5].Secret {
+		t.Fatalf("schema metadata = %#v", properties)
+	}
+
+	if application, constructionErr := NewApplication(context.Background()); application != nil ||
+		constructionErr == nil || !strings.Contains(constructionErr.Error(), "server.level") {
+		t.Fatalf("NewApplication() = %#v, %v", application, constructionErr)
+	}
+
+	source, err := config.NewMapSource("test", map[string]string{
+		"server.port":  "7",
+		"server.debug": "true",
+		"server.level": "production",
+		"server.token": "top-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Profiles: []string{"test"},
+		Sources: []config.Source{source},
+	})
+	if err != nil {
+		t.Fatalf("NewApplicationWithOptions() error = %v", err)
+	}
+	if application == nil {
+		t.Fatal("NewApplicationWithOptions() application = nil")
+	}
+	settings := components.Captured()
+	if settings.Host != "localhost" || settings.Port != 7 || !settings.Debug ||
+		settings.Timeout != 5*time.Second || settings.Level != shared.Level("production") ||
+		settings.Token != "top-secret" {
+		t.Fatalf("captured settings = %#v", settings)
+	}
+
+	overflow, err := config.NewMapSource("overflow", map[string]string{
+		"server.port":  "128",
+		"server.level": "production",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application, constructionErr := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Sources: []config.Source{overflow},
+	}); application != nil || constructionErr == nil || !strings.Contains(constructionErr.Error(), "outside") {
+		t.Fatalf("overflow application = %#v, %v", application, constructionErr)
+	}
+
+	unknown, err := config.NewMapSource("unknown", map[string]string{
+		"server.port":  "7",
+		"server.level": "production",
+		"extra.value":  "rejected",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application, constructionErr := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Sources: []config.Source{unknown},
+	}); application != nil || constructionErr == nil || !strings.Contains(constructionErr.Error(), "unknown property") {
+		t.Fatalf("unknown application = %#v, %v", application, constructionErr)
+	}
+	if application, constructionErr := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Sources: []config.Source{unknown},
+		AllowUnknownConfiguration: true,
+	}); application == nil || constructionErr != nil {
+		t.Fatalf("allowed unknown application = %#v, %v", application, constructionErr)
 	}
 }
 `

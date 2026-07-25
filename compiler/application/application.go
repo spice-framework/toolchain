@@ -208,6 +208,11 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 		model.diagnostics = providerDiagnostics(diagnostics)
 		return model
 	}
+	providerCatalog = provider.Add(providerCatalog, configurationProviders(model.configTypes)...)
+	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = providerDiagnostics(diagnostics)
+		return model
+	}
 
 	providerGraph := graph.Build(providerCatalog)
 	if diagnostics := providerGraph.Diagnostics(); len(diagnostics) != 0 {
@@ -226,6 +231,24 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 	model.components = orderedComponents(model.providers, lifecycleCatalog.Components())
 	model.targets, model.diagnostics = applicationTargets(program, resolution, providerCatalog.Providers())
 	return model
+}
+
+func configurationProviders(configTypes []configuration.Type) []provider.Provider {
+	result := make([]provider.Provider, len(configTypes))
+	for index, configType := range configTypes {
+		result[index] = provider.Provider{
+			Source:           provider.SourceConfiguration,
+			Symbol:           configType.Symbol,
+			SymbolID:         configType.SymbolID,
+			Name:             configType.Name,
+			PackagePath:      configType.PackagePath,
+			Position:         configType.Position,
+			PhysicalPosition: configType.PhysicalPosition,
+			Output:           configType.Type,
+			OutputTypeID:     configType.TypeID,
+		}
+	}
+	return result
 }
 
 func applicationTargets(

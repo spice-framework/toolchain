@@ -419,6 +419,18 @@ package app
 type Settings struct {
 	Port int ` + "`spice:\"port,default=8080\"`" + `
 }
+
+type Server struct {
+	Settings Settings
+}
+
+// @Bean
+func NewServer(settings Settings) Server {
+	return Server{Settings: settings}
+}
+
+// @Application
+func Application(Server) {}
 `,
 	})
 	program, resolution := loadAndResolve(t, root, "./app")
@@ -435,6 +447,19 @@ type Settings struct {
 	if len(fields) != 1 || fields[0].Key != "server.port" ||
 		fields[0].Kind != runtimeconfig.KindInteger {
 		t.Fatalf("configuration fields = %#v", fields)
+	}
+	providers := model.Providers()
+	if got := providerNames(providers); !slices.Equal(got, []string{"Settings", "NewServer"}) {
+		t.Fatalf("configuration provider order = %v", got)
+	}
+	if providers[0].Source != provider.SourceConfiguration ||
+		providers[1].Source != provider.SourceBean ||
+		len(model.Edges()) != 1 ||
+		model.Edges()[0].Dependency().SymbolID != configTypes[0].SymbolID {
+		t.Fatalf("configuration provider graph = providers:%#v edges:%#v", providers, model.Edges())
+	}
+	if roots := model.Targets()[0].Roots(); len(roots) != 1 || roots[0].ProviderID != providers[1].SymbolID {
+		t.Fatalf("application roots = %#v", roots)
 	}
 	fields[0].Key = "changed"
 	if model.Configurations()[0].Fields()[0].Key == "changed" {
