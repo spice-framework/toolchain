@@ -16,6 +16,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/application"
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
 	"github.com/StevenBuglione/spice/compiler/validate"
@@ -69,6 +70,8 @@ func runWithBuilder(
 		return verify(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
 	case "annotations":
 		return annotations(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
+	case "modules":
+		return modulesCommand(arguments[1:], stdout, stderr, options, loader)
 	case "generate":
 		return generateCommand(arguments[1:], stdout, stderr, options, loader)
 	case "build":
@@ -81,6 +84,114 @@ func runWithBuilder(
 			return 1
 		}
 		return 2
+	}
+}
+
+type moduleArguments struct {
+	format    modulith.Format
+	formatSet bool
+	patterns  []string
+}
+
+func modulesCommand(
+	arguments []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+) int {
+	parsed, parseErr := parseModuleArguments(arguments)
+	if parseErr != nil {
+		if writeErr := writef(stderr, "Spice module documentation failed: %v\n", parseErr); writeErr != nil {
+			return 1
+		}
+		return 2
+	}
+	if len(parsed.patterns) == 0 {
+		parsed.patterns = []string{"./..."}
+	}
+	program, resolution, ok := resolvePatterns(
+		parsed.patterns,
+		stderr,
+		options,
+		loader,
+		"module discovery",
+	)
+	if !ok {
+		return 1
+	}
+	if diagnostics := validationDiagnostics(resolution.Occurrences); len(diagnostics) != 0 {
+		if err := reportDiagnostics(
+			stderr,
+			diagnostics,
+			fmt.Sprintf("Spice module documentation failed: %d annotation validation error(s).", len(diagnostics)),
+		); err != nil {
+			return 1
+		}
+		return 1
+	}
+	model := modulith.Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		if err := reportDiagnostics(
+			stderr,
+			diagnostics,
+			fmt.Sprintf("Spice module documentation failed: %d module architecture error(s).", len(diagnostics)),
+		); err != nil {
+			return 1
+		}
+		return 1
+	}
+	content, err := modulith.Render(model, parsed.format)
+	if err != nil {
+		if writeErr := writef(stderr, "Spice module documentation failed: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	if _, err := stdout.Write(content); err != nil {
+		return 1
+	}
+	return 0
+}
+
+func parseModuleArguments(arguments []string) (moduleArguments, error) {
+	result := moduleArguments{format: modulith.FormatJSON}
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		switch {
+		case argument == "--format":
+			if result.formatSet {
+				return moduleArguments{}, errors.New("--format may be specified only once")
+			}
+			index++
+			if index >= len(arguments) || strings.HasPrefix(arguments[index], "-") {
+				return moduleArguments{}, errors.New("--format requires json, mermaid, or plantuml")
+			}
+			result.format = modulith.Format(arguments[index])
+			result.formatSet = true
+		case strings.HasPrefix(argument, "--format="):
+			if result.formatSet {
+				return moduleArguments{}, errors.New("--format may be specified only once")
+			}
+			result.format = modulith.Format(strings.TrimPrefix(argument, "--format="))
+			if result.format == "" {
+				return moduleArguments{}, errors.New("--format requires json, mermaid, or plantuml")
+			}
+			result.formatSet = true
+		case strings.HasPrefix(argument, "-"):
+			return moduleArguments{}, fmt.Errorf("unknown module option %q", argument)
+		default:
+			result.patterns = append(result.patterns, argument)
+		}
+	}
+	switch result.format {
+	case modulith.FormatJSON, modulith.FormatMermaid, modulith.FormatPlantUML:
+		return result, nil
+	default:
+		return moduleArguments{}, fmt.Errorf(
+			"unsupported module format %q; expected json, mermaid, or plantuml",
+			result.format,
+		)
 	}
 }
 
@@ -600,6 +711,7 @@ Usage:
   spice version
   spice verify [package-pattern ...]
   spice annotations [package-pattern ...]
+  spice modules [--format json|mermaid|plantuml] [package-pattern ...]
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
   spice build [--target name] [package-pattern ...]
 
@@ -607,6 +719,7 @@ Commands:
   version      Print the Spice version.
   verify       Load, resolve, and validate Spice annotations for Go packages.
   annotations  List annotations and their exact typed declarations.
+  modules      Validate and render application-module documentation.
   generate     Render and safely apply or check generated application code.
   build        Generate an application and run the standard trimpath build.`)
 	return err
