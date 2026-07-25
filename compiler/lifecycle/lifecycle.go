@@ -23,6 +23,7 @@ const (
 )
 
 var errorType = types.Universe.Lookup("error").Type()
+var anyType = types.Universe.Lookup("any").Type()
 
 type Hook struct {
 	Kind             Kind
@@ -110,7 +111,7 @@ func build(program *load.Program, resolution resolve.Result, providers provider.
 		key := semanticTypeKey(item.Output)
 		providerIndex[key] = append(providerIndex[key], item)
 	}
-	contextType := loadedNamedType(program, "context", "Context")
+	contextType := canonicalContextType(program)
 	components := make(map[string]*Component)
 	methodKinds := make(map[string]map[Kind][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
@@ -221,7 +222,10 @@ func analyzeHook(occurrence resolve.Occurrence, kind Kind, symbol load.Symbol, c
 	if signature.Params().Len() != 1 {
 		return fail("parameter-count", fmt.Sprintf("lifecycle methods require exactly one explicit context parameter, got %d", signature.Params().Len()))
 	}
-	if contextType == nil || !types.Identical(signature.Params().At(0).Type(), contextType) {
+	if contextType == nil {
+		return fail("context-type", "canonical context.Context identity could not be established safely from the loaded Go 1.23 type universe")
+	}
+	if !types.Identical(signature.Params().At(0).Type(), contextType) {
 		return fail("context-type", fmt.Sprintf("parameter 0 must be the exact loaded context.Context type, got %s", provider.TypeID(signature.Params().At(0).Type())))
 	}
 	if signature.Results().Len() != 1 {
@@ -334,6 +338,82 @@ func loadedNamedType(program *load.Program, packagePath, typeName string) *types
 		return nil
 	}
 	return found
+}
+
+func canonicalContextType(program *load.Program) types.Type {
+	contextType := loadedNamedType(program, "context", "Context")
+	timeType := loadedNamedType(program, "time", "Time")
+	if contextType == nil || timeType == nil || !validContextDeclaration(contextType, timeType) {
+		return nil
+	}
+	return contextType
+}
+
+func validContextDeclaration(contextType, timeType *types.Named) bool {
+	contract, ok := contextType.Underlying().(*types.Interface)
+	if !ok {
+		return false
+	}
+	contract.Complete()
+	if contract.NumEmbeddeds() != 0 || contract.NumExplicitMethods() != 4 || contract.NumMethods() != 4 {
+		return false
+	}
+
+	methods := make(map[string]*types.Signature, contract.NumMethods())
+	for index := 0; index < contract.NumMethods(); index++ {
+		method := contract.Method(index)
+		if method.Pkg() != contextType.Obj().Pkg() {
+			return false
+		}
+		signature, ok := method.Type().(*types.Signature)
+		if !ok || signature.Recv() == nil || !types.Identical(signature.Recv().Type(), contextType) ||
+			signature.Variadic() ||
+			(signature.TypeParams() != nil && signature.TypeParams().Len() != 0) ||
+			(signature.RecvTypeParams() != nil && signature.RecvTypeParams().Len() != 0) {
+			return false
+		}
+		if _, duplicate := methods[method.Name()]; duplicate {
+			return false
+		}
+		methods[method.Name()] = signature
+	}
+
+	return validDeadlineMethod(methods["Deadline"], timeType) &&
+		validDoneMethod(methods["Done"]) &&
+		validErrMethod(methods["Err"]) &&
+		validValueMethod(methods["Value"])
+}
+
+func validDeadlineMethod(signature *types.Signature, timeType types.Type) bool {
+	return hasArity(signature, 0, 2) &&
+		types.Identical(signature.Results().At(0).Type(), timeType) &&
+		types.Identical(signature.Results().At(1).Type(), types.Typ[types.Bool])
+}
+
+func validDoneMethod(signature *types.Signature) bool {
+	if !hasArity(signature, 0, 1) {
+		return false
+	}
+	channel, ok := signature.Results().At(0).Type().(*types.Chan)
+	if !ok || channel.Dir() != types.RecvOnly {
+		return false
+	}
+	empty, ok := channel.Elem().Underlying().(*types.Struct)
+	return ok && empty.NumFields() == 0
+}
+
+func validErrMethod(signature *types.Signature) bool {
+	return hasArity(signature, 0, 1) && types.Identical(signature.Results().At(0).Type(), errorType)
+}
+
+func validValueMethod(signature *types.Signature) bool {
+	return hasArity(signature, 1, 1) &&
+		types.Identical(signature.Params().At(0).Type(), anyType) &&
+		types.Identical(signature.Results().At(0).Type(), anyType)
+}
+
+func hasArity(signature *types.Signature, parameters, results int) bool {
+	return signature != nil && signature.Params().Len() == parameters && signature.Results().Len() == results
 }
 func methodLabel(symbol load.Symbol) string {
 	if symbol.DisplayLabel != "" {
