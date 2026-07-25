@@ -259,6 +259,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	spiceweb "github.com/StevenBuglione/spice/web"
@@ -270,6 +271,13 @@ type GetRequest struct {
 	ID UserID ` + "`path:\"id\"`" + `
 	Verbose bool ` + "`query:\"verbose\"`" + `
 	Limit int8 ` + "`header:\"X-Limit,required\"`" + `
+}
+
+func (request GetRequest) Validate(context.Context) error {
+	if request.ID == "invalid" {
+		return errors.New("secret validation detail")
+	}
+	return nil
 }
 
 type CreateBody struct {
@@ -351,6 +359,7 @@ func Web(*api.API) {}
 		`spiceweb.Register(routeMux, "POST /users/{id}"`,
 		"spiceweb.Parameter(",
 		"spiceweb.DecodeJSON(",
+		"spiceweb.Validate(",
 		"spiceweb.WriteError(",
 		"spiceweb.WriteNoContent(",
 	} {
@@ -807,6 +816,14 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	})
 	if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "secret-invalid") {
 		t.Fatalf("binding response = %d %s", response.Code, response.Body.String())
+	}
+
+	response = request(t, application.Handler(), http.MethodGet, "/users/invalid", "", map[string]string{
+		"Accept":  "application/json",
+		"X-Limit": "7",
+	})
+	if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "secret validation detail") {
+		t.Fatalf("validation response = %d %s", response.Code, response.Body.String())
 	}
 
 	response = request(t, application.Handler(), http.MethodGet, "/users/42", "", map[string]string{

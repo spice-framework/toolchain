@@ -472,6 +472,12 @@ func writeTypedRoute(
 	for _, binding := range route.Bindings() {
 		writeRequestBinding(source, binding, aliases)
 	}
+	if route.ValidatorID != "" {
+		source.WriteString("\t\tif validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {\n")
+		writeGeneratedError(source, "validationErr", 3)
+		source.WriteString("\t\t\treturn\n")
+		source.WriteString("\t\t}\n")
+	}
 	if route.NoContent {
 		fmt.Fprintf(
 			source,
@@ -1328,6 +1334,7 @@ func modelHash(
 		Provider  string         `json:"provider"`
 		Request   string         `json:"request,omitempty"`
 		Response  string         `json:"response,omitempty"`
+		Validator string         `json:"validator,omitempty"`
 		Raw       bool           `json:"raw,omitempty"`
 		NoContent bool           `json:"no_content,omitempty"`
 		Bindings  []inputBinding `json:"bindings"`
@@ -1411,6 +1418,7 @@ func modelHash(
 				Provider:  route.ProviderID,
 				Request:   route.RequestTypeID,
 				Response:  route.ResponseTypeID,
+				Validator: route.ValidatorID,
 				Raw:       route.Raw,
 				NoContent: route.NoContent,
 			}

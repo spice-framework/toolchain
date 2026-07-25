@@ -77,6 +77,7 @@ type Route struct {
 	ResponseTypeID   string
 	Raw              bool
 	NoContent        bool
+	ValidatorID      string
 	Position         token.Position
 	PhysicalPosition token.Position
 	bindings         []Binding
@@ -170,6 +171,7 @@ func Build(
 		}}}
 	}
 	symbols := symbolIndex(program.Symbols())
+	objectSymbols := objectSymbolIndex(program.Symbols())
 	fileSets := packageFileSets(program)
 	catalog := Catalog{}
 	controllerObjects := make(map[*types.TypeName]int)
@@ -236,6 +238,7 @@ func Build(
 			*controller,
 			providers.Providers(),
 			fileSets[symbol.PackagePath],
+			objectSymbols,
 		)
 		if diagnostic != nil {
 			catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
@@ -313,6 +316,7 @@ func analyzeRoute(
 	controller Controller,
 	providers []provider.Provider,
 	fileSet *token.FileSet,
+	objectSymbols map[types.Object]load.Symbol,
 ) (Route, *Diagnostic) {
 	signature := symbol.Signature
 	if diagnostic := validateRouteMethod(occurrence, symbol, signature); diagnostic != nil {
@@ -349,7 +353,7 @@ func analyzeRoute(
 		route.Raw = true
 		return route, nil
 	}
-	diagnostic := typedRoute(&route, occurrence, symbol, signature, wildcards, fileSet)
+	diagnostic := typedRoute(&route, occurrence, symbol, signature, wildcards, fileSet, objectSymbols)
 	if diagnostic != nil {
 		return Route{}, diagnostic
 	}
@@ -385,6 +389,7 @@ func typedRoute(
 	signature *types.Signature,
 	wildcards []string,
 	fileSet *token.FileSet,
+	objectSymbols map[types.Object]load.Symbol,
 ) *Diagnostic {
 	if signature.Params().Len() != 2 || signature.Results().Len() != 2 ||
 		!namedType(signature.Params().At(0).Type(), "context", "Context") ||
@@ -419,8 +424,62 @@ func typedRoute(
 	route.Response = signature.Results().At(0).Type()
 	route.ResponseTypeID = provider.TypeID(route.Response)
 	route.NoContent = namedType(route.Response, "github.com/StevenBuglione/spice/web", "NoContent")
+	validatorID, validatorProblem := requestValidator(requestNamed, objectSymbols)
+	if validatorProblem != nil {
+		diagnostic := symbolDiagnostic(occurrence, symbol, validatorProblem.kind, fmt.Sprintf("typed route %s: %s", symbolLabel(symbol), validatorProblem.message))
+		if validatorProblem.position.Filename != "" {
+			diagnostic.Position = validatorProblem.position
+			diagnostic.PhysicalPosition = validatorProblem.physical
+		}
+		return &diagnostic
+	}
+	route.ValidatorID = validatorID
 	route.bindings = bindings
 	return nil
+}
+
+func requestValidator(
+	request *types.Named,
+	objectSymbols map[types.Object]load.Symbol,
+) (string, *bindingProblem) {
+	methodSet := types.NewMethodSet(types.NewPointer(request))
+	for selection := range methodSet.Methods() {
+		method, ok := selection.Obj().(*types.Func)
+		if !ok {
+			continue
+		}
+		if method.Name() != "Validate" {
+			continue
+		}
+		signature, ok := method.Type().(*types.Signature)
+		if !ok || !validRequestValidatorSignature(signature, request) {
+			problem := fieldProblem(
+				"validator-signature",
+				fmt.Sprintf("request validator %s.Validate must have exact signature func(context.Context) error with a value receiver", request.Obj().Name()),
+			)
+			if symbol, found := objectSymbols[method]; found {
+				problem.position = symbol.Position
+				problem.physical = symbol.PhysicalPosition
+			}
+			return "", problem
+		}
+		if symbol, found := objectSymbols[method]; found {
+			return symbol.ID, nil
+		}
+		return provider.TypeID(request) + ".Validate", nil
+	}
+	return "", nil
+}
+
+func validRequestValidatorSignature(signature *types.Signature, request *types.Named) bool {
+	return signature.Recv() != nil &&
+		types.Identical(signature.Recv().Type(), request) &&
+		!signature.Variadic() &&
+		(signature.TypeParams() == nil || signature.TypeParams().Len() == 0) &&
+		signature.Params().Len() == 1 &&
+		namedType(signature.Params().At(0).Type(), "context", "Context") &&
+		signature.Results().Len() == 1 &&
+		types.Identical(signature.Results().At(0).Type(), types.Universe.Lookup("error").Type())
 }
 
 type bindingProblem struct {
@@ -793,6 +852,16 @@ func symbolIndex(symbols []load.Symbol) map[string]load.Symbol {
 	result := make(map[string]load.Symbol, len(symbols))
 	for _, symbol := range symbols {
 		result[symbol.ID] = symbol
+	}
+	return result
+}
+
+func objectSymbolIndex(symbols []load.Symbol) map[types.Object]load.Symbol {
+	result := make(map[types.Object]load.Symbol, len(symbols))
+	for _, symbol := range symbols {
+		if symbol.Object != nil {
+			result[symbol.Object] = symbol
+		}
 	}
 	return result
 }

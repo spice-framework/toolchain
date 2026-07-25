@@ -49,6 +49,8 @@ type GetUserRequest struct {
 	private string
 }
 
+func (GetUserRequest) Validate(context.Context) error { return nil }
+
 type CreateUserRequest struct {
 	Parent UserID ` + "`path:\"parent\"`" + `
 	Body CreateBody ` + "`body:\"\"`" + `
@@ -99,7 +101,7 @@ func (*Users) Raw(http.ResponseWriter, *http.Request) {}
 	}
 	get := routes[1]
 	if get.Raw || get.NoContent || get.RequestTypeID != "example.com/webapp/api.GetUserRequest" ||
-		get.ResponseTypeID != "example.com/webapp/api.UserResponse" {
+		get.ResponseTypeID != "example.com/webapp/api.UserResponse" || get.ValidatorID == "" {
 		t.Fatalf("GET route = %#v", get)
 	}
 	bindings := get.Bindings()
@@ -149,6 +151,8 @@ func TestBuildReportsInvalidControllerAndRouteContracts(t *testing.T) {
 		{name: "typed arity", body: validController("// @Get(\"/\")\nfunc (*API) Get() {}", ""), want: "typed route"},
 		{name: "request pointer", body: validController("// @Get(\"/\")\nfunc (*API) Get(context.Context, *Request) (Response, error) { return Response{}, nil }", "type Request struct{}\ntype Response struct{}"), want: "exported named struct value"},
 		{name: "request non struct", body: validController("// @Get(\"/\")\nfunc (*API) Get(context.Context, Request) (Response, error) { return Response{}, nil }", "type Request string\ntype Response struct{}"), want: "exported named struct value"},
+		{name: "validator signature", body: validTypedRoute("type Request struct{}\nfunc (Request) Validate() error { return nil }\n"), want: "exact signature func(context.Context) error with a value receiver"},
+		{name: "validator pointer receiver", body: validTypedRoute("type Request struct{}\nfunc (*Request) Validate(context.Context) error { return nil }\n"), want: "exact signature func(context.Context) error with a value receiver"},
 		{name: "missing field tag", body: validTypedRoute("type Request struct { Value string }\n"), want: "requires exactly one"},
 		{name: "multiple tags", body: validTypedRoute("type Request struct { Value string `path:\"value\" query:\"value\"` }\n"), want: "requires exactly one"},
 		{name: "tagged private", body: validTypedRoute("type Request struct { value string `query:\"value\"` }\n"), want: "is unexported"},
