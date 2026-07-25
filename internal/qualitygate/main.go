@@ -457,6 +457,15 @@ func smoke(ctx context.Context, root string) error {
 		{"go", "run", "./cmd/spice", "modules", "--format=json", "./..."},
 		{"go", "run", "./cmd/spice", "generate", "--check", "--target", "Hello", "./examples/hello-world/app"},
 		{"go", "run", "./examples/hello-world", "-check"},
+		{
+			"go", "run", "./cmd/spice", "generate", "--check", "--target", "Commerce",
+			"./examples/commerce/bootstrap",
+			"./examples/commerce/inventory",
+			"./examples/commerce/orders",
+			"./examples/commerce/payments",
+			"./examples/commerce/platform",
+		},
+		{"go", "run", "./examples/commerce", "-check"},
 	}
 	for _, args := range commands {
 		if err := runExternal(ctx, root, nil, args[0], args[1:]...); err != nil {
