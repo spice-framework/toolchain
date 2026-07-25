@@ -377,6 +377,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./config", "FuzzDecodeJSONObject"},
 		{"./config", "FuzzResolveScalars"},
 		{"./web", "FuzzDecodeJSON"},
+		{"./httpclient", "FuzzResolveReference"},
 	}
 	for _, target := range targets {
 		if err := runExternal(
