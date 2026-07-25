@@ -198,7 +198,13 @@ func prepareGeneration(
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
-	program, resolution, ok := resolvePatterns(patterns, stderr, options, loader, "generation")
+	program, resolution, ok := resolvePatterns(
+		patterns,
+		stderr,
+		withAnalysisBuildTag(options),
+		loader,
+		"generation",
+	)
 	if !ok {
 		return codegen.Plan{}, "", false
 	}
@@ -481,7 +487,7 @@ func annotations(patterns []string, stdout, stderr io.Writer, options load.Optio
 }
 
 func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, loader programLoader, operation string) (*load.Program, resolve.Result, bool) {
-	program, err := loader(context.Background(), withAnalysisBuildTag(options), patterns...)
+	program, err := loader(context.Background(), options, patterns...)
 	if err != nil {
 		if writeErr := writef(stderr, "Spice %s failed: %v\n", operation, err); writeErr != nil {
 			return nil, resolve.Result{}, false

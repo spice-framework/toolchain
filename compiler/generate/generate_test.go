@@ -58,6 +58,7 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"components.ConfigProvider()",
 		"components.StoreProvider(provider0)",
 		"components.ServerProvider(provider1)",
+		"fmt \"fmt\"\n\n\tcomponents \"example.com/shop/components\"",
 		"RegisterCleanup(",
 		"Start: provider2.Start",
 		"provider2.Stop",

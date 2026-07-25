@@ -320,16 +320,29 @@ func renderSource(
 }
 
 func writeImports(source *bytes.Buffer, aliases map[string]string) {
-	paths := make([]string, 0, len(aliases))
+	var standardPaths, applicationPaths []string
 	for importPath := range aliases {
-		paths = append(paths, importPath)
+		if importPath == "context" || importPath == "fmt" {
+			standardPaths = append(standardPaths, importPath)
+		} else {
+			applicationPaths = append(applicationPaths, importPath)
+		}
 	}
-	sort.Strings(paths)
+	sort.Strings(standardPaths)
+	sort.Strings(applicationPaths)
 	source.WriteString("import (\n")
+	writeImportGroup(source, aliases, standardPaths)
+	if len(standardPaths) != 0 && len(applicationPaths) != 0 {
+		source.WriteByte('\n')
+	}
+	writeImportGroup(source, aliases, applicationPaths)
+	source.WriteString(")\n\n")
+}
+
+func writeImportGroup(source *bytes.Buffer, aliases map[string]string, paths []string) {
 	for _, importPath := range paths {
 		fmt.Fprintf(source, "\t%s %s\n", aliases[importPath], strconv.Quote(importPath))
 	}
-	source.WriteString(")\n\n")
 }
 
 func writeProviderCall(
