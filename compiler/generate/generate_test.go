@@ -61,6 +61,7 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"RegisterCleanup(",
 		"Start: provider2.Start",
 		"provider2.Stop",
+		"func (application *Application) Run(",
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
 			t.Fatalf("generated source missing %q:\n%s", required, firstSource)

@@ -422,6 +422,13 @@ func (application *Application) Stop(ctx context.Context) error {
 	}
 	return application.coordinator.Stop(ctx)
 }
+
+func (application *Application) Run(ctx context.Context, shutdown spicelifecycle.ContextFactory) error {
+	if application == nil || application.coordinator == nil {
+		return fmt.Errorf("run application: application is nil")
+	}
+	return application.coordinator.Run(ctx, application.hooks, shutdown)
+}
 `)
 }
 
