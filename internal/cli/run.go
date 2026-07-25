@@ -9,6 +9,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/graph"
+	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -79,6 +80,16 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 			fmt.Fprintln(stderr, diagnostic.Error())
 		}
 		fmt.Fprintf(stderr, "Spice verification failed: %d provider graph error(s).\n", len(graphDiagnostics))
+		return 1
+	}
+
+	lifecycleCatalog := lifecycle.Build(program, result, catalog)
+	lifecycleDiagnostics := lifecycleCatalog.Diagnostics()
+	if len(lifecycleDiagnostics) > 0 {
+		for _, diagnostic := range lifecycleDiagnostics {
+			fmt.Fprintln(stderr, diagnostic.Error())
+		}
+		fmt.Fprintf(stderr, "Spice verification failed: %d lifecycle hook error(s).\n", len(lifecycleDiagnostics))
 		return 1
 	}
 
