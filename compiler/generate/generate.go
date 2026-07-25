@@ -278,6 +278,7 @@ func renderSource(
 ) ([]byte, error) {
 	providers := model.Providers()
 	aliases := importAliases(providers)
+	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
 	if err != nil {
 		return nil, err
@@ -297,17 +298,29 @@ func renderSource(
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
 	source.WriteString("}\n\n")
-	source.WriteString("func NewApplication(ctx context.Context) (*Application, error) {\n")
+	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
 	fmt.Fprintf(
 		&source,
 		"\tif ctx == nil {\n\t\treturn nil, fmt.Errorf(%s)\n\t}\n",
 		strconv.Quote("construct application "+target.ID+": context is nil"),
 	)
 	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
+	source.WriteString("\tfor index, observer := range observers {\n")
+	source.WriteString("\t\tif err := application.coordinator.RegisterObserver(observer); err != nil {\n")
+	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t}\n")
 	for index, item := range providers {
-		writeProviderCall(&source, item, index, aliases, dependencies[item.SymbolID])
+		writeProviderCall(
+			&source,
+			item,
+			index,
+			aliases,
+			dependencies[item.SymbolID],
+			providerModules[item.SymbolID],
+		)
 	}
-	writeHooks(&source, model, providerVariables)
+	writeHooks(&source, model, providerVariables, providerModules)
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
 	writeLifecycleMethods(&source)
@@ -351,6 +364,7 @@ func writeProviderCall(
 	index int,
 	aliases map[string]string,
 	dependencies []string,
+	moduleID string,
 ) {
 	variable := providerVariable(index)
 	cleanup := fmt.Sprintf("cleanup%d", index)
@@ -377,7 +391,8 @@ func writeProviderCall(
 	if item.ReturnsCleanup {
 		fmt.Fprintf(
 			source,
-			"\tif err := application.coordinator.RegisterCleanup(%s, %s); err != nil {\n",
+			"\tif err := application.coordinator.RegisterModuleCleanup(%s, %s, %s); err != nil {\n",
+			strconv.Quote(moduleID),
 			strconv.Quote(item.SymbolID),
 			cleanup,
 		)
@@ -395,6 +410,7 @@ func writeHooks(
 	source *bytes.Buffer,
 	model application.Model,
 	providerVariables map[string]string,
+	providerModules map[string]string,
 ) {
 	components := model.Components()
 	if len(components) == 0 {
@@ -405,6 +421,11 @@ func writeHooks(
 		variable := providerVariables[component.Provider.SymbolID]
 		source.WriteString("\t\t{\n")
 		fmt.Fprintf(source, "\t\t\tID: %s,\n", strconv.Quote(component.Provider.SymbolID))
+		fmt.Fprintf(
+			source,
+			"\t\t\tModule: %s,\n",
+			strconv.Quote(providerModules[component.Provider.SymbolID]),
+		)
 		fmt.Fprintf(source, "\t\t\tStart: %s.%s,\n", variable, component.Start.Method.Name)
 		if component.Stop != nil {
 			fmt.Fprintf(source, "\t\t\tStop: %s.%s,\n", variable, component.Stop.Method.Name)
@@ -436,6 +457,13 @@ func (application *Application) Stop(ctx context.Context) error {
 	return application.coordinator.Stop(ctx)
 }
 
+func (application *Application) RegisterObserver(observer spicelifecycle.Observer) error {
+	if application == nil || application.coordinator == nil {
+		return fmt.Errorf("register lifecycle observer: application is nil")
+	}
+	return application.coordinator.RegisterObserver(observer)
+}
+
 func (application *Application) Run(ctx context.Context, shutdown spicelifecycle.ContextFactory) error {
 	if application == nil || application.coordinator == nil {
 		return fmt.Errorf("run application: application is nil")
@@ -443,6 +471,23 @@ func (application *Application) Run(ctx context.Context, shutdown spicelifecycle
 	return application.coordinator.Run(ctx, application.hooks, shutdown)
 }
 `)
+}
+
+func providerModuleIDs(
+	model application.Model,
+	providers []provider.Provider,
+) map[string]string {
+	packageModules := make(map[string]string)
+	for _, module := range model.Modules() {
+		for _, pkg := range module.Packages() {
+			packageModules[pkg.Path] = module.ID
+		}
+	}
+	result := make(map[string]string, len(providers))
+	for _, item := range providers {
+		result[item.SymbolID] = packageModules[item.PackagePath]
+	}
+	return result
 }
 
 func importAliases(providers []provider.Provider) map[string]string {
@@ -655,6 +700,7 @@ func modelHash(
 	}
 	type inputProvider struct {
 		ID      string            `json:"id"`
+		Module  string            `json:"module,omitempty"`
 		Output  string            `json:"output"`
 		Cleanup bool              `json:"cleanup"`
 		Error   bool              `json:"error"`
@@ -689,13 +735,16 @@ func modelHash(
 		Target: summarizeTarget(target),
 		Symbol: applicationTarget.SymbolID,
 	}
-	for _, item := range model.Providers() {
+	providers := model.Providers()
+	providerModules := providerModuleIDs(model, providers)
+	for _, item := range providers {
 		inputs := make([]inputDependency, len(item.Dependencies))
 		for index, dependency := range item.Dependencies {
 			inputs[index] = inputDependency{Index: dependency.Index, Type: dependency.TypeID}
 		}
 		value.Providers = append(value.Providers, inputProvider{
 			ID:      item.SymbolID,
+			Module:  providerModules[item.SymbolID],
 			Output:  item.OutputTypeID,
 			Cleanup: item.ReturnsCleanup,
 			Error:   item.ReturnsError,

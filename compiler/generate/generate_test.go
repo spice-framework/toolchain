@@ -59,9 +59,12 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"components.StoreProvider(provider0)",
 		"components.ServerProvider(provider1)",
 		"fmt \"fmt\"\n\n\tcomponents \"example.com/shop/components\"",
-		"RegisterCleanup(",
-		"Start: provider2.Start",
+		"RegisterModuleCleanup(",
+		"provider2.Start",
 		"provider2.Stop",
+		`Module: "example.com/shop/components"`,
+		"observers ...spicelifecycle.Observer",
+		"func (application *Application) RegisterObserver(",
 		"func (application *Application) Run(",
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
@@ -281,6 +284,74 @@ func Application() {}
 	}
 }
 
+func TestRenderInputHashTracksModuleOwnership(t *testing.T) {
+	files := map[string]string{
+		"app/application.go": `package app
+
+import "context"
+
+type Service struct{}
+
+// @Bean
+func ServiceProvider() Service { return Service{} }
+
+// @OnStart
+func (Service) Start(context.Context) error { return nil }
+
+// @Application
+func Application(Service) {}
+`,
+	}
+	withoutRoot := writeModule(t, "example.com/ownership", files)
+	program, model, applicationTarget := buildApplication(t, withoutRoot, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	withoutModule, diagnostics := Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render(without module) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+
+	files["app/application.go"] = `// Package app is an application module.
+//
+// @Module
+package app
+
+import "context"
+
+type Service struct{}
+
+// @Bean
+func ServiceProvider() Service { return Service{} }
+
+// @OnStart
+func (Service) Start(context.Context) error { return nil }
+
+// @Application
+func Application(Service) {}
+`
+	withRoot := writeModule(t, "example.com/ownership", files)
+	program, model, applicationTarget = buildApplication(t, withRoot, "./...")
+	target, diagnostics = DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget(module) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	withModule, diagnostics := Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render(with module) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	if withoutModule.Manifest().InputSHA256 == withModule.Manifest().InputSHA256 {
+		t.Fatal("module ownership did not change the canonical model input hash")
+	}
+	if bytes.Equal(
+		withoutModule.Files()[0].Content(),
+		withModule.Files()[0].Content(),
+	) {
+		t.Fatal("module ownership did not change generated lifecycle metadata")
+	}
+}
+
 func TestPlanAccessorsReturnDefensiveCopies(t *testing.T) {
 	root := writeModule(t, "example.com/copies", map[string]string{
 		"app/application.go": `package app
@@ -349,9 +420,15 @@ import (
 
 func TestGeneratedApplication(t *testing.T) {
 	components.Reset(false)
-	application, err := NewApplication(context.Background())
+	var observations []lifecycle.Observation
+	application, err := NewApplication(context.Background(), func(_ context.Context, observation lifecycle.Observation) {
+		observations = append(observations, observation)
+	})
 	if err != nil {
 		t.Fatalf("NewApplication() error = %v", err)
+	}
+	if err := application.RegisterObserver(nil); err == nil {
+		t.Fatal("RegisterObserver(nil) error = nil")
 	}
 	if got := application.State(); got != lifecycle.StateConstructed {
 		t.Fatalf("State() = %q", got)
@@ -369,6 +446,14 @@ func TestGeneratedApplication(t *testing.T) {
 	if got := components.Trace(); !slices.Equal(got, want) {
 		t.Fatalf("trace = %v, want %v", got, want)
 	}
+	if len(observations) != 6 {
+		t.Fatalf("observations = %#v, want 6", observations)
+	}
+	for _, observation := range observations {
+		if observation.Module != "example.com/shop/components" {
+			t.Fatalf("observation module = %q", observation.Module)
+		}
+	}
 
 	components.Reset(true)
 	failed, err := NewApplication(context.Background())
@@ -385,7 +470,10 @@ func TestGeneratedApplication(t *testing.T) {
 func generationFixture(t *testing.T) string {
 	t.Helper()
 	return writeModule(t, "example.com/shop", map[string]string{
-		"components/providers.go": `package components
+		"components/providers.go": `// Package components contains the generated application fixture.
+//
+// @Module
+package components
 
 import (
 	"context"

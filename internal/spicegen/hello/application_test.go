@@ -10,7 +10,13 @@ import (
 
 func TestGeneratedApplicationRunsAndDrainsHTTP(t *testing.T) {
 	t.Setenv("SPICE_EXAMPLE_ADDRESS", "127.0.0.1:0")
-	application, err := NewApplication(context.Background())
+	var observations []lifecycle.Observation
+	application, err := NewApplication(
+		context.Background(),
+		func(_ context.Context, observation lifecycle.Observation) {
+			observations = append(observations, observation)
+		},
+	)
 	if err != nil {
 		t.Fatalf("NewApplication() error = %v", err)
 	}
@@ -37,12 +43,23 @@ func TestGeneratedApplicationRunsAndDrainsHTTP(t *testing.T) {
 	if err := application.Stop(context.Background()); err != nil {
 		t.Fatalf("second Stop() error = %v", err)
 	}
+	if len(observations) != 4 {
+		t.Fatalf("observations = %#v, want 4", observations)
+	}
+	for _, observation := range observations {
+		if observation.Module != "github.com/StevenBuglione/spice/examples/hello-world/app" {
+			t.Fatalf("observation module = %q", observation.Module)
+		}
+	}
 }
 
 func TestGeneratedApplicationRejectsInvalidUse(t *testing.T) {
 	//nolint:staticcheck // Explicitly verifies the generated nil-context contract.
 	if application, err := NewApplication(nil); application != nil || err == nil {
 		t.Fatalf("NewApplication(nil) = %#v, %v", application, err)
+	}
+	if application, err := NewApplication(context.Background(), nil); application != nil || err == nil {
+		t.Fatalf("NewApplication(nil observer) = %#v, %v", application, err)
 	}
 	var application *Application
 	if got := application.State(); got != lifecycle.StateInvalid {
@@ -53,6 +70,9 @@ func TestGeneratedApplicationRejectsInvalidUse(t *testing.T) {
 	}
 	if err := application.Stop(context.Background()); err == nil {
 		t.Fatal("nil Stop() error = nil")
+	}
+	if err := application.RegisterObserver(func(context.Context, lifecycle.Observation) {}); err == nil {
+		t.Fatal("nil RegisterObserver() error = nil")
 	}
 	if err := application.Run(
 		context.Background(),

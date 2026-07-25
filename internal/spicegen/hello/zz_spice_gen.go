@@ -18,11 +18,16 @@ type Application struct {
 	hooks       []spicelifecycle.Hook
 }
 
-func NewApplication(ctx context.Context) (*Application, error) {
+func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("construct application hello: context is nil")
 	}
 	application := &Application{coordinator: spicelifecycle.NewCoordinator()}
+	for index, observer := range observers {
+		if err := application.coordinator.RegisterObserver(observer); err != nil {
+			return nil, fmt.Errorf("register lifecycle observer %d: %w", index, err)
+		}
+	}
 	provider0 := app.ControllerProvider()
 	_ = provider0
 	provider1 := app.HandlerProvider(provider0)
@@ -33,9 +38,10 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	_ = provider3
 	application.hooks = []spicelifecycle.Hook{
 		{
-			ID:    "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/hello-world/app|0:|14:ServerProvider",
-			Start: provider3.Start,
-			Stop:  provider3.Stop,
+			ID:     "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/hello-world/app|0:|14:ServerProvider",
+			Module: "github.com/StevenBuglione/spice/examples/hello-world/app",
+			Start:  provider3.Start,
+			Stop:   provider3.Stop,
 		},
 	}
 	return application, nil
@@ -60,6 +66,13 @@ func (application *Application) Stop(ctx context.Context) error {
 		return fmt.Errorf("stop application: application is nil")
 	}
 	return application.coordinator.Stop(ctx)
+}
+
+func (application *Application) RegisterObserver(observer spicelifecycle.Observer) error {
+	if application == nil || application.coordinator == nil {
+		return fmt.Errorf("register lifecycle observer: application is nil")
+	}
+	return application.coordinator.RegisterObserver(observer)
 }
 
 func (application *Application) Run(ctx context.Context, shutdown spicelifecycle.ContextFactory) error {
