@@ -8,10 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/StevenBuglione/spice/annotation/builtin"
-	"github.com/StevenBuglione/spice/compiler/graph"
-	"github.com/StevenBuglione/spice/compiler/lifecycle"
+	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
 	"github.com/StevenBuglione/spice/compiler/validate"
@@ -78,38 +76,13 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 		}
 		return 1
 	}
-	catalog := provider.Build(program, result)
-	providerDiagnostics := catalog.Diagnostics()
-	if len(providerDiagnostics) > 0 {
+	model := application.Build(program, result)
+	modelDiagnostics := model.Diagnostics()
+	if len(modelDiagnostics) > 0 {
 		if err := reportDiagnostics(
 			stderr,
-			providerDiagnostics,
-			fmt.Sprintf("Spice verification failed: %d provider catalog error(s).", len(providerDiagnostics)),
-		); err != nil {
-			return 1
-		}
-		return 1
-	}
-	providerGraph := graph.Build(catalog)
-	graphDiagnostics := providerGraph.Diagnostics()
-	if len(graphDiagnostics) > 0 {
-		if err := reportDiagnostics(
-			stderr,
-			graphDiagnostics,
-			fmt.Sprintf("Spice verification failed: %d provider graph error(s).", len(graphDiagnostics)),
-		); err != nil {
-			return 1
-		}
-		return 1
-	}
-
-	lifecycleCatalog := lifecycle.Build(program, result, catalog)
-	lifecycleDiagnostics := lifecycleCatalog.Diagnostics()
-	if len(lifecycleDiagnostics) > 0 {
-		if err := reportDiagnostics(
-			stderr,
-			lifecycleDiagnostics,
-			fmt.Sprintf("Spice verification failed: %d lifecycle hook error(s).", len(lifecycleDiagnostics)),
+			modelDiagnostics,
+			verificationSummary(modelDiagnostics),
 		); err != nil {
 			return 1
 		}
@@ -120,6 +93,24 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 		return 1
 	}
 	return 0
+}
+
+func verificationSummary(diagnostics []application.Diagnostic) string {
+	label := "application model"
+	if len(diagnostics) != 0 {
+		switch diagnostics[0].Stage {
+		case application.StageResolution:
+			label = "annotation resolution"
+		case application.StageProvider:
+			label = "provider catalog"
+		case application.StageGraph:
+			label = "provider graph"
+		case application.StageLifecycle:
+			label = "lifecycle hook"
+		case application.StageApplication:
+		}
+	}
+	return fmt.Sprintf("Spice verification failed: %d %s error(s).", len(diagnostics), label)
 }
 
 func annotations(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
