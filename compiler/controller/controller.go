@@ -89,16 +89,17 @@ func (r Route) Bindings() []Binding {
 
 // Controller is one @Controller type and its stable routes.
 type Controller struct {
-	Symbol           load.Symbol
-	SymbolID         string
-	Name             string
-	PackagePath      string
-	Prefix           string
-	Module           string
-	ProviderID       string
-	Position         token.Position
-	PhysicalPosition token.Position
-	routes           []Route
+	Symbol            load.Symbol
+	SymbolID          string
+	Name              string
+	PackagePath       string
+	Prefix            string
+	Module            string
+	ProviderID        string
+	Position          token.Position
+	PhysicalPosition  token.Position
+	routes            []Route
+	routeDeclarations int
 }
 
 // Routes returns routes sorted by HTTP method, path, and symbol ID.
@@ -228,6 +229,7 @@ func Build(
 			continue
 		}
 		controller := &catalog.controllers[index]
+		controller.routeDeclarations++
 		route, diagnostic := analyzeRoute(
 			occurrence,
 			symbol,
@@ -747,7 +749,7 @@ func finalize(catalog *Catalog) {
 	seenRoutes := make(map[string]Route)
 	for index := range catalog.controllers {
 		controller := &catalog.controllers[index]
-		if len(controller.routes) == 0 {
+		if controller.routeDeclarations == 0 {
 			catalog.diagnostics = append(catalog.diagnostics, Diagnostic{
 				Position:         controller.Position,
 				PhysicalPosition: controller.PhysicalPosition,

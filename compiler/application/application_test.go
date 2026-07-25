@@ -365,6 +365,22 @@ func Broken(string) int { return 0 }
 			want:      "requires exact type string",
 		},
 		{
+			name: "controller",
+			source: `package app
+
+// @Controller
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("relative")
+func (*API) Get() {}
+`,
+			wantStage: StageController,
+			want:      "route paths must be absolute",
+		},
+		{
 			name: "lifecycle",
 			source: `package app
 
@@ -400,10 +416,48 @@ func (Service) Stop(context.Context) error { return nil }
 				len(model.Edges()) != 0 ||
 				len(model.Components()) != 0 ||
 				len(model.Configurations()) != 0 ||
+				len(model.Controllers()) != 0 ||
 				len(model.Targets()) != 0 {
 				t.Fatal("invalid upstream stage leaked a partial application model")
 			}
 		})
+	}
+}
+
+func TestBuildIncludesTypedControllersInApplicationIR(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/httpapp\n\ngo 1.26.0\n",
+		"app/application.go": `package app
+
+import "net/http"
+
+// @Controller(prefix="/api")
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("/health")
+func (*API) Health(http.ResponseWriter, *http.Request) {}
+`,
+	})
+	program, resolution := loadAndResolve(t, root, "./app")
+	model := Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	controllers := model.Controllers()
+	if len(controllers) != 1 || controllers[0].Name != "API" ||
+		controllers[0].ProviderID == "" {
+		t.Fatalf("Controllers() = %#v", controllers)
+	}
+	routes := controllers[0].Routes()
+	if len(routes) != 1 || routes[0].Path != "/api/health" || !routes[0].Raw {
+		t.Fatalf("controller routes = %#v", routes)
+	}
+	routes[0].Name = "changed"
+	if model.Controllers()[0].Routes()[0].Name == "changed" {
+		t.Fatal("Controllers returned mutable route storage")
 	}
 }
 

@@ -27,11 +27,16 @@ func TestRunVerifyAcceptsValidBuiltIns(t *testing.T) {
 	t.Parallel()
 	root := writeGoSource(t, `package sample
 
+import "net/http"
+
 // @Controller(prefix="/users")
 type Controller struct{}
 
+// @Bean
+func NewController() *Controller { return &Controller{} }
+
 // @Get("/{id}")
-func (Controller) Get() {}
+func (*Controller) Get(http.ResponseWriter, *http.Request) {}
 `)
 	code, stdout, stderr := runModule(root, "verify", ".")
 	if code != 0 || !strings.Contains(stdout, "verification passed") {

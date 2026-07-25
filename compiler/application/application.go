@@ -10,6 +10,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/configuration"
+	"github.com/StevenBuglione/spice/compiler/controller"
 	"github.com/StevenBuglione/spice/compiler/graph"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
@@ -36,6 +37,8 @@ const (
 	StageModule Stage = "module"
 	// StageConfiguration identifies typed configuration validation.
 	StageConfiguration Stage = "configuration"
+	// StageController identifies typed HTTP controller validation.
+	StageController Stage = "controller"
 	// StageApplication identifies application marker and root validation.
 	StageApplication Stage = "application"
 )
@@ -100,6 +103,7 @@ type Model struct {
 	edges       []graph.Edge
 	components  []lifecycle.Component
 	configTypes []configuration.Type
+	controllers []controller.Controller
 	targets     []Target
 	moduleModel modulith.Model
 	diagnostics []Diagnostic
@@ -134,6 +138,12 @@ func (m Model) Components() []lifecycle.Component {
 // symbol order.
 func (m Model) Configurations() []configuration.Type {
 	return append([]configuration.Type(nil), m.configTypes...)
+}
+
+// Controllers returns validated provider-owned HTTP controllers in stable
+// symbol order.
+func (m Model) Controllers() []controller.Controller {
+	return append([]controller.Controller(nil), m.controllers...)
 }
 
 // Targets returns validated application targets in stable symbol order.
@@ -219,6 +229,13 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 		model.diagnostics = graphDiagnostics(diagnostics)
 		return model
 	}
+
+	controllerCatalog := controller.Build(program, resolution, providerCatalog, model.moduleModel)
+	if diagnostics := controllerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = controllerDiagnostics(diagnostics)
+		return model
+	}
+	model.controllers = controllerCatalog.Controllers()
 
 	lifecycleCatalog := lifecycle.Build(program, resolution, providerCatalog)
 	if diagnostics := lifecycleCatalog.Diagnostics(); len(diagnostics) != 0 {
@@ -578,6 +595,22 @@ func configurationDiagnostics(diagnostics []configuration.Diagnostic) []Diagnost
 	for index, diagnostic := range diagnostics {
 		result[index] = Diagnostic{
 			Stage:            StageConfiguration,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.SymbolID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func controllerDiagnostics(diagnostics []controller.Diagnostic) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageController,
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.SymbolID,
