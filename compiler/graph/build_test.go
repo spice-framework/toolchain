@@ -85,6 +85,9 @@ func AliasPointerConsumer(*AliasPointer) chan int { panic("must not execute") }
 	}
 	nodeRecord := result.Nodes()[0].Provider()
 	nodeRecord.Name = "mutated"
+	if nodeRecord.Name != "mutated" {
+		t.Fatal("test mutation did not update copied provider record")
+	}
 	orderCopy := result.ConstructionOrder()
 	orderCopy[0].Name = "mutated"
 	if result.Nodes()[0].Provider().Name == "mutated" || result.ConstructionOrder()[0].Name == "mutated" {
@@ -226,7 +229,7 @@ func DProvider(A, B) D { panic("must not execute") }
 	}
 	filesB := map[string]string{
 		"go.mod": filesA["go.mod"],
-		"one.go": strings.ReplaceAll(filesA["a.go"], "package deterministicgraph", "package deterministicgraph"),
+		"one.go": filesA["a.go"],
 		"two.go": filesA["z.go"],
 	}
 	first := graphSummary(buildModuleGraph(t, writeModule(t, filesA)))
@@ -234,7 +237,7 @@ func DProvider(A, B) D { panic("must not execute") }
 	if first != second {
 		t.Fatalf("equivalent loads changed graph:\nfirst=%s\nsecond=%s", first, second)
 	}
-	for run := 0; run < 20; run++ {
+	for run := range 20 {
 		if next := graphSummary(buildModuleGraph(t, writeModule(t, filesA))); next != first {
 			t.Fatalf("run %d changed graph:\nfirst=%s\nnext=%s", run, first, next)
 		}
@@ -306,7 +309,7 @@ func TestGraphLargeCatalog(t *testing.T) {
 	const count = 180
 	var source strings.Builder
 	source.WriteString("package largegraph\n\n")
-	for index := 0; index < count; index++ {
+	for index := range count {
 		fmt.Fprintf(&source, "type T%d struct{}\n", index)
 		if index == 0 {
 			fmt.Fprintf(&source, "// @Bean\nfunc Provider%d() T%d { panic(\"must not execute\") }\n", index, index)
@@ -348,22 +351,38 @@ func buildQuiet(t *testing.T, catalog provider.Catalog) Result {
 	}
 	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
+		if closeErr := stdoutReader.Close(); closeErr != nil {
+			t.Logf("close stdout reader after stderr pipe failure: %v", closeErr)
+		}
+		if closeErr := stdoutWriter.Close(); closeErr != nil {
+			t.Logf("close stdout writer after stderr pipe failure: %v", closeErr)
+		}
 		t.Fatal(err)
 	}
 	originalStdout, originalStderr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = stdoutWriter, stderrWriter
 	result := Build(catalog)
 	os.Stdout, os.Stderr = originalStdout, originalStderr
-	if err := stdoutWriter.Close(); err != nil {
+	if closeErr := stdoutWriter.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if closeErr := stderrWriter.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	stdout, err := io.ReadAll(stdoutReader)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stderrWriter.Close(); err != nil {
+	stderr, err := io.ReadAll(stderrReader)
+	if err != nil {
 		t.Fatal(err)
 	}
-	stdout, _ := io.ReadAll(stdoutReader)
-	stderr, _ := io.ReadAll(stderrReader)
-	_ = stdoutReader.Close()
-	_ = stderrReader.Close()
+	if err := stdoutReader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := stderrReader.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if len(stdout) != 0 || len(stderr) != 0 {
 		t.Fatalf("graph library wrote stdout=%q stderr=%q", stdout, stderr)
 	}

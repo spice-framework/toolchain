@@ -4,6 +4,7 @@ package validate
 import (
 	"fmt"
 	"go/token"
+	"slices"
 	"sort"
 	"strings"
 
@@ -57,6 +58,14 @@ func (diagnostic Diagnostic) Error() string {
 	}
 
 	switch diagnostic.kind {
+	case diagnosticUnknownAnnotation:
+		return fmt.Sprintf(
+			"%s:%d:%d: unknown annotation @%s; add a registered annotation definition before using it",
+			position.Filename,
+			position.Line,
+			position.Column,
+			diagnostic.Annotation,
+		)
 	case diagnosticInvalidTarget:
 		allowed := targetsToStrings(diagnostic.Allowed)
 		label := "targets"
@@ -237,8 +246,8 @@ func annotationArguments(occurrence scan.Occurrence, definition annotation.Defin
 		definitionsByName[argument.Name] = argument
 		available = append(available, argument.Name)
 		if argument.Positional {
-			copy := argument
-			positional = &copy
+			positionalDefinition := argument
+			positional = &positionalDefinition
 		}
 	}
 	sort.Strings(available)
@@ -250,7 +259,6 @@ func annotationArguments(occurrence scan.Occurrence, definition annotation.Defin
 	for _, suppliedArgument := range supplied {
 		argumentName := suppliedArgument.Name
 		var argumentDefinition annotation.ArgumentDefinition
-		var found bool
 
 		if argumentName == "" {
 			positionalCount++
@@ -266,15 +274,15 @@ func annotationArguments(occurrence scan.Occurrence, definition annotation.Defin
 			}
 			argumentName = positional.Name
 			argumentDefinition = *positional
-			found = true
 		} else {
-			argumentDefinition, found = definitionsByName[argumentName]
+			definition, found := definitionsByName[argumentName]
 			if !found {
 				diagnostic := argumentDiagnostic(occurrence, diagnosticUnknownArgument, argumentName)
 				diagnostic.Available = append([]string(nil), available...)
 				diagnostics = append(diagnostics, diagnostic)
 				continue
 			}
+			argumentDefinition = definition
 		}
 
 		assigned[argumentName]++
@@ -314,12 +322,7 @@ func argumentDiagnostic(occurrence scan.Occurrence, kind diagnosticKind, argumen
 }
 
 func kindAccepted(actual annotation.Kind, expected []annotation.Kind) bool {
-	for _, candidate := range expected {
-		if actual == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(expected, actual)
 }
 
 func normalizedPosition(position token.Position) token.Position {

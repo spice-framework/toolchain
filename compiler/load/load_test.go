@@ -126,7 +126,7 @@ var ExternalTestOnly int
 	})
 
 	var first []byte
-	for iteration := 0; iteration < 3; iteration++ {
+	for iteration := range 3 {
 		program, err := Load(context.Background(), Options{Dir: dir, Tests: true}, "./...")
 		if err == nil {
 			t.Fatalf("Load() iteration %d error = nil, want unsupported-mode error", iteration)
@@ -180,9 +180,13 @@ var Tagged int
 	if symbolByID(program.Symbols(), "example.com/tags/tagged.Tagged") != nil {
 		t.Fatal("default load included build-tag-excluded declaration")
 	}
-	for _, file := range program.Packages()[0].CompiledGoFiles {
+	packages := program.Packages()
+	if len(packages) == 0 {
+		t.Fatal("Packages() is empty")
+	}
+	for _, file := range packages[0].CompiledGoFiles {
 		if strings.HasSuffix(file, "excluded.go") {
-			t.Fatalf("default compiled files include excluded.go: %v", program.Packages()[0].CompiledGoFiles)
+			t.Fatalf("default compiled files include excluded.go: %v", packages[0].CompiledGoFiles)
 		}
 	}
 
@@ -211,9 +215,12 @@ var Value string = 1
 	if err == nil {
 		t.Fatal("Load() error = nil, want type error")
 	}
-	var loadError *LoadError
-	if !errors.As(err, &loadError) {
+	loadError, ok := errors.AsType[*LoadError](err)
+	if !ok {
 		t.Fatalf("Load() error = %T, want *LoadError", err)
+	}
+	if len(loadError.Diagnostics) == 0 {
+		t.Fatal("LoadError.Diagnostics is empty")
 	}
 	packages := program.Packages()
 	if len(packages) != 1 || !packages[0].IllTyped {
@@ -313,7 +320,7 @@ func TestLoadDeterministic(t *testing.T) {
 	})
 
 	var first []byte
-	for iteration := 0; iteration < 3; iteration++ {
+	for iteration := range 3 {
 		program, err := Load(context.Background(), Options{Dir: dir}, "./z", "./a", "./broken")
 		if err == nil {
 			t.Fatalf("Load() iteration %d error = nil, want deterministic type error", iteration)
@@ -349,7 +356,9 @@ func TestLoadIsQuiet(t *testing.T) {
 	}
 	oldStdout, oldStderr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = stdoutFile, stderrFile
-	_, _ = Load(context.Background(), Options{Dir: dir}, "./broken")
+	if _, loadErr := Load(context.Background(), Options{Dir: dir}, "./broken"); loadErr == nil {
+		t.Fatal("Load() error = nil, want broken package error")
+	}
 	os.Stdout, os.Stderr = oldStdout, oldStderr
 	if err := stdoutFile.Close(); err != nil {
 		t.Fatal(err)
@@ -363,7 +372,10 @@ func TestLoadIsQuiet(t *testing.T) {
 			t.Fatal(err)
 		}
 		if info.Size() != 0 {
-			content, _ := os.ReadFile(path)
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
 			t.Fatalf("Load wrote to %s: %q", filepath.Base(path), content)
 		}
 	}

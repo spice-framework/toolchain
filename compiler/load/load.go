@@ -36,17 +36,8 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(patterns) == 0 {
-		diagnostic := Diagnostic{Kind: "list", Message: "no package patterns were provided"}
-		program := &Program{diagnostics: []Diagnostic{diagnostic}}
-		return program, &LoadError{Diagnostics: program.Diagnostics()}
-	}
-	if options.Tests {
-		diagnostic := Diagnostic{
-			Kind:    "configuration",
-			Message: "test-variant loading is unsupported; load application packages with Tests disabled",
-		}
-		program := &Program{diagnostics: []Diagnostic{diagnostic}}
+	if diagnostics := requestDiagnostics(options, patterns); len(diagnostics) != 0 {
+		program := &Program{diagnostics: diagnostics}
 		return program, &LoadError{Diagnostics: program.Diagnostics()}
 	}
 
@@ -65,6 +56,27 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		return nil, err
 	}
 
+	program := programFromRoots(roots, loadErr)
+	if len(program.diagnostics) > 0 || loadErr != nil {
+		return program, &LoadError{Diagnostics: program.Diagnostics()}
+	}
+	return program, nil
+}
+
+func requestDiagnostics(options Options, patterns []string) []Diagnostic {
+	if len(patterns) == 0 {
+		return []Diagnostic{{Kind: "list", Message: "no package patterns were provided"}}
+	}
+	if options.Tests {
+		return []Diagnostic{{
+			Kind:    "configuration",
+			Message: "test-variant loading is unsupported; load application packages with Tests disabled",
+		}}
+	}
+	return nil
+}
+
+func programFromRoots(roots []*packages.Package, loadErr error) *Program {
 	program := &Program{}
 	if loadErr != nil {
 		program.diagnostics = append(program.diagnostics, Diagnostic{
@@ -109,11 +121,7 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		return left.PhysicalPosition.Offset < right.PhysicalPosition.Offset
 	})
 	sortDiagnostics(program.diagnostics)
-
-	if len(program.diagnostics) > 0 || loadErr != nil {
-		return program, &LoadError{Diagnostics: program.Diagnostics()}
-	}
-	return program, nil
+	return program
 }
 
 func cloneOverlay(overlay map[string][]byte) map[string][]byte {
@@ -313,6 +321,8 @@ func splitTrailingNumber(value string) (string, int, bool) {
 
 func errorKindName(kind packages.ErrorKind) string {
 	switch kind {
+	case packages.UnknownError:
+		return "unknown"
 	case packages.ListError:
 		return "list"
 	case packages.ParseError:
@@ -349,61 +359,99 @@ func packageSymbols(root *packages.Package) []Symbol {
 			continue
 		}
 		for _, declaration := range file.Decls {
-			switch declaration := declaration.(type) {
-			case *ast.GenDecl:
-				for _, specification := range declaration.Specs {
-					switch specification := specification.(type) {
-					case *ast.TypeSpec:
-						if specification.Name.Name == "_" {
-							continue
-						}
-						if object := root.TypesInfo.Defs[specification.Name]; object != nil && sourceObject(root, object, sourceFiles) {
-							symbols = append(symbols, objectSymbol(root, object, specification, SymbolType, ""))
-						}
-					case *ast.ValueSpec:
-						for _, name := range specification.Names {
-							if name.Name == "_" {
-								continue
-							}
-							object := root.TypesInfo.Defs[name]
-							if object == nil || !sourceObject(root, object, sourceFiles) {
-								continue
-							}
-							kind := SymbolVariable
-							if _, ok := object.(*types.Const); ok {
-								kind = SymbolConstant
-							}
-							symbols = append(symbols, objectSymbol(root, object, name, kind, ""))
-						}
-					}
-				}
-			case *ast.FuncDecl:
-				if declaration.Name.Name == "_" || (declaration.Recv == nil && declaration.Name.Name == "init") {
-					continue
-				}
-				object, _ := root.TypesInfo.Defs[declaration.Name].(*types.Func)
-				if object == nil || !sourceObject(root, object, sourceFiles) {
-					continue
-				}
-				signature, _ := object.Type().(*types.Signature)
-				if declaration.Recv == nil {
-					symbol := objectSymbol(root, object, declaration, SymbolFunction, "")
-					symbol.Signature = signature
-					symbols = append(symbols, symbol)
-					continue
-				}
-				receiver, err := normalizedReceiverName(signature)
-				if err != nil {
-					// Ill-formed receiver declarations are already reported by go/types.
-					continue
-				}
-				symbol := objectSymbol(root, object, declaration, SymbolMethod, receiver)
-				symbol.Signature = signature
-				symbols = append(symbols, symbol)
-			}
+			symbols = append(symbols, declarationSymbols(root, declaration, sourceFiles)...)
 		}
 	}
 	return symbols
+}
+
+func declarationSymbols(root *packages.Package, declaration ast.Decl, sourceFiles map[string]struct{}) []Symbol {
+	switch declaration := declaration.(type) {
+	case *ast.GenDecl:
+		return generalDeclarationSymbols(root, declaration, sourceFiles)
+	case *ast.FuncDecl:
+		symbol, ok := functionSymbol(root, declaration, sourceFiles)
+		if ok {
+			return []Symbol{symbol}
+		}
+	}
+	return nil
+}
+
+func generalDeclarationSymbols(
+	root *packages.Package,
+	declaration *ast.GenDecl,
+	sourceFiles map[string]struct{},
+) []Symbol {
+	var symbols []Symbol
+	for _, specification := range declaration.Specs {
+		switch specification := specification.(type) {
+		case *ast.TypeSpec:
+			if symbol, ok := typeSymbol(root, specification, sourceFiles); ok {
+				symbols = append(symbols, symbol)
+			}
+		case *ast.ValueSpec:
+			symbols = append(symbols, valueSymbols(root, specification, sourceFiles)...)
+		}
+	}
+	return symbols
+}
+
+func typeSymbol(root *packages.Package, specification *ast.TypeSpec, sourceFiles map[string]struct{}) (Symbol, bool) {
+	if specification.Name.Name == "_" {
+		return Symbol{}, false
+	}
+	object := root.TypesInfo.Defs[specification.Name]
+	if object == nil || !sourceObject(root, object, sourceFiles) {
+		return Symbol{}, false
+	}
+	return objectSymbol(root, object, specification, SymbolType, ""), true
+}
+
+func valueSymbols(root *packages.Package, specification *ast.ValueSpec, sourceFiles map[string]struct{}) []Symbol {
+	var symbols []Symbol
+	for _, name := range specification.Names {
+		if name.Name == "_" {
+			continue
+		}
+		object := root.TypesInfo.Defs[name]
+		if object == nil || !sourceObject(root, object, sourceFiles) {
+			continue
+		}
+		kind := SymbolVariable
+		if _, ok := object.(*types.Const); ok {
+			kind = SymbolConstant
+		}
+		symbols = append(symbols, objectSymbol(root, object, name, kind, ""))
+	}
+	return symbols
+}
+
+func functionSymbol(root *packages.Package, declaration *ast.FuncDecl, sourceFiles map[string]struct{}) (Symbol, bool) {
+	if declaration.Name.Name == "_" || (declaration.Recv == nil && declaration.Name.Name == "init") {
+		return Symbol{}, false
+	}
+	object, ok := root.TypesInfo.Defs[declaration.Name].(*types.Func)
+	if !ok || !sourceObject(root, object, sourceFiles) {
+		return Symbol{}, false
+	}
+	signature, ok := object.Type().(*types.Signature)
+	if !ok {
+		return Symbol{}, false
+	}
+	if declaration.Recv == nil {
+		symbol := objectSymbol(root, object, declaration, SymbolFunction, "")
+		symbol.Signature = signature
+		return symbol, true
+	}
+	receiver, err := normalizedReceiverName(signature)
+	if err != nil {
+		// Ill-formed receiver declarations are already reported by go/types.
+		return Symbol{}, false
+	}
+	symbol := objectSymbol(root, object, declaration, SymbolMethod, receiver)
+	symbol.Signature = signature
+	return symbol, true
 }
 
 func objectSymbol(root *packages.Package, object types.Object, node ast.Node, kind SymbolKind, receiver string) Symbol {

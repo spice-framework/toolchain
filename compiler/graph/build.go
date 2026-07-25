@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"slices"
 	"sort"
 	"strings"
 
@@ -234,7 +235,7 @@ func stronglyConnected(adjacency [][]int, providers []provider.Provider) [][]int
 }
 
 func cycleDiagnostic(component []int, adjacency [][]int, providers []provider.Provider) Diagnostic {
-	path := representativeCycle(component, adjacency, providers)
+	path := representativeCycle(component, adjacency)
 	pathIDs := make([]string, len(path))
 	for index, node := range path {
 		pathIDs[index] = providers[node].SymbolID
@@ -256,7 +257,7 @@ func cycleDiagnostic(component []int, adjacency [][]int, providers []provider.Pr
 	}
 }
 
-func representativeCycle(component []int, adjacency [][]int, providers []provider.Provider) []int {
+func representativeCycle(component []int, adjacency [][]int) []int {
 	start := component[0]
 	if containsIndex(adjacency[start], start) {
 		return []int{start, start}
@@ -309,21 +310,25 @@ type readyPriorityQueue struct {
 	comparisons *int
 }
 
-func (queue readyPriorityQueue) Len() int { return len(queue.values) }
+func (queue *readyPriorityQueue) Len() int { return len(queue.values) }
 
-func (queue readyPriorityQueue) Less(i, j int) bool {
+func (queue *readyPriorityQueue) Less(i, j int) bool {
 	if queue.comparisons != nil {
 		*queue.comparisons++
 	}
 	return queue.providers[queue.values[i]].SymbolID < queue.providers[queue.values[j]].SymbolID
 }
 
-func (queue readyPriorityQueue) Swap(i, j int) {
+func (queue *readyPriorityQueue) Swap(i, j int) {
 	queue.values[i], queue.values[j] = queue.values[j], queue.values[i]
 }
 
 func (queue *readyPriorityQueue) Push(value any) {
-	queue.values = append(queue.values, value.(int))
+	index, ok := value.(int)
+	if !ok {
+		panic(fmt.Sprintf("graph priority queue received %T, want int", value))
+	}
+	queue.values = append(queue.values, index)
 }
 
 func (queue *readyPriorityQueue) Pop() any {
@@ -366,7 +371,11 @@ func constructionOrderWithStats(adjacency [][]int, providers []provider.Provider
 
 	order := make([]*provider.Provider, 0, len(providers))
 	for ready.Len() != 0 {
-		node := heap.Pop(ready).(int)
+		value := heap.Pop(ready)
+		node, ok := value.(int)
+		if !ok {
+			panic(fmt.Sprintf("graph priority queue returned %T, want int", value))
+		}
 		order = append(order, &providers[node])
 		for _, consumer := range consumers[node] {
 			remaining[consumer]--
@@ -379,12 +388,7 @@ func constructionOrderWithStats(adjacency [][]int, providers []provider.Provider
 }
 
 func containsIndex(values []int, target int) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 func renderPosition(position token.Position) string {

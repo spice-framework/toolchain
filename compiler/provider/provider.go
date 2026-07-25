@@ -1,3 +1,4 @@
+// Package provider builds and validates the compile-time provider catalog.
 package provider
 
 import (
@@ -144,120 +145,221 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 	return catalog
 }
 
-func analyzeProvider(occurrence resolve.Occurrence, symbol load.Symbol, fileSet *token.FileSet, cleanupType types.Type) (Provider, *Diagnostic) {
-	fail := func(kind, message string) (Provider, *Diagnostic) {
-		diagnostic := symbolDiagnostic(occurrence, symbol, kind, message)
-		return Provider{}, &diagnostic
-	}
+type providerProblem struct {
+	kind    string
+	message string
+}
+
+type resultMetadata struct {
+	output         types.Type
+	returnsCleanup bool
+	returnsError   bool
+}
+
+func analyzeProvider(
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	fileSet *token.FileSet,
+	cleanupType types.Type,
+) (Provider, *Diagnostic) {
 	label := symbol.DisplayLabel
 	if label == "" {
 		label = symbol.ID
 	}
+	signature, problem := providerSignature(occurrence, symbol, label)
+	if problem != nil {
+		diagnostic := symbolDiagnostic(occurrence, symbol, problem.kind, problem.message)
+		return Provider{}, &diagnostic
+	}
+	results, problem := analyzeResults(signature.Results(), cleanupType, label)
+	if problem != nil {
+		diagnostic := symbolDiagnostic(occurrence, symbol, problem.kind, problem.message)
+		return Provider{}, &diagnostic
+	}
+
+	dependencies := providerDependencies(signature, fileSet)
+	return Provider{
+		Symbol:           symbol,
+		SymbolID:         symbol.ID,
+		Name:             symbol.Name,
+		PackagePath:      symbol.PackagePath,
+		Position:         occurrence.DisplayPosition,
+		PhysicalPosition: token.Position{Filename: occurrence.PhysicalFile, Offset: occurrence.PhysicalOffset},
+		Output:           results.output,
+		OutputTypeID:     TypeID(results.output),
+		Dependencies:     dependencies,
+		ReturnsCleanup:   results.returnsCleanup,
+		ReturnsError:     results.returnsError,
+	}, nil
+}
+
+func providerSignature(
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	label string,
+) (*types.Signature, *providerProblem) {
 	if occurrence.Target != annotation.TargetFunction || symbol.Kind != load.SymbolFunction || symbol.Receiver != "" {
-		return fail("invalid-target", fmt.Sprintf("@Bean %s must target a package-level function; provider methods and other declarations are not supported", label))
+		return nil, &providerProblem{
+			kind:    "invalid-target",
+			message: fmt.Sprintf("@Bean %s must target a package-level function; provider methods and other declarations are not supported", label),
+		}
 	}
 	if len(occurrence.Annotation.Arguments) != 0 {
-		return fail("arguments", fmt.Sprintf("@Bean provider %s does not accept annotation arguments", label))
+		return nil, &providerProblem{
+			kind:    "arguments",
+			message: fmt.Sprintf("@Bean provider %s does not accept annotation arguments", label),
+		}
 	}
 	signature := symbol.Signature
 	if signature == nil {
-		return fail("missing-signature", fmt.Sprintf("@Bean provider %s has no typed function signature", label))
+		return nil, &providerProblem{
+			kind:    "missing-signature",
+			message: fmt.Sprintf("@Bean provider %s has no typed function signature", label),
+		}
 	}
 	if signature.TypeParams() != nil && signature.TypeParams().Len() > 0 {
-		return fail("generic", invalidSignatureMessage(label, "generic provider functions are not supported"))
+		return nil, signatureProblem("generic", label, "generic provider functions are not supported")
 	}
 	if signature.Variadic() {
-		return fail("variadic", invalidSignatureMessage(label, "variadic provider functions are not supported"))
+		return nil, signatureProblem("variadic", label, "variadic provider functions are not supported")
 	}
+	return signature, nil
+}
 
-	results := signature.Results()
-	var output types.Type
-	returnsCleanup := false
-	returnsError := false
+func analyzeResults(results *types.Tuple, cleanupType types.Type, label string) (resultMetadata, *providerProblem) {
 	switch results.Len() {
 	case 0:
-		return fail("zero-results", invalidSignatureMessage(label, "provider functions must return one provided value"))
+		return resultMetadata{}, signatureProblem(
+			"zero-results",
+			label,
+			"provider functions must return one provided value",
+		)
 	case 1:
-		output = results.At(0).Type()
-		if isError(output) {
-			return fail("error-only", invalidSignatureMessage(label, "error cannot be the only result"))
-		}
+		return analyzeOneResult(results, label)
 	case 2:
-		first := results.At(0).Type()
-		second := results.At(1).Type()
-		if isError(first) {
-			return fail("error-position", invalidSignatureMessage(label, "error must be the final and only additional result"))
-		}
-		output = first
-		switch {
-		case isError(second):
-			returnsError = true
-		case isCleanup(second, cleanupType):
-			returnsCleanup = true
-		default:
-			return fail("invalid-second-result", invalidSignatureMessage(label, "provider functions may return only one provided value; the second result must be lifecycle.Cleanup or error"))
-		}
+		return analyzeTwoResults(results, cleanupType, label)
 	case 3:
-		first := results.At(0).Type()
-		second := results.At(1).Type()
-		third := results.At(2).Type()
-		errorResults := 0
-		cleanupResults := 0
-		for _, metadata := range []types.Type{second, third} {
-			if isError(metadata) {
-				errorResults++
-			}
-			if isCleanup(metadata, cleanupType) {
-				cleanupResults++
-			}
-		}
-		if cleanupResults > 1 {
-			return fail("too-many-results", invalidSignatureMessage(label, "provider functions may return at most one lifecycle.Cleanup metadata result"))
-		}
-		if errorResults > 1 {
-			return fail("too-many-results", invalidSignatureMessage(label, "provider functions may return at most one error result"))
-		}
-		if isError(first) {
-			return fail("error-position", invalidSignatureMessage(label, "error must be the final and only additional result"))
-		}
-		if !isCleanup(second, cleanupType) {
-			reason := "the second result must be lifecycle.Cleanup"
-			if isError(second) {
-				reason = "error must follow lifecycle.Cleanup as the final result"
-			}
-			return fail("cleanup-position", invalidSignatureMessage(label, reason))
-		}
-		if !isError(third) {
-			reason := "the third result must be error"
-			if isCleanup(third, cleanupType) {
-				reason = "only one lifecycle.Cleanup metadata result is allowed and it must be second"
-			}
-			return fail("error-position", invalidSignatureMessage(label, reason))
-		}
-		output = first
-		returnsCleanup = true
-		returnsError = true
+		return analyzeThreeResults(results, cleanupType, label)
 	default:
-		errorResults := 0
-		cleanupResults := 0
-		for i := 0; i < results.Len(); i++ {
-			result := results.At(i).Type()
-			if isError(result) {
-				errorResults++
-			}
-			if isCleanup(result, cleanupType) {
-				cleanupResults++
-			}
-		}
-		reason := "provider functions may return only one provided value, one optional lifecycle.Cleanup, and one optional final error"
-		if cleanupResults > 1 {
-			reason = "provider functions may return at most one lifecycle.Cleanup result"
-		} else if errorResults > 1 {
-			reason = "provider functions may return at most one error result"
-		}
-		return fail("too-many-results", invalidSignatureMessage(label, reason))
+		return analyzeExcessResults(results, cleanupType, label)
 	}
+}
 
+func analyzeOneResult(results *types.Tuple, label string) (resultMetadata, *providerProblem) {
+	output := results.At(0).Type()
+	if isError(output) {
+		return resultMetadata{}, signatureProblem("error-only", label, "error cannot be the only result")
+	}
+	return resultMetadata{output: output}, nil
+}
+
+func analyzeTwoResults(
+	results *types.Tuple,
+	cleanupType types.Type,
+	label string,
+) (resultMetadata, *providerProblem) {
+	first := results.At(0).Type()
+	second := results.At(1).Type()
+	if isError(first) {
+		return resultMetadata{}, signatureProblem(
+			"error-position",
+			label,
+			"error must be the final and only additional result",
+		)
+	}
+	switch {
+	case isError(second):
+		return resultMetadata{output: first, returnsError: true}, nil
+	case isCleanup(second, cleanupType):
+		return resultMetadata{output: first, returnsCleanup: true}, nil
+	default:
+		return resultMetadata{}, signatureProblem(
+			"invalid-second-result",
+			label,
+			"provider functions may return only one provided value; the second result must be lifecycle.Cleanup or error",
+		)
+	}
+}
+
+func analyzeThreeResults(
+	results *types.Tuple,
+	cleanupType types.Type,
+	label string,
+) (resultMetadata, *providerProblem) {
+	first := results.At(0).Type()
+	second := results.At(1).Type()
+	third := results.At(2).Type()
+	errorResults, cleanupResults := metadataCounts([]types.Type{second, third}, cleanupType)
+	if cleanupResults > 1 {
+		return resultMetadata{}, signatureProblem(
+			"too-many-results",
+			label,
+			"provider functions may return at most one lifecycle.Cleanup metadata result",
+		)
+	}
+	if errorResults > 1 {
+		return resultMetadata{}, signatureProblem(
+			"too-many-results",
+			label,
+			"provider functions may return at most one error result",
+		)
+	}
+	if isError(first) {
+		return resultMetadata{}, signatureProblem(
+			"error-position",
+			label,
+			"error must be the final and only additional result",
+		)
+	}
+	if !isCleanup(second, cleanupType) {
+		reason := "the second result must be lifecycle.Cleanup"
+		if isError(second) {
+			reason = "error must follow lifecycle.Cleanup as the final result"
+		}
+		return resultMetadata{}, signatureProblem("cleanup-position", label, reason)
+	}
+	if !isError(third) {
+		reason := "the third result must be error"
+		if isCleanup(third, cleanupType) {
+			reason = "only one lifecycle.Cleanup metadata result is allowed and it must be second"
+		}
+		return resultMetadata{}, signatureProblem("error-position", label, reason)
+	}
+	return resultMetadata{output: first, returnsCleanup: true, returnsError: true}, nil
+}
+
+func analyzeExcessResults(
+	results *types.Tuple,
+	cleanupType types.Type,
+	label string,
+) (resultMetadata, *providerProblem) {
+	metadata := make([]types.Type, 0, results.Len())
+	for variable := range results.Variables() {
+		metadata = append(metadata, variable.Type())
+	}
+	errorResults, cleanupResults := metadataCounts(metadata, cleanupType)
+	reason := "provider functions may return only one provided value, one optional lifecycle.Cleanup, and one optional final error"
+	if cleanupResults > 1 {
+		reason = "provider functions may return at most one lifecycle.Cleanup result"
+	} else if errorResults > 1 {
+		reason = "provider functions may return at most one error result"
+	}
+	return resultMetadata{}, signatureProblem("too-many-results", label, reason)
+}
+
+func metadataCounts(metadata []types.Type, cleanupType types.Type) (errorResults, cleanupResults int) {
+	for _, result := range metadata {
+		if isError(result) {
+			errorResults++
+		}
+		if isCleanup(result, cleanupType) {
+			cleanupResults++
+		}
+	}
+	return errorResults, cleanupResults
+}
+
+func providerDependencies(signature *types.Signature, fileSet *token.FileSet) []Dependency {
 	dependencies := make([]Dependency, signature.Params().Len())
 	for index := 0; index < signature.Params().Len(); index++ {
 		parameter := signature.Params().At(index)
@@ -273,20 +375,11 @@ func analyzeProvider(occurrence resolve.Occurrence, symbol load.Symbol, fileSet 
 		}
 		dependencies[index] = dependency
 	}
+	return dependencies
+}
 
-	return Provider{
-		Symbol:           symbol,
-		SymbolID:         symbol.ID,
-		Name:             symbol.Name,
-		PackagePath:      symbol.PackagePath,
-		Position:         occurrence.DisplayPosition,
-		PhysicalPosition: token.Position{Filename: occurrence.PhysicalFile, Offset: occurrence.PhysicalOffset},
-		Output:           output,
-		OutputTypeID:     TypeID(output),
-		Dependencies:     dependencies,
-		ReturnsCleanup:   returnsCleanup,
-		ReturnsError:     returnsError,
-	}, nil
+func signatureProblem(kind, label, reason string) *providerProblem {
+	return &providerProblem{kind: kind, message: invalidSignatureMessage(label, reason)}
 }
 
 func invalidSignatureMessage(label, reason string) string {
@@ -338,11 +431,12 @@ func loadedNamedType(program *load.Program, packagePath, typeName string) *types
 				valid = false
 			} else {
 				named, ok := object.Type().(*types.Named)
-				if !ok || named.Obj() != object {
+				switch {
+				case !ok || named.Obj() != object:
 					valid = false
-				} else if found == nil {
+				case found == nil:
 					found = named
-				} else if !types.Identical(found, named) {
+				case !types.Identical(found, named):
 					valid = false
 				}
 			}

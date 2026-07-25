@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -113,8 +112,9 @@ func NamedBProvider() NamedB { panic("provider body must not execute") }
 	}
 
 	copyOne := catalog.Providers()
+	originalDependencyCount := len(copyOne[0].Dependencies)
 	copyOne[0].Dependencies = append(copyOne[0].Dependencies, Dependency{TypeID: "mutated"})
-	if reflect.DeepEqual(copyOne, catalog.Providers()) {
+	if len(catalog.Providers()[0].Dependencies) != originalDependencyCount {
 		t.Fatal("Providers() did not return a defensive copy")
 	}
 }
@@ -289,7 +289,7 @@ func AProvider() A { return A{} }
 `,
 	})
 	var first string
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		program, resolved := loadAndResolve(t, root, ".")
 		catalog := buildQuiet(t, program, resolved)
 		if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
@@ -321,11 +321,11 @@ func buildQuiet(t *testing.T, program *load.Program, resolved resolve.Result) Ca
 	os.Stdout, os.Stderr = stdoutWriter, stderrWriter
 	catalog := Build(program, resolved)
 	os.Stdout, os.Stderr = originalStdout, originalStderr
-	if err := stdoutWriter.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := stdoutWriter.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-	if err := stderrWriter.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := stderrWriter.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	stdout, err := io.ReadAll(stdoutReader)
 	if err != nil {
@@ -502,10 +502,16 @@ func CleanupAsOutputProvider() life.Cleanup {
 		}
 	}
 	cleanupOutput := providerByName(providers, "CleanupAsOutputProvider")
+	if cleanupOutput == nil {
+		t.Fatal("missing CleanupAsOutputProvider")
+	}
 	if cleanupOutput.OutputTypeID != "github.com/StevenBuglione/spice/lifecycle.Cleanup" || cleanupOutput.ReturnsCleanup {
 		t.Fatalf("cleanup primary output = %#v", cleanupOutput)
 	}
 	cleanupProvider := providerByName(providers, "CleanupProvider")
+	if cleanupProvider == nil {
+		t.Fatal("missing CleanupProvider")
+	}
 	if len(cleanupProvider.Dependencies) != 1 || cleanupProvider.Dependencies[0].TypeID != "github.com/StevenBuglione/spice/app.Config" {
 		t.Fatalf("cleanup provider dependencies = %#v", cleanupProvider.Dependencies)
 	}
@@ -592,7 +598,7 @@ func AProvider() (A, life.Cleanup, error) { panic("must not execute") }
 `,
 	}
 	var first string
-	for run := 0; run < 20; run++ {
+	for run := range 20 {
 		program, resolved := loadAndResolve(t, writeModule(t, files), "./app")
 		catalog := buildQuiet(t, program, resolved)
 		if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {

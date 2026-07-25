@@ -3,14 +3,15 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/StevenBuglione/spice/compiler/resolve"
 )
 
 func TestCatalogAcceptsLifecycleHooks(t *testing.T) {
@@ -73,6 +74,7 @@ func PassiveProvider() Passive { panic("provider must not execute") }
 		t.Fatal("Components() did not return defensive hook copies")
 	}
 }
+
 func TestCatalogRejectsInvalidLifecycleHooks(t *testing.T) {
 	var source strings.Builder
 	source.WriteString("package app\n\nimport (\"context\"; \"time\")\n\ntype ContextLike interface { Deadline() (time.Time, bool); Done() <-chan struct{}; Err() error; Value(any) any }\ntype ErrorLike interface { Error() string }\n")
@@ -102,7 +104,7 @@ func TestCatalogRejectsInvalidLifecycleHooks(t *testing.T) {
 	root := writeModule(t, map[string]string{"go.mod": "module example.com/invalidhooks\n\ngo 1.23.0\n", "app/hooks.go": source.String()})
 	program, resolution, providers := loadCatalogs(t, root)
 	var first string
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		if run%2 == 1 {
 			for left, right := 0, len(resolution.Occurrences)-1; left < right; left, right = left+1, right-1 {
 				resolution.Occurrences[left], resolution.Occurrences[right] = resolution.Occurrences[right], resolution.Occurrences[left]
@@ -132,6 +134,7 @@ func TestCatalogRejectsInvalidLifecycleHooks(t *testing.T) {
 		}
 	}
 }
+
 func TestCatalogLifecycleHooksDeterministic(t *testing.T) {
 	files := map[string]string{
 		"go.mod": "module example.com/deterministic-hooks\n\ngo 1.23.0\n",
@@ -155,7 +158,7 @@ func (Z) End(context.Context) error { panic("must not execute") }
 `,
 	}
 	var first string
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		program, resolution, providers := loadCatalogs(t, writeModule(t, files))
 		if run%2 == 1 {
 			for left, right := 0, len(resolution.Occurrences)-1; left < right; left, right = left+1, right-1 {
@@ -174,11 +177,12 @@ func (Z) End(context.Context) error { panic("must not execute") }
 		}
 	}
 }
+
 func TestCatalogLifecycleHooksUsesBoundedIdentityChecks(t *testing.T) {
 	const count = 192
 	var source strings.Builder
 	source.WriteString("package app\n\nimport \"context\"\n\n")
-	for index := 0; index < count; index++ {
+	for index := range count {
 		fmt.Fprintf(&source, "type T%03d struct{}\n// @Bean\nfunc P%03d() T%03d { panic(\"must not execute\") }\n// @OnStart\nfunc (T%03d) H%03d(context.Context) error { panic(\"must not execute\") }\n", index, index, index, index, index)
 	}
 	root := writeModule(t, map[string]string{
@@ -194,6 +198,7 @@ func TestCatalogLifecycleHooksUsesBoundedIdentityChecks(t *testing.T) {
 		t.Fatalf("components=%d identityChecks=%d, want %d components and bounded indexed checks", len(catalog.Components()), stats.identityChecks, count)
 	}
 }
+
 func loadCatalogs(t *testing.T, root string) (*load.Program, resolve.Result, provider.Catalog) {
 	t.Helper()
 	program, err := load.Load(context.Background(), load.Options{Dir: root}, "./...")
@@ -210,6 +215,7 @@ func loadCatalogs(t *testing.T, root string) (*load.Program, resolve.Result, pro
 	}
 	return program, resolution, providers
 }
+
 func writeModule(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -229,6 +235,7 @@ func writeModule(t *testing.T, files map[string]string) string {
 	}
 	return root
 }
+
 func componentByProvider(components []Component, name string) *Component {
 	for index := range components {
 		if components[index].Provider.Name == name {
@@ -237,6 +244,7 @@ func componentByProvider(components []Component, name string) *Component {
 	}
 	return nil
 }
+
 func diagnosticStrings(diagnostics []Diagnostic) []string {
 	result := make([]string, len(diagnostics))
 	for index, diagnostic := range diagnostics {
@@ -244,6 +252,7 @@ func diagnosticStrings(diagnostics []Diagnostic) []string {
 	}
 	return result
 }
+
 func catalogSummary(catalog Catalog) string {
 	var summary strings.Builder
 	for _, component := range catalog.Components() {

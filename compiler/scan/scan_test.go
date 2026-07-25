@@ -65,6 +65,56 @@ type Controller struct{}
 	}
 }
 
+func TestTreeScansPackageAndValueDeclarations(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := `// Package sample exercises package and value annotations.
+//
+// @Configuration
+package sample
+
+// @Bean
+const Constant = 1
+
+var (
+	// @Service
+	Value int
+)
+
+func Undocumented() {}
+`
+	if err := os.WriteFile(filepath.Join(root, "sample.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "vendor"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "vendor", "ignored.go"), []byte("package ignored\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Tree(root)
+	if err != nil {
+		t.Fatalf("Tree() error = %v", err)
+	}
+	if result.Files != 1 {
+		t.Fatalf("Files = %d, want 1", result.Files)
+	}
+	if len(result.Occurrences) != 3 {
+		t.Fatalf("Occurrences = %#v, want package, constant, and variable", result.Occurrences)
+	}
+	if result.Occurrences[0].Target != TargetPackage {
+		t.Fatalf("package occurrence = %#v", result.Occurrences[0])
+	}
+	if result.Occurrences[1].Target != TargetConstant {
+		t.Fatalf("constant occurrence = %#v", result.Occurrences[1])
+	}
+	if result.Occurrences[2].Target != TargetVariable {
+		t.Fatalf("variable occurrence = %#v", result.Occurrences[2])
+	}
+}
+
 func TestTreeIsDeterministicAcrossRepeatedScans(t *testing.T) {
 	t.Parallel()
 
@@ -85,7 +135,7 @@ func (Controller) Get() {}
 	if err != nil {
 		t.Fatalf("first Tree() error = %v", err)
 	}
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		next, err := Tree(root)
 		if err != nil {
 			t.Fatalf("run %d Tree() error = %v", run, err)

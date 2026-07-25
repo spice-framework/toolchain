@@ -72,59 +72,12 @@ func Tree(root string) (Result, error) {
 		if filepath.Ext(path) != ".go" {
 			return nil
 		}
-
-		file, err := goparser.ParseFile(set, path, nil, goparser.ParseComments)
+		occurrences, err := scanFile(set, path)
 		if err != nil {
-			return fmt.Errorf("parse %s: %w", path, err)
+			return err
 		}
 		result.Files++
-
-		if file.Doc != nil {
-			occurrences, err := parseGroup(set, file.Doc, TargetPackage, file.Name.Name, path)
-			if err != nil {
-				return err
-			}
-			result.Occurrences = append(result.Occurrences, occurrences...)
-		}
-
-		for _, declaration := range file.Decls {
-			switch node := declaration.(type) {
-			case *ast.FuncDecl:
-				if node.Doc == nil {
-					continue
-				}
-				target := TargetFunction
-				if node.Recv != nil {
-					target = TargetMethod
-				}
-				occurrences, err := parseGroup(set, node.Doc, target, node.Name.Name, path)
-				if err != nil {
-					return err
-				}
-				result.Occurrences = append(result.Occurrences, occurrences...)
-			case *ast.GenDecl:
-				if node.Doc != nil {
-					target := targetForToken(node.Tok)
-					name := firstSpecName(node.Specs)
-					occurrences, err := parseGroup(set, node.Doc, target, name, path)
-					if err != nil {
-						return err
-					}
-					result.Occurrences = append(result.Occurrences, occurrences...)
-				}
-				for _, spec := range node.Specs {
-					specDoc, name := specDocumentation(spec)
-					if specDoc == nil {
-						continue
-					}
-					occurrences, err := parseGroup(set, specDoc, targetForToken(node.Tok), name, path)
-					if err != nil {
-						return err
-					}
-					result.Occurrences = append(result.Occurrences, occurrences...)
-				}
-			}
-		}
+		result.Occurrences = append(result.Occurrences, occurrences...)
 		return nil
 	})
 	if err != nil {
@@ -143,6 +96,85 @@ func Tree(root string) (Result, error) {
 		return left.Annotation.Name < right.Annotation.Name
 	})
 	return result, nil
+}
+
+func scanFile(set *token.FileSet, path string) ([]Occurrence, error) {
+	file, err := goparser.ParseFile(set, path, nil, goparser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	var occurrences []Occurrence
+	if file.Doc != nil {
+		packageOccurrences, err := parseGroup(set, file.Doc, TargetPackage, file.Name.Name, path)
+		if err != nil {
+			return nil, err
+		}
+		occurrences = append(occurrences, packageOccurrences...)
+	}
+	for _, declaration := range file.Decls {
+		declarationOccurrences, err := scanDeclaration(set, declaration, path)
+		if err != nil {
+			return nil, err
+		}
+		occurrences = append(occurrences, declarationOccurrences...)
+	}
+	return occurrences, nil
+}
+
+func scanDeclaration(set *token.FileSet, declaration ast.Decl, path string) ([]Occurrence, error) {
+	switch node := declaration.(type) {
+	case *ast.FuncDecl:
+		return scanFunction(set, node, path)
+	case *ast.GenDecl:
+		return scanGeneralDeclaration(set, node, path)
+	default:
+		return nil, nil
+	}
+}
+
+func scanFunction(set *token.FileSet, declaration *ast.FuncDecl, path string) ([]Occurrence, error) {
+	if declaration.Doc == nil {
+		return nil, nil
+	}
+	target := TargetFunction
+	if declaration.Recv != nil {
+		target = TargetMethod
+	}
+	return parseGroup(set, declaration.Doc, target, declaration.Name.Name, path)
+}
+
+func scanGeneralDeclaration(
+	set *token.FileSet,
+	declaration *ast.GenDecl,
+	path string,
+) ([]Occurrence, error) {
+	target := targetForToken(declaration.Tok)
+	var occurrences []Occurrence
+	if declaration.Doc != nil {
+		groupOccurrences, err := parseGroup(
+			set,
+			declaration.Doc,
+			target,
+			firstSpecName(declaration.Specs),
+			path,
+		)
+		if err != nil {
+			return nil, err
+		}
+		occurrences = append(occurrences, groupOccurrences...)
+	}
+	for _, specification := range declaration.Specs {
+		documentation, name := specDocumentation(specification)
+		if documentation == nil {
+			continue
+		}
+		groupOccurrences, err := parseGroup(set, documentation, target, name, path)
+		if err != nil {
+			return nil, err
+		}
+		occurrences = append(occurrences, groupOccurrences...)
+	}
+	return occurrences, nil
 }
 
 func parseGroup(set *token.FileSet, group *ast.CommentGroup, target Target, name, path string) ([]Occurrence, error) {
@@ -171,14 +203,13 @@ func parseGroup(set *token.FileSet, group *ast.CommentGroup, target Target, name
 }
 
 func targetForToken(value token.Token) Target {
-	switch value {
-	case token.TYPE:
+	if value == token.TYPE {
 		return TargetType
-	case token.CONST:
-		return TargetConstant
-	default:
-		return TargetVariable
 	}
+	if value == token.CONST {
+		return TargetConstant
+	}
+	return TargetVariable
 }
 
 func firstSpecName(specs []ast.Spec) string {

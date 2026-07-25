@@ -2,8 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -13,7 +13,7 @@ import (
 )
 
 func TestCatalogRejectsWrongShapeCanonicalContextOverlay(t *testing.T) {
-	contextSource := filepath.Join(runtime.GOROOT(), "src", "context", "context.go")
+	contextSource := filepath.Join(goRoot(t), "src", "context", "context.go")
 	tests := []struct {
 		name   string
 		source string
@@ -51,7 +51,6 @@ type Context interface {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			root := writeModule(t, map[string]string{
 				"go.mod": "module example.com/context-overlay\n\ngo 1.23.0\n",
@@ -99,7 +98,7 @@ func ServerProvider() Server { panic("provider must not execute") }
 func (Server) Boot(context.Context) error { panic("hook must not execute") }
 `,
 	})
-	contextSource := filepath.Join(runtime.GOROOT(), "src", "context", "context.go")
+	contextSource := filepath.Join(goRoot(t), "src", "context", "context.go")
 	program, err := load.Load(context.Background(), load.Options{
 		Dir: root,
 		Overlay: map[string][]byte{contextSource: []byte(`package context
@@ -130,4 +129,13 @@ type Context interface {
 	if diagnostics := Build(program, resolution, providers).Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("Diagnostics() = %v, want exact alias-backed Done element accepted", diagnosticStrings(diagnostics))
 	}
+}
+
+func goRoot(t *testing.T) string {
+	t.Helper()
+	output, err := exec.CommandContext(t.Context(), "go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatalf("go env GOROOT: %v", err)
+	}
+	return strings.TrimSpace(string(output))
 }

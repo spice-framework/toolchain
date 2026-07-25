@@ -140,14 +140,18 @@ func TestAnnotationsReportsMissingDefinitionDeterministically(t *testing.T) {
 		"app/app.go": "package app\n\n// @Feature\nvar Missing int\n",
 	})
 	program := mustLoad(t, dir, "./app")
-	pkg := program.Packages()[0]
+	packages := program.Packages()
+	if len(packages) == 0 {
+		t.Fatal("Packages() is empty")
+	}
+	pkg := packages[0]
 	for identifier, object := range pkg.TypesInfo.Defs {
 		if object != nil && object.Name() == "Missing" {
 			delete(pkg.TypesInfo.Defs, identifier)
 		}
 	}
 	var first []string
-	for run := 0; run < 10; run++ {
+	for run := range 10 {
 		messages := diagnosticMessages(Annotations(program).Diagnostics)
 		if run == 0 {
 			first = messages

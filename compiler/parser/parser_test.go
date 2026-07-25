@@ -25,7 +25,6 @@ func TestParseComment(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			got, ok, err := ParseComment(test.input, token.Position{Filename: "test.go", Line: 10, Column: 1})
@@ -88,7 +87,6 @@ func TestParseCommentRejectsInvalidSyntax(t *testing.T) {
 		`// @Get(path="/") trailing`,
 	}
 	for _, input := range inputs {
-		input := input
 		t.Run(input, func(t *testing.T) {
 			t.Parallel()
 			_, ok, err := ParseComment(input, token.Position{Filename: "invalid.go", Line: 7, Column: 1})
@@ -100,4 +98,26 @@ func TestParseCommentRejectsInvalidSyntax(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzParseComment(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"// ordinary comment",
+		"// @Service",
+		`// @Get(path="/{id}")`,
+		`// @Retry(max=3, enabled=true, roles=["admin", user])`,
+		`// @Get(path=["a",])`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		parsed, recognized, err := ParseComment(input, token.Position{Filename: "fuzz.go", Line: 1, Column: 1})
+		if err == nil && recognized && parsed.Name == "" {
+			t.Fatal("recognized annotation has an empty name")
+		}
+		if !recognized && err != nil {
+			t.Fatalf("unrecognized comment returned error: %v", err)
+		}
+	})
 }

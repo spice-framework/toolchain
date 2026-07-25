@@ -48,7 +48,6 @@ func TestOccurrencesRejectsInvalidArguments(t *testing.T) {
 		{name: "multiple positional", comment: `// @Get("/one", "/two")`, target: scan.TargetMethod, contains: []string{"accepts at most one positional argument"}},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			diagnostics := Occurrences([]scan.Occurrence{parsedOccurrence(t, "invalid.go", 7, test.comment, test.target, "Declaration")}, builtin.Registry())
@@ -99,7 +98,7 @@ func TestOccurrencesSortsDiagnosticsDeterministically(t *testing.T) {
 		parsedOccurrence(t, "a.go", 3, `// @Post(path=3)`, scan.TargetType, "B"),
 	}
 	var first []string
-	for run := 0; run < 10; run++ {
+	for run := range 10 {
 		diagnostics := Occurrences(input, builtin.Registry())
 		got := make([]string, len(diagnostics))
 		for index, diagnostic := range diagnostics {
@@ -127,14 +126,44 @@ func parsedOccurrence(t *testing.T, file string, line int, comment string, targe
 	return scan.Occurrence{Annotation: parsed, Target: target, Name: declaration, File: file}
 }
 
-func occurrence(file string, line int, name string, target scan.Target, declaration string) scan.Occurrence {
-	return scan.Occurrence{Annotation: annotation.Annotation{Name: name, Position: token.Position{Filename: file, Line: line, Column: 1}}, Target: target, Name: declaration, File: file}
-}
-
 func diagnosticsText(diagnostics []Diagnostic) string {
 	messages := make([]string, len(diagnostics))
 	for index, diagnostic := range diagnostics {
 		messages[index] = diagnostic.Error()
 	}
 	return strings.Join(messages, "\n")
+}
+
+func FuzzOccurrences(f *testing.F) {
+	f.Add("Get", "path", "/users/{id}")
+	f.Add("Controller", "prefix", "/users")
+	f.Add("Unknown", "value", "text")
+	f.Fuzz(func(t *testing.T, name, argumentName, value string) {
+		occurrences := []scan.Occurrence{{
+			Annotation: annotation.Annotation{
+				Name:     name,
+				Position: token.Position{Filename: "fuzz.go", Line: 1, Column: 1},
+				Arguments: []annotation.Argument{{
+					Name: argumentName,
+					Value: annotation.Value{
+						Kind:   annotation.KindString,
+						String: value,
+					},
+				}},
+			},
+			Target: scan.TargetFunction,
+			Name:   "FuzzTarget",
+			File:   "fuzz.go",
+		}}
+		first := Occurrences(occurrences, builtin.Registry())
+		second := Occurrences(occurrences, builtin.Registry())
+		if !reflect.DeepEqual(first, second) {
+			t.Fatalf("validation is nondeterministic: first=%#v second=%#v", first, second)
+		}
+		for _, diagnostic := range first {
+			if diagnostic.Error() == "" {
+				t.Fatal("empty diagnostic")
+			}
+		}
+	})
 }

@@ -25,7 +25,6 @@ func TestCatalogTreatsFirstCleanupResultAsProvidedOutput(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			root := writeModule(t, map[string]string{
 				"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
@@ -74,7 +73,6 @@ func TestCatalogRejectsWrongShapeCanonicalCleanupReplacement(t *testing.T) {
 		{name: "not-function", declaration: "package lifecycle\n\ntype Cleanup string\n"},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			root := writeModule(t, map[string]string{
 				"go.mod": `module example.com/application

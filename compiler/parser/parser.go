@@ -17,8 +17,8 @@ import (
 func ParseComment(input string, position token.Position) (annotation.Annotation, bool, error) {
 	raw := input
 	input = strings.TrimSpace(input)
-	if strings.HasPrefix(input, "//") {
-		input = strings.TrimSpace(strings.TrimPrefix(input, "//"))
+	if after, ok := strings.CutPrefix(input, "//"); ok {
+		input = strings.TrimSpace(after)
 	}
 	if !strings.HasPrefix(input, "@") {
 		return annotation.Annotation{}, false, nil
@@ -60,66 +60,81 @@ func (p *commentParser) parseAnnotation() (annotation.Annotation, error) {
 
 	p.skipSpace()
 	if p.consume(')') {
-		p.skipSpace()
-		if !p.eof() {
-			return annotation.Annotation{}, p.errorf("unexpected trailing content")
-		}
-		return result, nil
+		return result, p.requireEnd()
 	}
 
+	arguments, err := p.parseArguments()
+	if err != nil {
+		return annotation.Annotation{}, err
+	}
+	result.Arguments = arguments
+	return result, p.requireEnd()
+}
+
+func (p *commentParser) parseArguments() ([]annotation.Argument, error) {
+	var arguments []annotation.Argument
 	seenNamed := false
 	seenNames := map[string]struct{}{}
 	for {
-		p.skipSpace()
-		start := p.offset
-		candidate := p.parseIdentifier()
-		p.skipSpace()
-
-		var argument annotation.Argument
-		if candidate != "" && p.consume('=') {
-			seenNamed = true
-			if _, exists := seenNames[candidate]; exists {
-				return annotation.Annotation{}, p.errorf("duplicate argument %q", candidate)
-			}
-			seenNames[candidate] = struct{}{}
-			argument.Name = candidate
-			p.skipSpace()
-			value, err := p.parseValue()
-			if err != nil {
-				return annotation.Annotation{}, err
-			}
-			argument.Value = value
-		} else {
-			p.offset = start
-			if seenNamed {
-				return annotation.Annotation{}, p.errorf("positional arguments cannot follow named arguments")
-			}
-			value, err := p.parseValue()
-			if err != nil {
-				return annotation.Annotation{}, err
-			}
-			argument.Value = value
+		argument, named, err := p.parseArgument(seenNamed, seenNames)
+		if err != nil {
+			return nil, err
 		}
-		result.Arguments = append(result.Arguments, argument)
+		seenNamed = seenNamed || named
+		arguments = append(arguments, argument)
 
 		p.skipSpace()
 		if p.consume(')') {
-			break
+			return arguments, nil
 		}
 		if !p.consume(',') {
-			return annotation.Annotation{}, p.errorf("expected ',' or ')' after argument")
+			return nil, p.errorf("expected ',' or ')' after argument")
 		}
 		p.skipSpace()
 		if p.peek() == ')' {
-			return annotation.Annotation{}, p.errorf("trailing commas are not supported")
+			return nil, p.errorf("trailing commas are not supported")
 		}
 	}
+}
 
+func (p *commentParser) parseArgument(
+	seenNamed bool,
+	seenNames map[string]struct{},
+) (annotation.Argument, bool, error) {
+	p.skipSpace()
+	start := p.offset
+	candidate := p.parseIdentifier()
+	p.skipSpace()
+	if candidate != "" && p.consume('=') {
+		if _, exists := seenNames[candidate]; exists {
+			return annotation.Argument{}, false, p.errorf("duplicate argument %q", candidate)
+		}
+		seenNames[candidate] = struct{}{}
+		p.skipSpace()
+		value, err := p.parseValue()
+		if err != nil {
+			return annotation.Argument{}, false, err
+		}
+		return annotation.Argument{Name: candidate, Value: value}, true, nil
+	}
+
+	p.offset = start
+	if seenNamed {
+		return annotation.Argument{}, false, p.errorf("positional arguments cannot follow named arguments")
+	}
+	value, err := p.parseValue()
+	if err != nil {
+		return annotation.Argument{}, false, err
+	}
+	return annotation.Argument{Value: value}, false, nil
+}
+
+func (p *commentParser) requireEnd() error {
 	p.skipSpace()
 	if !p.eof() {
-		return annotation.Annotation{}, p.errorf("unexpected trailing content")
+		return p.errorf("unexpected trailing content")
 	}
-	return result, nil
+	return nil
 }
 
 func (p *commentParser) parseValue() (annotation.Value, error) {
@@ -216,7 +231,7 @@ func (p *commentParser) parseName() string {
 	start := p.offset
 	for !p.eof() {
 		r, size := utf8.DecodeRuneInString(p.input[p.offset:])
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.') {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' {
 			break
 		}
 		p.offset += size
@@ -230,13 +245,13 @@ func (p *commentParser) parseIdentifier() string {
 		return ""
 	}
 	r, size := utf8.DecodeRuneInString(p.input[p.offset:])
-	if !(unicode.IsLetter(r) || r == '_') {
+	if !unicode.IsLetter(r) && r != '_' {
 		return ""
 	}
 	p.offset += size
 	for !p.eof() {
 		r, size = utf8.DecodeRuneInString(p.input[p.offset:])
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.' || r == '-' || r == ':' || r == '/') {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' && r != '-' && r != ':' && r != '/' {
 			break
 		}
 		p.offset += size

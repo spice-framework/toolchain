@@ -17,6 +17,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/validate"
 )
 
+// Version is the development version reported by the Spice CLI.
 const Version = "0.1.0-dev"
 
 type programLoader func(context.Context, load.Options, ...string) (*load.Program, error)
@@ -28,24 +29,34 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 
 func run(arguments []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
 	if len(arguments) == 0 {
-		printHelp(stdout)
+		if err := printHelp(stdout); err != nil {
+			return 1
+		}
 		return 0
 	}
 
 	switch arguments[0] {
 	case "help", "-h", "--help":
-		printHelp(stdout)
+		if err := printHelp(stdout); err != nil {
+			return 1
+		}
 		return 0
 	case "version", "--version":
-		fmt.Fprintf(stdout, "spice %s\n", Version)
+		if err := writef(stdout, "spice %s\n", Version); err != nil {
+			return 1
+		}
 		return 0
 	case "verify":
 		return verify(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
 	case "annotations":
 		return annotations(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
 	default:
-		fmt.Fprintf(stderr, "unknown command %q\n\n", arguments[0])
-		printHelp(stderr)
+		if err := writef(stderr, "unknown command %q\n\n", arguments[0]); err != nil {
+			return 1
+		}
+		if err := printHelp(stderr); err != nil {
+			return 1
+		}
 		return 2
 	}
 }
@@ -58,42 +69,56 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 
 	diagnostics := validationDiagnostics(result.Occurrences)
 	if len(diagnostics) > 0 {
-		for _, diagnostic := range diagnostics {
-			fmt.Fprintln(stderr, diagnostic.Error())
+		if err := reportDiagnostics(
+			stderr,
+			diagnostics,
+			fmt.Sprintf("Spice verification failed: %d annotation validation error(s).", len(diagnostics)),
+		); err != nil {
+			return 1
 		}
-		fmt.Fprintf(stderr, "Spice verification failed: %d annotation validation error(s).\n", len(diagnostics))
 		return 1
 	}
 	catalog := provider.Build(program, result)
 	providerDiagnostics := catalog.Diagnostics()
 	if len(providerDiagnostics) > 0 {
-		for _, diagnostic := range providerDiagnostics {
-			fmt.Fprintln(stderr, diagnostic.Error())
+		if err := reportDiagnostics(
+			stderr,
+			providerDiagnostics,
+			fmt.Sprintf("Spice verification failed: %d provider catalog error(s).", len(providerDiagnostics)),
+		); err != nil {
+			return 1
 		}
-		fmt.Fprintf(stderr, "Spice verification failed: %d provider catalog error(s).\n", len(providerDiagnostics))
 		return 1
 	}
 	providerGraph := graph.Build(catalog)
 	graphDiagnostics := providerGraph.Diagnostics()
 	if len(graphDiagnostics) > 0 {
-		for _, diagnostic := range graphDiagnostics {
-			fmt.Fprintln(stderr, diagnostic.Error())
+		if err := reportDiagnostics(
+			stderr,
+			graphDiagnostics,
+			fmt.Sprintf("Spice verification failed: %d provider graph error(s).", len(graphDiagnostics)),
+		); err != nil {
+			return 1
 		}
-		fmt.Fprintf(stderr, "Spice verification failed: %d provider graph error(s).\n", len(graphDiagnostics))
 		return 1
 	}
 
 	lifecycleCatalog := lifecycle.Build(program, result, catalog)
 	lifecycleDiagnostics := lifecycleCatalog.Diagnostics()
 	if len(lifecycleDiagnostics) > 0 {
-		for _, diagnostic := range lifecycleDiagnostics {
-			fmt.Fprintln(stderr, diagnostic.Error())
+		if err := reportDiagnostics(
+			stderr,
+			lifecycleDiagnostics,
+			fmt.Sprintf("Spice verification failed: %d lifecycle hook error(s).", len(lifecycleDiagnostics)),
+		); err != nil {
+			return 1
 		}
-		fmt.Fprintf(stderr, "Spice verification failed: %d lifecycle hook error(s).\n", len(lifecycleDiagnostics))
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "Spice verification passed: %d annotations in %d Go files.\n", len(result.Occurrences), result.Files)
+	if err := writef(stdout, "Spice verification passed: %d annotations in %d Go files.\n", len(result.Occurrences), result.Files); err != nil {
+		return 1
+	}
 	return 0
 }
 
@@ -104,7 +129,7 @@ func annotations(patterns []string, stdout, stderr io.Writer, options load.Optio
 	}
 	for _, occurrence := range result.Occurrences {
 		path := filepath.ToSlash(occurrence.DisplayPosition.Filename)
-		fmt.Fprintf(
+		if err := writef(
 			stdout,
 			"%s:%d %s %s @%s\n",
 			path,
@@ -112,24 +137,33 @@ func annotations(patterns []string, stdout, stderr io.Writer, options load.Optio
 			occurrence.Target,
 			occurrence.Name,
 			occurrence.Annotation.Name,
-		)
+		); err != nil {
+			return 1
+		}
 	}
-	fmt.Fprintf(stdout, "Found %d annotations in %d Go files.\n", len(result.Occurrences), result.Files)
+	if err := writef(stdout, "Found %d annotations in %d Go files.\n", len(result.Occurrences), result.Files); err != nil {
+		return 1
+	}
 	return 0
 }
 
 func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, loader programLoader, operation string) (*load.Program, resolve.Result, bool) {
 	program, err := loader(context.Background(), options, patterns...)
 	if err != nil {
-		fmt.Fprintf(stderr, "Spice %s failed: %v\n", operation, err)
+		if writeErr := writef(stderr, "Spice %s failed: %v\n", operation, err); writeErr != nil {
+			return nil, resolve.Result{}, false
+		}
 		return nil, resolve.Result{}, false
 	}
 	result := resolve.Annotations(program)
 	if len(result.Diagnostics) > 0 {
-		for _, diagnostic := range result.Diagnostics {
-			fmt.Fprintln(stderr, diagnostic.Error())
+		if writeErr := reportDiagnostics(
+			stderr,
+			result.Diagnostics,
+			fmt.Sprintf("Spice %s failed: %d annotation resolution error(s).", operation, len(result.Diagnostics)),
+		); writeErr != nil {
+			return program, result, false
 		}
-		fmt.Fprintf(stderr, "Spice %s failed: %d annotation resolution error(s).\n", operation, len(result.Diagnostics))
 		return program, result, false
 	}
 	return program, result, true
@@ -156,8 +190,8 @@ func packagePatterns(arguments []string) []string {
 	return append([]string(nil), arguments...)
 }
 
-func printHelp(writer io.Writer) {
-	fmt.Fprintln(writer, `Spice Framework for Go
+func printHelp(writer io.Writer) error {
+	_, err := fmt.Fprintln(writer, `Spice Framework for Go
 
 Usage:
   spice version
@@ -168,4 +202,20 @@ Commands:
   version      Print the Spice version.
   verify       Load, resolve, and validate Spice annotations for Go packages.
   annotations  List annotations and their exact typed declarations.`)
+	return err
+}
+
+func writef(writer io.Writer, format string, arguments ...any) error {
+	_, err := fmt.Fprintf(writer, format, arguments...)
+	return err
+}
+
+func reportDiagnostics[T interface{ Error() string }](writer io.Writer, diagnostics []T, summary string) error {
+	for _, diagnostic := range diagnostics {
+		if _, err := fmt.Fprintln(writer, diagnostic.Error()); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintln(writer, summary)
+	return err
 }

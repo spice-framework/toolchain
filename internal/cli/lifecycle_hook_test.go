@@ -38,6 +38,7 @@ func (Worker) Engage(context.Context) error { panic("hook must not execute") }
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
+
 func TestRunVerifyRejectsLifecycleHooks(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"app.go": `package sample

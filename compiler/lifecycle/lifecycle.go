@@ -4,13 +4,15 @@ package lifecycle
 
 import (
 	"fmt"
+	"go/token"
+	"go/types"
+	"sort"
+	"strings"
+
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
-	"go/token"
-	"go/types"
-	"sort"
 )
 
 const acceptedHookSignature = "func(receiver)(context.Context) error"
@@ -22,8 +24,10 @@ const (
 	Stop  Kind = "stop"
 )
 
-var errorType = types.Universe.Lookup("error").Type()
-var anyType = types.Universe.Lookup("any").Type()
+var (
+	errorType = types.Universe.Lookup("error").Type()
+	anyType   = types.Universe.Lookup("any").Type()
+)
 
 type Hook struct {
 	Kind             Kind
@@ -95,6 +99,7 @@ func Build(program *load.Program, resolution resolve.Result, providers provider.
 	catalog, _ := build(program, resolution, providers)
 	return catalog
 }
+
 func build(program *load.Program, resolution resolve.Result, providers provider.Catalog) (Catalog, buildStats) {
 	catalog := Catalog{}
 	stats := buildStats{}
@@ -102,17 +107,45 @@ func build(program *load.Program, resolution resolve.Result, providers provider.
 		catalog.diagnostics = []Diagnostic{{Kind: "internal", Message: "lifecycle catalog requires a loaded program"}}
 		return catalog, stats
 	}
+	symbols := symbolIndex(program)
+	providerIndex := lifecycleProviderIndex(providers)
+	contextType := canonicalContextType(program)
+	components := make(map[string]*Component)
+	methodKinds := lifecycleOccurrences(resolution)
+	for _, methodID := range sortedMethodIDs(methodKinds) {
+		processLifecycleMethod(
+			&catalog,
+			&stats,
+			methodID,
+			methodKinds[methodID],
+			symbols,
+			providerIndex,
+			contextType,
+			components,
+		)
+	}
+	finalizeComponents(&catalog, components)
+	return catalog, stats
+}
+
+func symbolIndex(program *load.Program) map[string]load.Symbol {
 	symbols := make(map[string]load.Symbol)
 	for _, symbol := range program.Symbols() {
 		symbols[symbol.ID] = symbol
 	}
+	return symbols
+}
+
+func lifecycleProviderIndex(providers provider.Catalog) map[string][]provider.Provider {
 	providerIndex := make(map[string][]provider.Provider)
 	for _, item := range providers.Providers() {
 		key := semanticTypeKey(item.Output)
 		providerIndex[key] = append(providerIndex[key], item)
 	}
-	contextType := canonicalContextType(program)
-	components := make(map[string]*Component)
+	return providerIndex
+}
+
+func lifecycleOccurrences(resolution resolve.Result) map[string]map[Kind][]resolve.Occurrence {
 	methodKinds := make(map[string]map[Kind][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
 		kind, lifecycleOccurrence := occurrenceKind(occurrence)
@@ -126,13 +159,7 @@ func build(program *load.Program, resolution resolve.Result, providers provider.
 		}
 		roles[kind] = append(roles[kind], occurrence)
 	}
-	methodIDs := make([]string, 0, len(methodKinds))
-	for methodID := range methodKinds {
-		methodIDs = append(methodIDs, methodID)
-	}
-	sort.Strings(methodIDs)
-	for _, methodID := range methodIDs {
-		roles := methodKinds[methodID]
+	for _, roles := range methodKinds {
 		for _, occurrences := range roles {
 			sort.SliceStable(occurrences, func(i, j int) bool {
 				if occurrences[i].PhysicalFile != occurrences[j].PhysicalFile {
@@ -141,57 +168,157 @@ func build(program *load.Program, resolution resolve.Result, providers provider.
 				return occurrences[i].PhysicalOffset < occurrences[j].PhysicalOffset
 			})
 		}
-		if len(roles) > 1 {
-			occurrence := roles[Start][0]
-			catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(occurrence, methodID, "conflicting-annotations", fmt.Sprintf("method %q may carry only one lifecycle annotation; @OnStart and @OnStop cannot be combined", occurrence.Name)))
-			continue
-		}
-		for _, kind := range []Kind{Start, Stop} {
-			occurrences := roles[kind]
-			if len(occurrences) == 0 {
-				continue
-			}
-			occurrence := occurrences[0]
-			if len(occurrences) > 1 {
-				catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(occurrence, methodID, "duplicate-annotation", fmt.Sprintf("method %q carries @On%s more than once; lifecycle annotations are not repeatable", occurrence.Name, kindTitle(kind))))
-				continue
-			}
-			symbol, ok := symbols[methodID]
-			if !ok {
-				catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(occurrence, methodID, "missing-symbol", fmt.Sprintf("@On%s target %q has no stable typed method symbol", kindTitle(kind), occurrence.Name)))
-				continue
-			}
-			hook, owner, diagnostic := analyzeHook(occurrence, kind, symbol, contextType, providerIndex, &stats)
-			if diagnostic != nil {
-				catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
-				continue
-			}
-			component := components[owner.SymbolID]
-			if component == nil {
-				copyProvider := owner
-				copyProvider.Dependencies = append([]provider.Dependency(nil), owner.Dependencies...)
-				component = &Component{Provider: copyProvider}
-				components[owner.SymbolID] = component
-			}
-			existing := component.Start
-			if kind == Stop {
-				existing = component.Stop
-			}
-			if existing != nil {
-				catalog.diagnostics = append(catalog.diagnostics, hookDiagnostic(hook, "duplicate-"+string(kind), fmt.Sprintf("provider %s has multiple @On%s hooks: %s and %s", owner.Symbol.DisplayLabel, kindTitle(kind), existing.Method.DisplayLabel, hook.Method.DisplayLabel)))
-				continue
-			}
-			copyHook := hook
-			if kind == Start {
-				component.Start = &copyHook
-			} else {
-				component.Stop = &copyHook
-			}
-		}
 	}
+	return methodKinds
+}
+
+func sortedMethodIDs(methodKinds map[string]map[Kind][]resolve.Occurrence) []string {
+	methodIDs := make([]string, 0, len(methodKinds))
+	for methodID := range methodKinds {
+		methodIDs = append(methodIDs, methodID)
+	}
+	sort.Strings(methodIDs)
+	return methodIDs
+}
+
+func processLifecycleMethod(
+	catalog *Catalog,
+	stats *buildStats,
+	methodID string,
+	roles map[Kind][]resolve.Occurrence,
+	symbols map[string]load.Symbol,
+	providerIndex map[string][]provider.Provider,
+	contextType types.Type,
+	components map[string]*Component,
+) {
+	if len(roles) > 1 {
+		occurrences := roles[Start]
+		if len(occurrences) == 0 {
+			occurrences = roles[Stop]
+		}
+		if len(occurrences) == 0 {
+			return
+		}
+		occurrence := occurrences[0]
+		catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(
+			occurrence,
+			methodID,
+			"conflicting-annotations",
+			fmt.Sprintf(
+				"method %q may carry only one lifecycle annotation; @OnStart and @OnStop cannot be combined",
+				occurrence.Name,
+			),
+		))
+		return
+	}
+	for _, kind := range []Kind{Start, Stop} {
+		processLifecycleRole(
+			catalog,
+			stats,
+			methodID,
+			kind,
+			roles[kind],
+			symbols,
+			providerIndex,
+			contextType,
+			components,
+		)
+	}
+}
+
+func processLifecycleRole(
+	catalog *Catalog,
+	stats *buildStats,
+	methodID string,
+	kind Kind,
+	occurrences []resolve.Occurrence,
+	symbols map[string]load.Symbol,
+	providerIndex map[string][]provider.Provider,
+	contextType types.Type,
+	components map[string]*Component,
+) {
+	if len(occurrences) == 0 {
+		return
+	}
+	occurrence := occurrences[0]
+	if len(occurrences) > 1 {
+		catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(
+			occurrence,
+			methodID,
+			"duplicate-annotation",
+			fmt.Sprintf(
+				"method %q carries @On%s more than once; lifecycle annotations are not repeatable",
+				occurrence.Name,
+				kindTitle(kind),
+			),
+		))
+		return
+	}
+	symbol, ok := symbols[methodID]
+	if !ok {
+		catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(
+			occurrence,
+			methodID,
+			"missing-symbol",
+			fmt.Sprintf("@On%s target %q has no stable typed method symbol", kindTitle(kind), occurrence.Name),
+		))
+		return
+	}
+	hook, owner, diagnostic := analyzeHook(occurrence, kind, symbol, contextType, providerIndex, stats)
+	if diagnostic != nil {
+		catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
+		return
+	}
+	component := componentFor(components, owner)
+	existing := component.Start
+	if kind == Stop {
+		existing = component.Stop
+	}
+	if existing != nil {
+		catalog.diagnostics = append(catalog.diagnostics, hookDiagnostic(
+			hook,
+			"duplicate-"+string(kind),
+			fmt.Sprintf(
+				"provider %s has multiple @On%s hooks: %s and %s",
+				owner.Symbol.DisplayLabel,
+				kindTitle(kind),
+				existing.Method.DisplayLabel,
+				hook.Method.DisplayLabel,
+			),
+		))
+		return
+	}
+	copyHook := hook
+	if kind == Start {
+		component.Start = &copyHook
+	} else {
+		component.Stop = &copyHook
+	}
+}
+
+func componentFor(components map[string]*Component, owner provider.Provider) *Component {
+	component := components[owner.SymbolID]
+	if component == nil {
+		copyProvider := owner
+		copyProvider.Dependencies = append([]provider.Dependency(nil), owner.Dependencies...)
+		component = &Component{Provider: copyProvider}
+		components[owner.SymbolID] = component
+	}
+	return component
+}
+
+func finalizeComponents(catalog *Catalog, components map[string]*Component) {
 	for _, component := range components {
 		if component.Start == nil && component.Stop != nil {
-			catalog.diagnostics = append(catalog.diagnostics, hookDiagnostic(*component.Stop, "stop-without-start", fmt.Sprintf("@OnStop method %s has no corresponding @OnStart hook for provider %s", component.Stop.Method.DisplayLabel, component.Provider.Symbol.DisplayLabel)))
+			catalog.diagnostics = append(catalog.diagnostics, hookDiagnostic(
+				*component.Stop,
+				"stop-without-start",
+				fmt.Sprintf(
+					"@OnStop method %s has no corresponding @OnStart hook for provider %s",
+					component.Stop.Method.DisplayLabel,
+					component.Provider.Symbol.DisplayLabel,
+				),
+			))
 		}
 		catalog.components = append(catalog.components, *component)
 	}
@@ -199,57 +326,29 @@ func build(program *load.Program, resolution resolve.Result, providers provider.
 		return catalog.components[i].Provider.SymbolID < catalog.components[j].Provider.SymbolID
 	})
 	sortDiagnostics(catalog.diagnostics)
-	return catalog, stats
 }
-func analyzeHook(occurrence resolve.Occurrence, kind Kind, symbol load.Symbol, contextType types.Type, providerIndex map[string][]provider.Provider, stats *buildStats) (Hook, provider.Provider, *Diagnostic) {
-	fail := func(failureKind, reason string) (Hook, provider.Provider, *Diagnostic) {
-		diagnostic := symbolDiagnostic(occurrence, symbol, failureKind, fmt.Sprintf("@On%s method %s is invalid: %s; accepted form is %s", kindTitle(kind), methodLabel(symbol), reason, acceptedHookSignature))
-		return Hook{}, provider.Provider{}, &diagnostic
+
+type hookProblem struct {
+	kind   string
+	reason string
+}
+
+func analyzeHook(
+	occurrence resolve.Occurrence,
+	kind Kind,
+	symbol load.Symbol,
+	contextType types.Type,
+	providerIndex map[string][]provider.Provider,
+	stats *buildStats,
+) (Hook, provider.Provider, *Diagnostic) {
+	receiver, problem := validateHookSignature(occurrence, symbol, contextType)
+	if problem != nil {
+		return hookFailure(occurrence, kind, symbol, problem)
 	}
-	if occurrence.Target != annotation.TargetMethod || symbol.Kind != load.SymbolMethod || symbol.Signature == nil || symbol.Signature.Recv() == nil {
-		return fail("invalid-target", "lifecycle hooks must target ordinary methods")
+	owner, problem := lifecycleOwner(receiver, providerIndex, stats)
+	if problem != nil {
+		return hookFailure(occurrence, kind, symbol, problem)
 	}
-	if len(occurrence.Annotation.Arguments) != 0 {
-		return fail("arguments", "lifecycle annotations do not accept arguments")
-	}
-	signature := symbol.Signature
-	if (signature.RecvTypeParams() != nil && signature.RecvTypeParams().Len() > 0) || (signature.TypeParams() != nil && signature.TypeParams().Len() > 0) {
-		return fail("generic-receiver", "receiver-generic lifecycle methods are not supported")
-	}
-	if signature.Variadic() {
-		return fail("variadic", "lifecycle methods must be non-variadic")
-	}
-	if signature.Params().Len() != 1 {
-		return fail("parameter-count", fmt.Sprintf("lifecycle methods require exactly one explicit context parameter, got %d", signature.Params().Len()))
-	}
-	if contextType == nil {
-		return fail("context-type", "canonical context.Context identity could not be established safely from the loaded Go 1.23 type universe")
-	}
-	if !types.Identical(signature.Params().At(0).Type(), contextType) {
-		return fail("context-type", fmt.Sprintf("parameter 0 must be the exact loaded context.Context type, got %s", provider.TypeID(signature.Params().At(0).Type())))
-	}
-	if signature.Results().Len() != 1 {
-		return fail("result-count", fmt.Sprintf("lifecycle methods require exactly one error result, got %d", signature.Results().Len()))
-	}
-	if !types.Identical(signature.Results().At(0).Type(), errorType) {
-		return fail("result-type", fmt.Sprintf("result 0 must be the exact predeclared error type, got %s", provider.TypeID(signature.Results().At(0).Type())))
-	}
-	receiver := signature.Recv().Type()
-	candidates := providerIndex[semanticTypeKey(receiver)]
-	var matches []provider.Provider
-	for _, candidate := range candidates {
-		stats.identityChecks++
-		if types.Identical(receiver, candidate.Output) {
-			matches = append(matches, candidate)
-		}
-	}
-	if len(matches) == 0 {
-		return fail("receiver-provider", fmt.Sprintf("no @Bean provider produces exact receiver type %s; pointer/value convenience, assignability, interface implementation, and method promotion do not establish lifecycle ownership", provider.TypeID(receiver)))
-	}
-	if len(matches) != 1 {
-		return fail("ambiguous-provider", fmt.Sprintf("receiver type %s is produced by %d providers; lifecycle ownership requires exactly one", provider.TypeID(receiver), len(matches)))
-	}
-	owner := matches[0]
 	return Hook{
 		Kind:             kind,
 		Method:           symbol,
@@ -261,6 +360,127 @@ func analyzeHook(occurrence resolve.Occurrence, kind Kind, symbol load.Symbol, c
 		PhysicalPosition: token.Position{Filename: occurrence.PhysicalFile, Offset: occurrence.PhysicalOffset},
 	}, owner, nil
 }
+
+func validateHookSignature(
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	contextType types.Type,
+) (types.Type, *hookProblem) {
+	if occurrence.Target != annotation.TargetMethod || symbol.Kind != load.SymbolMethod || symbol.Signature == nil || symbol.Signature.Recv() == nil {
+		return nil, &hookProblem{"invalid-target", "lifecycle hooks must target ordinary methods"}
+	}
+	if len(occurrence.Annotation.Arguments) != 0 {
+		return nil, &hookProblem{"arguments", "lifecycle annotations do not accept arguments"}
+	}
+	signature := symbol.Signature
+	if hookHasTypeParameters(signature) {
+		return nil, &hookProblem{"generic-receiver", "receiver-generic lifecycle methods are not supported"}
+	}
+	if signature.Variadic() {
+		return nil, &hookProblem{"variadic", "lifecycle methods must be non-variadic"}
+	}
+	if signature.Params().Len() != 1 {
+		return nil, &hookProblem{
+			"parameter-count",
+			fmt.Sprintf("lifecycle methods require exactly one explicit context parameter, got %d", signature.Params().Len()),
+		}
+	}
+	if contextType == nil {
+		return nil, &hookProblem{
+			"context-type",
+			"canonical context.Context identity could not be established safely from the loaded Go 1.26 type universe",
+		}
+	}
+	if !types.Identical(signature.Params().At(0).Type(), contextType) {
+		return nil, &hookProblem{
+			"context-type",
+			fmt.Sprintf(
+				"parameter 0 must be the exact loaded context.Context type, got %s",
+				provider.TypeID(signature.Params().At(0).Type()),
+			),
+		}
+	}
+	if signature.Results().Len() != 1 {
+		return nil, &hookProblem{
+			"result-count",
+			fmt.Sprintf("lifecycle methods require exactly one error result, got %d", signature.Results().Len()),
+		}
+	}
+	if !types.Identical(signature.Results().At(0).Type(), errorType) {
+		return nil, &hookProblem{
+			"result-type",
+			fmt.Sprintf(
+				"result 0 must be the exact predeclared error type, got %s",
+				provider.TypeID(signature.Results().At(0).Type()),
+			),
+		}
+	}
+	return signature.Recv().Type(), nil
+}
+
+func hookHasTypeParameters(signature *types.Signature) bool {
+	receiverParameters := signature.RecvTypeParams()
+	methodParameters := signature.TypeParams()
+	return (receiverParameters != nil && receiverParameters.Len() > 0) ||
+		(methodParameters != nil && methodParameters.Len() > 0)
+}
+
+func lifecycleOwner(
+	receiver types.Type,
+	providerIndex map[string][]provider.Provider,
+	stats *buildStats,
+) (provider.Provider, *hookProblem) {
+	candidates := providerIndex[semanticTypeKey(receiver)]
+	var matches []provider.Provider
+	for _, candidate := range candidates {
+		stats.identityChecks++
+		if types.Identical(receiver, candidate.Output) {
+			matches = append(matches, candidate)
+		}
+	}
+	if len(matches) == 0 {
+		return provider.Provider{}, &hookProblem{
+			"receiver-provider",
+			fmt.Sprintf(
+				"no @Bean provider produces exact receiver type %s; pointer/value convenience, assignability, interface implementation, and method promotion do not establish lifecycle ownership",
+				provider.TypeID(receiver),
+			),
+		}
+	}
+	if len(matches) != 1 {
+		return provider.Provider{}, &hookProblem{
+			"ambiguous-provider",
+			fmt.Sprintf(
+				"receiver type %s is produced by %d providers; lifecycle ownership requires exactly one",
+				provider.TypeID(receiver),
+				len(matches),
+			),
+		}
+	}
+	return matches[0], nil
+}
+
+func hookFailure(
+	occurrence resolve.Occurrence,
+	kind Kind,
+	symbol load.Symbol,
+	problem *hookProblem,
+) (Hook, provider.Provider, *Diagnostic) {
+	diagnostic := symbolDiagnostic(
+		occurrence,
+		symbol,
+		problem.kind,
+		fmt.Sprintf(
+			"@On%s method %s is invalid: %s; accepted form is %s",
+			kindTitle(kind),
+			methodLabel(symbol),
+			problem.reason,
+			acceptedHookSignature,
+		),
+	)
+	return Hook{}, provider.Provider{}, &diagnostic
+}
+
 func occurrenceKind(occurrence resolve.Occurrence) (Kind, bool) {
 	switch occurrence.Annotation.Name {
 	case "OnStart":
@@ -271,6 +491,7 @@ func occurrenceKind(occurrence resolve.Occurrence) (Kind, bool) {
 		return "", false
 	}
 }
+
 func semanticTypeKey(value types.Type) string {
 	if value == nil {
 		return "<invalid>"
@@ -282,26 +503,28 @@ func semanticTypeKey(value types.Type) string {
 	case *types.Named:
 		origin := typed.Origin()
 		object := origin.Obj()
-		key := "named:"
+		var key strings.Builder
+		key.WriteString("named:")
 		if object.Pkg() != nil {
-			key += object.Pkg().Path() + "."
+			key.WriteString(object.Pkg().Path() + ".")
 		}
-		key += object.Name()
+		key.WriteString(object.Name())
 		if arguments := typed.TypeArgs(); arguments != nil && arguments.Len() > 0 {
-			key += "["
+			key.WriteString("[")
 			for index := 0; index < arguments.Len(); index++ {
 				if index > 0 {
-					key += ","
+					key.WriteString(",")
 				}
-				key += semanticTypeKey(arguments.At(index))
+				key.WriteString(semanticTypeKey(arguments.At(index)))
 			}
-			key += "]"
+			key.WriteString("]")
 		}
-		return key
+		return key.String()
 	default:
 		return provider.TypeID(value)
 	}
 }
+
 func loadedNamedType(program *load.Program, packagePath, typeName string) *types.Named {
 	seen := make(map[*types.Package]struct{})
 	var found *types.Named
@@ -319,12 +542,16 @@ func loadedNamedType(program *load.Program, packagePath, typeName string) *types
 			object, ok := pkg.Scope().Lookup(typeName).(*types.TypeName)
 			if !ok || object.IsAlias() {
 				valid = false
-			} else if named, ok := object.Type().(*types.Named); !ok || named.Obj() != object {
-				valid = false
-			} else if found == nil {
-				found = named
-			} else if !types.Identical(found, named) {
-				valid = false
+			} else {
+				named, ok := object.Type().(*types.Named)
+				switch {
+				case !ok || named.Obj() != object:
+					valid = false
+				case found == nil:
+					found = named
+				case !types.Identical(found, named):
+					valid = false
+				}
 			}
 		}
 		for _, imported := range pkg.Imports() {
@@ -360,16 +587,9 @@ func validContextDeclaration(contextType, timeType *types.Named) bool {
 	}
 
 	methods := make(map[string]*types.Signature, contract.NumMethods())
-	for index := 0; index < contract.NumMethods(); index++ {
-		method := contract.Method(index)
-		if method.Pkg() != contextType.Obj().Pkg() {
-			return false
-		}
-		signature, ok := method.Type().(*types.Signature)
-		if !ok || signature.Recv() == nil || !types.Identical(signature.Recv().Type(), contextType) ||
-			signature.Variadic() ||
-			(signature.TypeParams() != nil && signature.TypeParams().Len() != 0) ||
-			(signature.RecvTypeParams() != nil && signature.RecvTypeParams().Len() != 0) {
+	for method := range contract.Methods() {
+		signature, ok := validContextMethod(method, contextType)
+		if !ok {
 			return false
 		}
 		if _, duplicate := methods[method.Name()]; duplicate {
@@ -382,6 +602,26 @@ func validContextDeclaration(contextType, timeType *types.Named) bool {
 		validDoneMethod(methods["Done"]) &&
 		validErrMethod(methods["Err"]) &&
 		validValueMethod(methods["Value"])
+}
+
+func validContextMethod(method *types.Func, contextType *types.Named) (*types.Signature, bool) {
+	if method.Pkg() != contextType.Obj().Pkg() {
+		return nil, false
+	}
+	signature, ok := method.Type().(*types.Signature)
+	if !ok || signature.Recv() == nil {
+		return nil, false
+	}
+	if !types.Identical(signature.Recv().Type(), contextType) || signature.Variadic() {
+		return nil, false
+	}
+	if signature.TypeParams() != nil && signature.TypeParams().Len() != 0 {
+		return nil, false
+	}
+	if signature.RecvTypeParams() != nil && signature.RecvTypeParams().Len() != 0 {
+		return nil, false
+	}
+	return signature, true
 }
 
 func validDeadlineMethod(signature *types.Signature, timeType types.Type) bool {
@@ -414,6 +654,7 @@ func validValueMethod(signature *types.Signature) bool {
 func hasArity(signature *types.Signature, parameters, results int) bool {
 	return signature != nil && signature.Params().Len() == parameters && signature.Results().Len() == results
 }
+
 func methodLabel(symbol load.Symbol) string {
 	if symbol.DisplayLabel != "" {
 		return symbol.DisplayLabel
@@ -423,12 +664,14 @@ func methodLabel(symbol load.Symbol) string {
 	}
 	return symbol.Name
 }
+
 func kindTitle(kind Kind) string {
 	if kind == Start {
 		return "Start"
 	}
 	return "Stop"
 }
+
 func occurrenceDiagnostic(occurrence resolve.Occurrence, methodID, kind, message string) Diagnostic {
 	return Diagnostic{
 		Position:         occurrence.DisplayPosition,
@@ -438,6 +681,7 @@ func occurrenceDiagnostic(occurrence resolve.Occurrence, methodID, kind, message
 		Message:          message,
 	}
 }
+
 func symbolDiagnostic(occurrence resolve.Occurrence, symbol load.Symbol, kind, message string) Diagnostic {
 	diagnostic := occurrenceDiagnostic(occurrence, symbol.ID, kind, message)
 	if diagnostic.Position.Filename == "" {
@@ -448,6 +692,7 @@ func symbolDiagnostic(occurrence resolve.Occurrence, symbol load.Symbol, kind, m
 	}
 	return diagnostic
 }
+
 func hookDiagnostic(hook Hook, kind, message string) Diagnostic {
 	return Diagnostic{
 		Position:         hook.Position,
@@ -458,6 +703,7 @@ func hookDiagnostic(hook Hook, kind, message string) Diagnostic {
 		Message:          message,
 	}
 }
+
 func sortDiagnostics(diagnostics []Diagnostic) {
 	sort.SliceStable(diagnostics, func(i, j int) bool {
 		left, right := diagnostics[i], diagnostics[j]

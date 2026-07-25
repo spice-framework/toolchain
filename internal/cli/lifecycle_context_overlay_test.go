@@ -2,8 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -21,7 +21,7 @@ func ServerProvider() Server { panic("provider must not execute") }
 func (Server) Boot(context.Context) error { panic("hook must not execute") }
 `,
 	})
-	contextSource := filepath.Join(runtime.GOROOT(), "src", "context", "context.go")
+	contextSource := filepath.Join(cliGoRoot(t), "src", "context", "context.go")
 	options := load.Options{
 		Dir:     root,
 		Overlay: map[string][]byte{contextSource: []byte("package context\n\ntype Context string\n")},
@@ -39,4 +39,13 @@ func (Server) Boot(context.Context) error { panic("hook must not execute") }
 			t.Fatalf("stderr=%q missing %q", stderr.String(), expected)
 		}
 	}
+}
+
+func cliGoRoot(t *testing.T) string {
+	t.Helper()
+	output, err := exec.CommandContext(t.Context(), "go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatalf("go env GOROOT: %v", err)
+	}
+	return strings.TrimSpace(string(output))
 }

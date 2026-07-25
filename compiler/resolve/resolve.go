@@ -89,39 +89,44 @@ func Annotations(program *load.Program) Result {
 	index := buildSymbolIndex(program.Symbols())
 	result := Result{}
 	seenFiles := make(map[string]struct{})
-
 	for _, pkg := range program.Packages() {
-		if pkg.Raw == nil || pkg.Raw.Fset == nil || pkg.TypesInfo == nil {
-			result.Diagnostics = append(result.Diagnostics, Diagnostic{
-				Kind:    "internal",
-				Message: fmt.Sprintf("package %q is missing syntax or type information required for annotation resolution", pkg.Path),
-			})
+		resolvePackage(&result, pkg, index, seenFiles)
+	}
+	sortResult(&result)
+	return result
+}
+
+func resolvePackage(result *Result, pkg load.Package, index symbolIndex, seenFiles map[string]struct{}) {
+	if pkg.Raw == nil || pkg.Raw.Fset == nil || pkg.TypesInfo == nil {
+		result.Diagnostics = append(result.Diagnostics, Diagnostic{
+			Kind:    "internal",
+			Message: fmt.Sprintf("package %q is missing syntax or type information required for annotation resolution", pkg.Path),
+		})
+		return
+	}
+	sourceFiles := make(map[string]struct{}, len(pkg.Raw.GoFiles))
+	for _, path := range pkg.Raw.GoFiles {
+		sourceFiles[filepath.Clean(path)] = struct{}{}
+	}
+	for _, source := range pkg.Files {
+		physicalPath := filepath.Clean(source.PhysicalPath)
+		if source.Syntax == nil {
 			continue
 		}
-
-		sourceFiles := make(map[string]struct{}, len(pkg.Raw.GoFiles))
-		for _, path := range pkg.Raw.GoFiles {
-			sourceFiles[filepath.Clean(path)] = struct{}{}
+		if _, selected := sourceFiles[physicalPath]; !selected {
+			continue
 		}
-
-		for _, source := range pkg.Files {
-			physicalPath := filepath.Clean(source.PhysicalPath)
-			if source.Syntax == nil {
-				continue
-			}
-			if _, selected := sourceFiles[physicalPath]; !selected {
-				continue
-			}
-			fileKey := pkg.Path + "\x00" + physicalPath
-			if _, duplicate := seenFiles[fileKey]; duplicate {
-				continue
-			}
-			seenFiles[fileKey] = struct{}{}
-			result.Files++
-			resolveFile(&result, pkg, source.Syntax, index)
+		fileKey := pkg.Path + "\x00" + physicalPath
+		if _, duplicate := seenFiles[fileKey]; duplicate {
+			continue
 		}
+		seenFiles[fileKey] = struct{}{}
+		result.Files++
+		resolveFile(result, pkg, source.Syntax, index)
 	}
+}
 
+func sortResult(result *Result) {
 	sort.SliceStable(result.Occurrences, func(i, j int) bool {
 		left, right := result.Occurrences[i], result.Occurrences[j]
 		if left.PackagePath != right.PackagePath {
@@ -154,7 +159,6 @@ func Annotations(program *load.Program) Result {
 		}
 		return left.Error() < right.Error()
 	})
-	return result
 }
 
 func buildSymbolIndex(symbols []load.Symbol) symbolIndex {

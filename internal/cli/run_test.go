@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -87,7 +88,6 @@ func TestRunVerifyRejectsResolutionFailures(t *testing.T) {
 		{"malformed", "package sample\n\n// @Controller(prefix=)\ntype Controller struct{}\n", "unsupported argument value"},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			code, stdout, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
@@ -111,7 +111,6 @@ func TestRunVerifyRejectsArgumentFailures(t *testing.T) {
 		{name: "duplicate", source: "package sample\n\ntype Controller struct{}\n\n// @Get(\"/{id}\", path=\"/{other}\")\nfunc (Controller) Get() {}\n", expected: []string{`assigns argument "path" more than once`}},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			code, stdout, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
@@ -145,7 +144,7 @@ func TestRunUsesDisplayPositionAndStableOutput(t *testing.T) {
 	t.Parallel()
 	root := writeGoSource(t, "package sample\n\n//line generated/schema.go:40\n// @Service\ntype Service struct{}\n")
 	var first string
-	for run := 0; run < 10; run++ {
+	for run := range 10 {
 		code, stdout, stderr := runModule(root, "annotations", ".")
 		if code != 0 || !strings.Contains(filepath.ToSlash(stdout), "generated/schema.go:40 type Service @Service") {
 			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -171,7 +170,7 @@ var First int
 var Second int
 `)
 	var first string
-	for run := 0; run < 10; run++ {
+	for run := range 10 {
 		code, stdout, stderr := runModule(root, "verify", ".")
 		if code != 1 || stdout != "" {
 			t.Fatalf("run=%d code=%d stdout=%q stderr=%q", run, code, stdout, stderr)
@@ -252,7 +251,6 @@ func BProvider(A) B { panic("must not execute") }
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			code, stdout, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
@@ -275,6 +273,45 @@ func TestRunUnknownCommand(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := Run([]string{"missing"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unknown command") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunReturnsFailureWhenOutputCannotBeWritten(t *testing.T) {
+	t.Parallel()
+	failing := errorWriter{}
+	for _, arguments := range [][]string{
+		nil,
+		{"help"},
+		{"version"},
+		{"missing"},
+	} {
+		if code := Run(arguments, failing, failing); code != 1 {
+			t.Fatalf("Run(%v) code = %d, want 1", arguments, code)
+		}
+	}
+
+	root := writeGoSource(t, "package sample\n\n// @Service\ntype Service struct{}\n")
+	for _, arguments := range [][]string{{"annotations", "."}, {"verify", "."}} {
+		code := run(arguments, failing, &bytes.Buffer{}, load.Options{Dir: root}, load.Load)
+		if code != 1 {
+			t.Fatalf("run(%v) code = %d, want output failure", arguments, code)
+		}
+	}
+	loaderFailure := errors.New("loader failed")
+	loader := func(context.Context, load.Options, ...string) (*load.Program, error) {
+		return nil, loaderFailure
+	}
+	if code := run([]string{"verify", "."}, &bytes.Buffer{}, failing, load.Options{}, loader); code != 1 {
+		t.Fatalf("run(loader failure) code = %d, want 1", code)
+	}
+}
+
+func TestReportDiagnosticsReturnsSummaryWriteFailure(t *testing.T) {
+	t.Parallel()
+	writer := &failAfterWriter{writesRemaining: 1}
+	err := reportDiagnostics(writer, []diagnosticStub{{message: "diagnostic"}}, "summary")
+	if err == nil {
+		t.Fatal("reportDiagnostics() error = nil")
 	}
 }
 
@@ -305,4 +342,30 @@ func writeModule(t *testing.T, files map[string]string) string {
 		}
 	}
 	return root
+}
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+type failAfterWriter struct {
+	writesRemaining int
+}
+
+func (writer *failAfterWriter) Write(data []byte) (int, error) {
+	if writer.writesRemaining == 0 {
+		return 0, errors.New("write failed")
+	}
+	writer.writesRemaining--
+	return len(data), nil
+}
+
+type diagnosticStub struct {
+	message string
+}
+
+func (diagnostic diagnosticStub) Error() string {
+	return diagnostic.message
 }

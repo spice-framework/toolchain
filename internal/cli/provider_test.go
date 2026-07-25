@@ -146,7 +146,6 @@ func Provider() Config { return Config{} }
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			code, stdout, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
