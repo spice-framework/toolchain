@@ -13,6 +13,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	runtimeconfig "github.com/StevenBuglione/spice/config"
 )
 
 func TestBuildAssemblesDeterministicApplicationIR(t *testing.T) {
@@ -332,6 +333,18 @@ func TestBuildReportsUpstreamStageWithoutContinuing(t *testing.T) {
 		want      string
 	}{
 		{
+			name: "configuration",
+			source: `package app
+
+// @Configuration(prefix="server")
+type Settings struct {
+	Port uint ` + "`spice:\"port\"`" + `
+}
+`,
+			wantStage: StageConfiguration,
+			want:      "unsupported type",
+		},
+		{
 			name: "provider",
 			source: `package app
 
@@ -386,10 +399,46 @@ func (Service) Stop(context.Context) error { return nil }
 			if len(model.Providers()) != 0 ||
 				len(model.Edges()) != 0 ||
 				len(model.Components()) != 0 ||
+				len(model.Configurations()) != 0 ||
 				len(model.Targets()) != 0 {
 				t.Fatal("invalid upstream stage leaked a partial application model")
 			}
 		})
+	}
+}
+
+func TestBuildIncludesTypedConfigurationInApplicationIR(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/configapp\n\ngo 1.26.0\n",
+		"app/application.go": `// Package app owns the application.
+//
+// @Module
+package app
+
+// @Configuration(prefix="server")
+type Settings struct {
+	Port int ` + "`spice:\"port,default=8080\"`" + `
+}
+`,
+	})
+	program, resolution := loadAndResolve(t, root, "./app")
+	model := Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	configTypes := model.Configurations()
+	if len(configTypes) != 1 || configTypes[0].Name != "Settings" ||
+		configTypes[0].Module != "example.com/configapp/app" {
+		t.Fatalf("Configurations() = %#v", configTypes)
+	}
+	fields := configTypes[0].Fields()
+	if len(fields) != 1 || fields[0].Key != "server.port" ||
+		fields[0].Kind != runtimeconfig.KindInteger {
+		t.Fatalf("configuration fields = %#v", fields)
+	}
+	fields[0].Key = "changed"
+	if model.Configurations()[0].Fields()[0].Key == "changed" {
+		t.Fatal("Configurations returned mutable field storage")
 	}
 }
 

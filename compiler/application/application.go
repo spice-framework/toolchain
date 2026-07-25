@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/graph"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
@@ -33,6 +34,8 @@ const (
 	StageLifecycle Stage = "lifecycle"
 	// StageModule identifies application-module architecture validation.
 	StageModule Stage = "module"
+	// StageConfiguration identifies typed configuration validation.
+	StageConfiguration Stage = "configuration"
 	// StageApplication identifies application marker and root validation.
 	StageApplication Stage = "application"
 )
@@ -96,6 +99,7 @@ type Model struct {
 	providers   []provider.Provider
 	edges       []graph.Edge
 	components  []lifecycle.Component
+	configTypes []configuration.Type
 	targets     []Target
 	moduleModel modulith.Model
 	diagnostics []Diagnostic
@@ -124,6 +128,12 @@ func (m Model) Components() []lifecycle.Component {
 		result[index] = cloneComponent(m.components[index])
 	}
 	return result
+}
+
+// Configurations returns validated typed configuration declarations in stable
+// symbol order.
+func (m Model) Configurations() []configuration.Type {
+	return append([]configuration.Type(nil), m.configTypes...)
 }
 
 // Targets returns validated application targets in stable symbol order.
@@ -185,6 +195,13 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 		model.diagnostics = moduleDiagnostics(diagnostics)
 		return model
 	}
+
+	configurationCatalog := configuration.Build(program, resolution, model.moduleModel)
+	if diagnostics := configurationCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = configurationDiagnostics(diagnostics)
+		return model
+	}
+	model.configTypes = configurationCatalog.Types()
 
 	providerCatalog := provider.Build(program, resolution)
 	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
@@ -525,6 +542,22 @@ func providerDiagnostics(diagnostics []provider.Diagnostic) []Diagnostic {
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.ProviderID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func configurationDiagnostics(diagnostics []configuration.Diagnostic) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageConfiguration,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.SymbolID,
 			Kind:             diagnostic.Kind,
 			Message:          diagnostic.Message,
 		}

@@ -612,6 +612,8 @@ func verificationSummary(diagnostics []application.Diagnostic) string {
 			label = "lifecycle hook"
 		case application.StageModule:
 			label = "module architecture"
+		case application.StageConfiguration:
+			label = "configuration declaration"
 		case application.StageApplication:
 		}
 	}
