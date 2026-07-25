@@ -161,7 +161,7 @@ func Apply(plan generate.Plan) (result Result, resultErr error) {
 		if bytes.Equal(state.current[file.Path], expected) {
 			continue
 		}
-		if err := replaceFile(root, file.Path, expected, file.Mode, true); err != nil {
+		if err := replaceFile(root, file.Path, expected, file.Mode, path.Ext(file.Path) == ".go"); err != nil {
 			return Result{}, fmt.Errorf("write generated file %q: %w", file.Path, err)
 		}
 		result.Written = append(result.Written, file.Path)
@@ -460,7 +460,7 @@ func decodeManifest(content []byte, plan generate.Plan) (generate.Manifest, erro
 		if err := validateRelativePath(file.Path); err != nil {
 			return generate.Manifest{}, fmt.Errorf("ownership manifest path %q: %w", file.Path, err)
 		}
-		if !withinOutput(file.Path, plan.Target().OutputDir) || path.Ext(file.Path) != ".go" {
+		if !withinOutput(file.Path, plan.Target().OutputDir) || !supportedGeneratedExtension(file.Path) {
 			return generate.Manifest{}, fmt.Errorf(
 				"ownership manifest path %q is outside target output %q",
 				file.Path,
@@ -539,8 +539,8 @@ func validatePlanFiles(plan generate.Plan, target generate.Target, manifest gene
 		}
 		seen[key] = struct{}{}
 		content := file.Content()
-		if !hasGeneratedMarker(content) {
-			return fmt.Errorf("generated Go file %q does not begin with the Spice generated marker", file.Path)
+		if err := validateGeneratedContent(file.Path, content); err != nil {
+			return err
 		}
 		if hashContent(content) != file.SHA256 {
 			return fmt.Errorf("generated file %q content does not match its SHA-256", file.Path)
@@ -557,6 +557,27 @@ func validatePlanFiles(plan generate.Plan, target generate.Target, manifest gene
 		return errors.New("plan manifest content must be non-empty canonical JSON ending in a newline")
 	}
 	return nil
+}
+
+func validateGeneratedContent(filePath string, content []byte) error {
+	switch path.Ext(filePath) {
+	case ".go":
+		if !hasGeneratedMarker(content) {
+			return fmt.Errorf("generated Go file %q does not begin with the Spice generated marker", filePath)
+		}
+	case ".json":
+		if len(content) == 0 || content[len(content)-1] != '\n' || !json.Valid(content) {
+			return fmt.Errorf("generated JSON file %q must be valid JSON ending in a newline", filePath)
+		}
+	default:
+		return fmt.Errorf("generated file %q must use a supported .go or .json extension", filePath)
+	}
+	return nil
+}
+
+func supportedGeneratedExtension(filePath string) bool {
+	extension := path.Ext(filePath)
+	return extension == ".go" || extension == ".json"
 }
 
 func validateRelativePath(filePath string) error {

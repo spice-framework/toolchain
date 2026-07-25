@@ -261,6 +261,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
@@ -293,6 +294,11 @@ type Response struct {
 	ID string ` + "`json:\"id\"`" + `
 	Verbose bool ` + "`json:\"verbose\"`" + `
 	Limit int8 ` + "`json:\"limit\"`" + `
+	CreatedAt time.Time ` + "`json:\"created_at\"`" + `
+	Tags []string ` + "`json:\"tags,omitempty\"`" + `
+	Metadata map[string]int64 ` + "`json:\"metadata,omitempty\"`" + `
+	Next *Response ` + "`json:\"next,omitempty\"`" + `
+	Ignored string ` + "`json:\"-\"`" + `
 }
 
 // @Controller(prefix="/users")
@@ -349,7 +355,43 @@ func Web(*api.API) {}
 	if len(diagnostics) != 0 {
 		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
-	source := string(plan.Files()[0].Content())
+	files := plan.Files()
+	if got, want := filePaths(files), []string{
+		"internal/spicegen/web/openapi.json",
+		"internal/spicegen/web/zz_spice_gen.go",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("generated files = %v, want %v", got, want)
+	}
+	var openAPI openAPIDocument
+	if err := json.Unmarshal(files[0].Content(), &openAPI); err != nil {
+		t.Fatalf("decode generated OpenAPI: %v", err)
+	}
+	getOperation := openAPI.Paths["/users/{id}"]["get"]
+	postOperation := openAPI.Paths["/users/{id}"]["post"]
+	rawOperation := openAPI.Paths["/users/raw/status"]["get"]
+	responseRef := getOperation.Responses["200"].Content["application/json"].Schema.Ref
+	responseSchema := openAPI.Components.Schemas[strings.TrimPrefix(responseRef, "#/components/schemas/")]
+	tagsSchema := responseSchema.Properties["tags"]
+	metadataSchema := responseSchema.Properties["metadata"]
+	if openAPI.OpenAPI != "3.1.0" || openAPI.Info.Title != "Web API" ||
+		getOperation.OperationID != "API_Get" || len(getOperation.Parameters) != 3 ||
+		getOperation.Parameters[2].Name != "X-Limit" ||
+		getOperation.Parameters[2].Schema.Format != "int32" ||
+		responseRef == "" ||
+		responseSchema.Properties["created_at"].Format != "date-time" ||
+		tagsSchema.Items == nil || tagsSchema.Items.Type != "string" ||
+		metadataSchema.AdditionalProperties == nil ||
+		metadataSchema.AdditionalProperties.Format != "int64" ||
+		len(responseSchema.Properties["next"].AnyOf) != 2 ||
+		responseSchema.Properties["next"].AnyOf[0].Ref != responseRef ||
+		responseSchema.Properties["ignored"].Type != "" ||
+		postOperation.RequestBody == nil ||
+		postOperation.Responses["204"].Description != "No Content" ||
+		rawOperation.Responses["default"].Description != "Response owned by raw net/http handler" ||
+		openAPI.Components.Schemas["SpiceProblem"].Type != "object" {
+		t.Fatalf("generated OpenAPI = %#v", openAPI)
+	}
+	source := string(files[1].Content())
 	for _, expected := range []string{
 		`http "net/http"`,
 		`spiceweb "github.com/StevenBuglione/spice/web"`,
@@ -909,6 +951,14 @@ func request(
 	return response
 }
 `
+
+func filePaths(files []File) []string {
+	result := make([]string, len(files))
+	for index, file := range files {
+		result[index] = file.Path
+	}
+	return result
+}
 
 func generationFixture(t *testing.T) string {
 	t.Helper()

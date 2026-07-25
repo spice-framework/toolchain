@@ -235,12 +235,29 @@ func Render(
 		)}
 	}
 	generatedPath := path.Join(target.OutputDir, generatedFilename)
-	file := File{
+	files := []File{{
 		Path:    generatedPath,
 		Mode:    0o644,
 		SHA256:  contentHash(source),
 		content: source,
+	}}
+	if len(model.Controllers()) != 0 {
+		openAPIContent, openAPIErr := renderOpenAPI(model, applicationTarget)
+		if openAPIErr != nil {
+			return Plan{}, []Diagnostic{targetDiagnostic(
+				applicationTarget,
+				"openapi",
+				fmt.Sprintf("render OpenAPI document: %v", openAPIErr),
+			)}
+		}
+		files = append(files, File{
+			Path:    path.Join(target.OutputDir, openAPIFilename),
+			Mode:    0o644,
+			SHA256:  contentHash(openAPIContent),
+			content: openAPIContent,
+		})
 	}
+	sort.Slice(files, func(left, right int) bool { return files[left].Path < files[right].Path })
 	inputHash, hashErr := modelHash(model, applicationTarget, target)
 	if hashErr != nil {
 		return Plan{}, []Diagnostic{targetDiagnostic(
@@ -255,10 +272,12 @@ func Render(
 		GeneratorVersion: GeneratorVersion,
 		GoFormatLine:     GoFormatLine,
 		InputSHA256:      inputHash,
-		Files: []ManifestFile{{
+	}
+	for _, file := range files {
+		manifest.Files = append(manifest.Files, ManifestFile{
 			Path:   file.Path,
 			SHA256: file.SHA256,
-		}},
+		})
 	}
 	manifestContent, manifestErr := json.MarshalIndent(manifest, "", "  ")
 	if manifestErr != nil {
@@ -271,7 +290,7 @@ func Render(
 	manifestContent = append(manifestContent, '\n')
 	return Plan{
 		target:          target,
-		files:           []File{file},
+		files:           files,
 		manifest:        manifest,
 		manifestContent: manifestContent,
 	}, nil

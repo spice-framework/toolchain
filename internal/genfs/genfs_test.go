@@ -84,6 +84,60 @@ func TestApplyCreatesChecksAndPreservesUnchangedFiles(t *testing.T) {
 	}
 }
 
+func TestApplyOwnsGeneratedOpenAPI(t *testing.T) {
+	root := generationModule(t)
+	plan := renderPlan(t, root, controllerApplicationSource)
+	if got, want := generatedPaths(plan), []string{
+		"internal/spicegen/application/openapi.json",
+		"internal/spicegen/application/zz_spice_gen.go",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("generated files = %v, want %v", got, want)
+	}
+	result, err := Apply(plan)
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if !slices.Equal(result.Written, generatedPaths(plan)) {
+		t.Fatalf("Apply().Written = %v", result.Written)
+	}
+	openAPIPath := filepath.Join(root, filepath.FromSlash(plan.Files()[0].Path))
+	content := mustRead(t, openAPIPath)
+	if !json.Valid(content) || !strings.Contains(string(content), `"openapi": "3.1.0"`) {
+		t.Fatalf("generated OpenAPI = %s", content)
+	}
+	writeFile(t, openAPIPath, append(content, ' '))
+	status, err := Check(plan)
+	if err != nil || !hasDifference(status, DifferenceManualEdit) {
+		t.Fatalf("Check(manual OpenAPI edit) = %#v, %v", status, err)
+	}
+	if _, err := Apply(plan); err == nil {
+		t.Fatal("Apply(manual OpenAPI edit) error = nil")
+	}
+}
+
+func TestValidateGeneratedContentFormats(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		content string
+		wantErr bool
+	}{
+		{name: "Go", path: "generated.go", content: generatedMarker + "\npackage generated\n"},
+		{name: "JSON", path: "generated.json", content: "{}\n"},
+		{name: "missing JSON newline", path: "generated.json", content: "{}", wantErr: true},
+		{name: "invalid JSON", path: "generated.json", content: "{]\n", wantErr: true},
+		{name: "unsupported", path: "generated.yaml", content: "{}\n", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateGeneratedContent(test.path, []byte(test.content))
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateGeneratedContent() error = %v, wantErr=%t", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestApplyUpdatesOnlyUnmodifiedOwnedOutput(t *testing.T) {
 	root := generationModule(t)
 	first := renderPlan(t, root, applicationSource)
@@ -535,6 +589,33 @@ func ValueProvider() Value { return Value{} }
 func Application(Value) {}
 `
 
+const controllerApplicationSource = `package app
+
+import "context"
+
+type Request struct {
+	ID string ` + "`path:\"id\"`" + `
+}
+
+type Response struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
+// @Controller(prefix="/items")
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("/{id}")
+func (*API) Get(context.Context, Request) (Response, error) {
+	return Response{}, nil
+}
+
+// @Application
+func Application(*API) {}
+`
+
 func generationModule(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -577,6 +658,15 @@ func renderPlan(t *testing.T, root, source string) generate.Plan {
 		t.Fatalf("generate.Render() diagnostics = %v", diagnostics)
 	}
 	return plan
+}
+
+func generatedPaths(plan generate.Plan) []string {
+	files := plan.Files()
+	result := make([]string, len(files))
+	for index, file := range files {
+		result[index] = file.Path
+	}
+	return result
 }
 
 func addManifestFile(t *testing.T, root string, plan generate.Plan, file generate.ManifestFile) {
