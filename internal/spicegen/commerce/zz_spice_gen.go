@@ -21,6 +21,8 @@ import (
 	payments "github.com/StevenBuglione/spice/examples/commerce/payments"
 	platform "github.com/StevenBuglione/spice/examples/commerce/platform"
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spicemanagement "github.com/StevenBuglione/spice/management"
+	spiceobservability "github.com/StevenBuglione/spice/observability"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
@@ -48,6 +50,7 @@ type ApplicationOptions struct {
 	MaxRequestBodyBytes       int64
 	HTTPObservers             []spiceweb.HTTPObserver
 	Middleware                []spiceweb.Middleware
+	Logger                    *slog.Logger
 	Observers                 []spicelifecycle.Observer
 }
 
@@ -145,6 +148,22 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	application := &Application{coordinator: spicelifecycle.NewCoordinator()}
 	observers := append([]spicelifecycle.Observer(nil), options.Observers...)
 	httpObservers := append([]spiceweb.HTTPObserver(nil), options.HTTPObservers...)
+	managementMetrics := spicemanagement.NewHTTPMetrics()
+	httpObservers = append([]spiceweb.HTTPObserver{managementMetrics}, httpObservers...)
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	}
+	lifecycleLogs, err := spiceobservability.NewSlogLifecycleObserver(logger)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure lifecycle logging: %w", err))
+	}
+	observers = append([]spicelifecycle.Observer{lifecycleLogs}, observers...)
+	httpLogs, err := spiceobservability.NewSlogHTTPObserver(logger)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure HTTP logging: %w", err))
+	}
+	httpObservers = append(httpObservers[:1], append([]spiceweb.HTTPObserver{httpLogs}, httpObservers[1:]...)...)
 	for index, observer := range observers {
 		if err := application.coordinator.RegisterObserver(observer); err != nil {
 			return nil, fmt.Errorf("register lifecycle observer %d: %w", index, err)
@@ -389,6 +408,36 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			Stop:   provider5.Stop,
 		},
 	}
+	managementChecks, err := spicemanagement.LifecycleChecks(TargetID, "github.com/StevenBuglione/spice/examples/commerce/bootstrap", application.State)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management lifecycle checks: %w", err))
+	}
+	managementManager, err := spicemanagement.New(managementChecks...)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management checks: %w", err))
+	}
+	managementHandler, err := spicemanagement.NewHandler(spicemanagement.HandlerOptions{
+		Manager: managementManager,
+		Info: map[string]string{
+			"application": TargetID,
+			"module":      "github.com/StevenBuglione/spice/examples/commerce/bootstrap",
+			"framework":   "Spice",
+		},
+		Metrics: managementMetrics,
+		Expose: []spicemanagement.Endpoint{
+			spicemanagement.EndpointHealth,
+			spicemanagement.EndpointInfo,
+			spicemanagement.EndpointLiveness,
+			spicemanagement.EndpointMetrics,
+			spicemanagement.EndpointReadiness,
+		},
+	})
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management handler: %w", err))
+	}
+	if err := spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler); err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register management routes: %w", err))
+	}
 	return application, nil
 }
 
@@ -511,6 +560,7 @@ func RunCommand(options CommandOptions) int {
 	}
 
 	applicationOptions := options.Application
+	applicationOptions.Logger = logger
 	logger.InfoContext(ctx, "Spice application constructing", slog.String("application", TargetID))
 	application, err := NewApplicationWithOptions(ctx, applicationOptions)
 	if err != nil {
