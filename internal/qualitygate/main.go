@@ -378,6 +378,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./config", "FuzzResolveScalars"},
 		{"./web", "FuzzDecodeJSON"},
 		{"./httpclient", "FuzzResolveReference"},
+		{"./session", "FuzzManagerLoad"},
 		{"./starter", "FuzzParseManifest"},
 	}
 	for _, target := range targets {
