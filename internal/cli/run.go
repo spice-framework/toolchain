@@ -100,6 +100,8 @@ func runWithExecutors(
 		return generateCommand(arguments[1:], stdout, stderr, options, loader)
 	case "build":
 		return buildCommand(arguments[1:], stdout, stderr, options, loader, builder)
+	case "run":
+		return runCommand(arguments[1:], stdout, stderr, options, loader)
 	default:
 		return unknownCommand(arguments[0], stderr)
 	}
@@ -1282,6 +1284,7 @@ Usage:
   spice test --module module [--race] [--count n] [--run regexp] [--timeout duration] [package-pattern ...]
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
   spice build [--target name] [package-pattern ...]
+  spice run [--target name] [package-pattern ...] [-- application-argument ...]
 
 Commands:
   version      Print the Spice version.
@@ -1291,6 +1294,7 @@ Commands:
   test         Validate and run one focused application-module test graph.
   generate     Render and safely apply or check generated application code.
   build        Generate an application and run the standard trimpath build.
+  run          Generate, build, and execute a package-main application.
 
 Starter selection:
   Commit .spice/starters.json to explicitly compose compatible third-party
