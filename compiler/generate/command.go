@@ -18,10 +18,18 @@ type modelHashBootstrapOption struct {
 }
 
 type modelHashBootstrapFeature struct {
-	Annotation   string                     `json:"annotation"`
-	Capability   string                     `json:"capability"`
-	Options      []modelHashBootstrapOption `json:"options"`
-	Requirements []string                   `json:"requirements"`
+	Annotation    string                         `json:"annotation"`
+	Capability    string                         `json:"capability"`
+	SourceID      string                         `json:"source_id,omitempty"`
+	SourceVersion string                         `json:"source_version,omitempty"`
+	Options       []modelHashBootstrapOption     `json:"options"`
+	Requirements  []string                       `json:"requirements"`
+	EntryPoints   []modelHashBootstrapEntryPoint `json:"entry_points,omitempty"`
+}
+
+type modelHashBootstrapEntryPoint struct {
+	Package string `json:"package"`
+	Symbol  string `json:"symbol"`
 }
 
 type commandFeatures struct {
@@ -52,8 +60,10 @@ func bootstrapHashInput(target application.Target) []modelHashBootstrapFeature {
 	var result []modelHashBootstrapFeature
 	for _, feature := range target.Bootstrap().Features() {
 		item := modelHashBootstrapFeature{
-			Annotation: feature.Annotation,
-			Capability: string(feature.Capability),
+			Annotation:    feature.Annotation,
+			Capability:    string(feature.Capability),
+			SourceID:      feature.SourceID,
+			SourceVersion: feature.SourceVersion,
 		}
 		for _, option := range feature.Options() {
 			item.Options = append(item.Options, modelHashBootstrapOption{
@@ -63,6 +73,12 @@ func bootstrapHashInput(target application.Target) []modelHashBootstrapFeature {
 		}
 		for _, requirement := range feature.Requirements() {
 			item.Requirements = append(item.Requirements, string(requirement))
+		}
+		for _, entryPoint := range feature.EntryPoints() {
+			item.EntryPoints = append(item.EntryPoints, modelHashBootstrapEntryPoint{
+				Package: entryPoint.Package,
+				Symbol:  entryPoint.Symbol,
+			})
 		}
 		result = append(result, item)
 	}

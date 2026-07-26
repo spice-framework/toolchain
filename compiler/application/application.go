@@ -119,6 +119,13 @@ type Model struct {
 	diagnostics []Diagnostic
 }
 
+// BuildOptions supplies explicitly composed compiler extensions. The caller
+// remains responsible for validating annotations with a registry containing
+// matching definitions before building the application model.
+type BuildOptions struct {
+	BootstrapDefinitions []compilerbootstrap.Definition
+}
+
 // Providers returns providers in deterministic dependency-first construction
 // order. Cleanup capabilities remain attached to each provider record.
 func (m Model) Providers() []provider.Provider {
@@ -196,6 +203,16 @@ func (m Model) Diagnostics() []Diagnostic {
 // from the existing single-program pipeline. It never reloads source, reparses
 // files, reflects on declarations, or executes application/provider bodies.
 func Build(program *load.Program, resolution resolve.Result) Model {
+	return BuildWithOptions(program, resolution, BuildOptions{})
+}
+
+// BuildWithOptions assembles an application model with explicitly supplied
+// bootstrap feature definitions in addition to Spice's built-in definitions.
+func BuildWithOptions(
+	program *load.Program,
+	resolution resolve.Result,
+	options BuildOptions,
+) Model {
 	model := Model{}
 	if program == nil {
 		model.diagnostics = []Diagnostic{{
@@ -260,10 +277,15 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 	if len(model.diagnostics) != 0 {
 		return model
 	}
+	bootstrapDefinitions := compilerbootstrap.Builtins()
+	bootstrapDefinitions = append(
+		bootstrapDefinitions,
+		options.BootstrapDefinitions...,
+	)
 	bootstrapResult := compilerbootstrap.Compile(
 		resolution,
 		bootstrapApplications(model.targets),
-		compilerbootstrap.Builtins(),
+		bootstrapDefinitions,
 	)
 	if diagnostics := bootstrapResult.Diagnostics(); len(diagnostics) != 0 {
 		model.diagnostics = bootstrapDiagnostics(diagnostics)

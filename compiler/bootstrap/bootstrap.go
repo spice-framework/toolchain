@@ -66,12 +66,22 @@ type OptionDefinition struct {
 
 // Definition maps one qualified annotation to generated capability metadata.
 // Callers pass definitions explicitly to Compile, which is the extension seam
-// for future first- and third-party starter manifests.
+// used by first- and third-party starter manifest catalogs.
 type Definition struct {
-	Annotation   string
-	Capability   Capability
-	Options      []OptionDefinition
-	Requirements []RuntimeCapability
+	Annotation    string
+	Capability    Capability
+	Options       []OptionDefinition
+	Requirements  []RuntimeCapability
+	SourceID      string
+	SourceVersion string
+	EntryPoints   []EntryPoint
+}
+
+// EntryPoint identifies one explicit starter constructor available to a
+// generated application feature.
+type EntryPoint struct {
+	Package string
+	Symbol  string
 }
 
 // Option is one normalized, typed feature setting.
@@ -89,10 +99,13 @@ func (o Option) Value() annotation.Value {
 type Feature struct {
 	Annotation       string
 	Capability       Capability
+	SourceID         string
+	SourceVersion    string
 	Position         token.Position
 	PhysicalPosition token.Position
 	options          []Option
 	requirements     []RuntimeCapability
+	entryPoints      []EntryPoint
 }
 
 // Options returns normalized settings sorted by name.
@@ -103,6 +116,11 @@ func (f Feature) Options() []Option {
 // Requirements returns graph capabilities required by the feature.
 func (f Feature) Requirements() []RuntimeCapability {
 	return append([]RuntimeCapability(nil), f.requirements...)
+}
+
+// EntryPoints returns explicit starter constructors in deterministic order.
+func (f Feature) EntryPoints() []EntryPoint {
+	return append([]EntryPoint(nil), f.entryPoints...)
 }
 
 // StringList returns a defensive copy of one normalized string-list option.
@@ -360,6 +378,7 @@ func indexApplications(applications []Application) map[string]Application {
 
 func indexDefinitions(definitions []Definition) (map[string]Definition, []Diagnostic) {
 	result := make(map[string]Definition, len(definitions))
+	capabilities := make(map[Capability]string, len(definitions))
 	var diagnostics []Diagnostic
 	for _, definition := range definitions {
 		if problem := definitionProblem(definition); problem != "" {
@@ -381,6 +400,20 @@ func indexDefinitions(definitions []Definition) (map[string]Definition, []Diagno
 			})
 			continue
 		}
+		if annotationName, duplicate := capabilities[definition.Capability]; duplicate {
+			diagnostics = append(diagnostics, Diagnostic{
+				Annotation: definition.Annotation,
+				Kind:       "duplicate-capability",
+				Message: fmt.Sprintf(
+					"bootstrap capability %q is declared by both @%s and @%s",
+					definition.Capability,
+					annotationName,
+					definition.Annotation,
+				),
+			})
+			continue
+		}
+		capabilities[definition.Capability] = definition.Annotation
 		result[definition.Annotation] = cloneDefinition(definition)
 	}
 	return result, diagnostics
@@ -397,6 +430,58 @@ func definitionProblem(definition Definition) string {
 			definition.Annotation,
 		)
 	}
+	if problem := sourceDefinitionProblem(definition); problem != "" {
+		return problem
+	}
+	return optionDefinitionProblem(definition)
+}
+
+func sourceDefinitionProblem(definition Definition) string {
+	if (definition.SourceID == "") != (definition.SourceVersion == "") {
+		return fmt.Sprintf(
+			"bootstrap definition for @%s must declare both source ID and source version",
+			definition.Annotation,
+		)
+	}
+	if strings.TrimSpace(definition.SourceID) != definition.SourceID ||
+		strings.TrimSpace(definition.SourceVersion) != definition.SourceVersion {
+		return fmt.Sprintf(
+			"bootstrap definition for @%s requires trimmed source metadata",
+			definition.Annotation,
+		)
+	}
+	if len(definition.EntryPoints) != 0 && definition.SourceID == "" {
+		return fmt.Sprintf(
+			"bootstrap definition for @%s cannot declare entrypoints without source metadata",
+			definition.Annotation,
+		)
+	}
+	seenEntryPoints := make(map[string]struct{}, len(definition.EntryPoints))
+	for _, entryPoint := range definition.EntryPoints {
+		if strings.TrimSpace(entryPoint.Package) == "" ||
+			strings.TrimSpace(entryPoint.Package) != entryPoint.Package ||
+			strings.TrimSpace(entryPoint.Symbol) == "" ||
+			strings.TrimSpace(entryPoint.Symbol) != entryPoint.Symbol {
+			return fmt.Sprintf(
+				"bootstrap definition for @%s contains an invalid entrypoint",
+				definition.Annotation,
+			)
+		}
+		key := entryPoint.Package + "\x00" + entryPoint.Symbol
+		if _, duplicate := seenEntryPoints[key]; duplicate {
+			return fmt.Sprintf(
+				"bootstrap definition for @%s contains duplicate entrypoint %s.%s",
+				definition.Annotation,
+				entryPoint.Package,
+				entryPoint.Symbol,
+			)
+		}
+		seenEntryPoints[key] = struct{}{}
+	}
+	return ""
+}
+
+func optionDefinitionProblem(definition Definition) string {
 	seen := make(map[string]struct{}, len(definition.Options))
 	for _, option := range definition.Options {
 		if strings.TrimSpace(option.Name) == "" ||
@@ -432,9 +517,12 @@ func compileFeature(
 	feature := Feature{
 		Annotation:       definition.Annotation,
 		Capability:       definition.Capability,
+		SourceID:         definition.SourceID,
+		SourceVersion:    definition.SourceVersion,
 		Position:         occurrence.DisplayPosition,
 		PhysicalPosition: token.Position{Filename: occurrence.PhysicalFile, Offset: occurrence.PhysicalOffset},
 		requirements:     append([]RuntimeCapability(nil), definition.Requirements...),
+		entryPoints:      append([]EntryPoint(nil), definition.EntryPoints...),
 	}
 	options, diagnostics := compileOptions(occurrence, definition.Options)
 	feature.options = options
@@ -729,6 +817,27 @@ func cloneDefinition(definition Definition) Definition {
 		)
 	}
 	result.Requirements = append([]RuntimeCapability(nil), definition.Requirements...)
+	result.EntryPoints = append([]EntryPoint(nil), definition.EntryPoints...)
+	for index := range result.Options {
+		sort.SliceStable(result.Options[index].ListItemKinds, func(i, j int) bool {
+			return result.Options[index].ListItemKinds[i] <
+				result.Options[index].ListItemKinds[j]
+		})
+		sort.Strings(result.Options[index].AllowedStrings)
+	}
+	sort.SliceStable(result.Options, func(i, j int) bool {
+		return result.Options[i].Name < result.Options[j].Name
+	})
+	sort.SliceStable(result.Requirements, func(i, j int) bool {
+		return result.Requirements[i] < result.Requirements[j]
+	})
+	sort.SliceStable(result.EntryPoints, func(i, j int) bool {
+		left, right := result.EntryPoints[i], result.EntryPoints[j]
+		if left.Package != right.Package {
+			return left.Package < right.Package
+		}
+		return left.Symbol < right.Symbol
+	})
 	return result
 }
 
@@ -747,6 +856,7 @@ func cloneFeatures(features []Feature) []Feature {
 func cloneFeature(feature Feature) Feature {
 	feature.options = cloneOptions(feature.options)
 	feature.requirements = append([]RuntimeCapability(nil), feature.requirements...)
+	feature.entryPoints = append([]EntryPoint(nil), feature.entryPoints...)
 	return feature
 }
 
