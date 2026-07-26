@@ -515,8 +515,20 @@ func generatedMainBridgeError(
 		return false
 	}
 	_, filename, line, column := normalizeDiagnosticPosition(position)
-	_, ok := positions[diagnosticPositionKey(filename, line, column)]
-	return ok
+	if _, ok := positions[diagnosticPositionKey(filename, line, column)]; ok {
+		return true
+	}
+	// go/packages may materialize an overlay through a temporary gocommand
+	// filename in a ListError while retaining the exact source coordinates.
+	// The message has already been restricted to undefined: spiceMain and the
+	// accepted coordinates come only from an annotated package-main body.
+	coordinate := ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+	for candidate := range positions {
+		if strings.HasSuffix(candidate, coordinate) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagnosticPositionKey(filename string, line, column int) string {

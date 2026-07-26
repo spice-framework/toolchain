@@ -1,6 +1,7 @@
 package load
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -337,6 +338,83 @@ func TestLoadOverlay(t *testing.T) {
 	if symbolByID(program.Symbols(), "example.com/overlay/app.Original") != nil {
 		t.Fatalf("original declaration survived overlay: %v", symbolIDs(program.Symbols()))
 	}
+}
+
+func TestLoadOverlayAllowsOnlyAnnotatedGeneratedMainBridge(t *testing.T) {
+	t.Parallel()
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/overlaymain\n\ngo 1.26.0\n",
+		"main.go": `package main
+
+import "os"
+
+// @Application
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`,
+	})
+	mainPath := filepath.Join(root, "main.go")
+	content, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("ReadFile(main.go) error = %v", err)
+	}
+	program, err := Load(
+		context.Background(),
+		Options{
+			Dir:                      root,
+			AllowGeneratedMainBridge: true,
+			Overlay: map[string][]byte{
+				mainPath: content,
+			},
+		},
+		"./...",
+	)
+	if err != nil {
+		t.Fatalf("Load(valid overlay bridge) error = %v", err)
+	}
+	if program == nil || len(program.Diagnostics()) != 0 {
+		t.Fatalf("Load(valid overlay bridge) program = %+v", program)
+	}
+
+	invalid := bytes.Replace(
+		content,
+		[]byte("os.Exit(spiceMain(os.Args[1:]))"),
+		[]byte("os.Exit(spiceMain(os.Args[1:]) + missingValue)"),
+		1,
+	)
+	program, err = Load(
+		context.Background(),
+		Options{
+			Dir:                      root,
+			AllowGeneratedMainBridge: true,
+			Overlay: map[string][]byte{
+				mainPath: invalid,
+			},
+		},
+		"./...",
+	)
+	if err == nil {
+		t.Fatal("Load(unrelated overlay error) error = nil, want failure")
+	}
+	if program == nil ||
+		!strings.Contains(
+			loadDiagnosticMessages(program.Diagnostics()),
+			"undefined: missingValue",
+		) {
+		t.Fatalf(
+			"Load(unrelated overlay error) diagnostics = %+v",
+			program.Diagnostics(),
+		)
+	}
+}
+
+func loadDiagnosticMessages(items []Diagnostic) string {
+	messages := make([]string, len(items))
+	for index, item := range items {
+		messages[index] = item.Message
+	}
+	return strings.Join(messages, "\n")
 }
 
 func TestLoadAllowsOnlyAnnotatedGeneratedMainBridge(t *testing.T) {

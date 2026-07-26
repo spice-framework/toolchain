@@ -1,0 +1,268 @@
+// Package service exposes Spice's typed compiler pipeline as an isolated,
+// overlay-aware analysis service for commands and editor integrations.
+package service
+
+import (
+	"context"
+	"errors"
+	"slices"
+
+	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/compiler/application"
+	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
+	"github.com/StevenBuglione/spice/compiler/diagnostic"
+	"github.com/StevenBuglione/spice/compiler/generate"
+	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/provider"
+)
+
+const (
+	defaultCacheEntries = 8
+	defaultOverlayFiles = 1_024
+	defaultOverlayBytes = 16 << 20
+)
+
+// ErrStaleAnalysis reports that a newer sequenced request superseded a result.
+var ErrStaleAnalysis = errors.New("spice analysis request is stale")
+
+// Loader is the cancellable typed-program loading boundary.
+type Loader func(
+	context.Context,
+	load.Options,
+	...string,
+) (*load.Program, error)
+
+// Config constructs one isolated service instance.
+type Config struct {
+	Loader               Loader
+	LoadOptions          load.Options
+	Registry             annotation.Registry
+	BootstrapDefinitions []compilerbootstrap.Definition
+	ProviderEntrypoints  []provider.Entrypoint
+	CacheNamespace       string
+	MaxCacheEntries      int
+	MaxOverlayFiles      int
+	MaxOverlayBytes      int
+}
+
+// Document is one versioned in-memory source overlay.
+type Document struct {
+	Version int
+	Content []byte
+}
+
+// Request describes one read-only compiler analysis.
+type Request struct {
+	WorkspaceRoot string
+	Target        string
+	Patterns      []string
+	Overlay       map[string]Document
+	// ContentHash is a caller-owned hash of all relevant workspace and overlay
+	// content. Caching is disabled when it is empty, preventing stale disk
+	// results from being reused without a complete content identity.
+	ContentHash string
+	// Sequence enables per-workspace stale-result rejection. Zero disables
+	// sequencing for one-shot command callers.
+	Sequence uint64
+}
+
+// Annotation is one resolved declaration annotation summary.
+type Annotation struct {
+	Name        string
+	Raw         string
+	Target      annotation.Target
+	Declaration string
+	SymbolID    string
+	PackagePath string
+	Location    diagnostic.Location
+}
+
+// ProviderDependency is one exact provider input.
+type ProviderDependency struct {
+	Index  int
+	Name   string
+	TypeID string
+}
+
+// Provider is one dependency-first provider summary.
+type Provider struct {
+	ID             string
+	Name           string
+	PackagePath    string
+	OutputTypeID   string
+	Source         provider.Source
+	Dependencies   []ProviderDependency
+	ReturnsCleanup bool
+	ReturnsError   bool
+}
+
+// ProviderEdge is one exact-type provider dependency edge.
+type ProviderEdge struct {
+	ConsumerID     string
+	DependencyID   string
+	RequiredTypeID string
+	ParameterIndex int
+	ParameterName  string
+}
+
+// ProviderGraph is the immutable exact-type construction graph.
+type ProviderGraph struct {
+	Providers []Provider
+	Edges     []ProviderEdge
+}
+
+// NamedInterface is one explicitly exposed module descendant.
+type NamedInterface struct {
+	Name        string
+	PackagePath string
+}
+
+// ModuleDependency is one explicitly allowed module API.
+type ModuleDependency struct {
+	ModuleID string
+	API      string
+}
+
+// Module is one compile-time application-module summary.
+type Module struct {
+	ID                  string
+	RootPackage         string
+	Packages            []string
+	NamedInterfaces     []NamedInterface
+	AllowedDependencies []ModuleDependency
+}
+
+// ModuleEdge is one observed cross-module import edge.
+type ModuleEdge struct {
+	FromModule  string
+	ToModule    string
+	FromPackage string
+	ToPackage   string
+	API         string
+	Exported    bool
+	Allowed     bool
+}
+
+// ModuleGraph is the immutable module architecture summary.
+type ModuleGraph struct {
+	Modules            []Module
+	Edges              []ModuleEdge
+	UnassignedPackages []string
+}
+
+// ConfigurationField is one generated configuration property.
+type ConfigurationField struct {
+	Name        string
+	Key         string
+	TypeID      string
+	Environment string
+	Default     string
+	HasDefault  bool
+	Required    bool
+	Secret      bool
+}
+
+// Configuration is one generated typed configuration declaration.
+type Configuration struct {
+	SymbolID    string
+	Name        string
+	PackagePath string
+	TypeID      string
+	Prefix      string
+	Module      string
+	Fields      []ConfigurationField
+}
+
+// AnnotationArgument describes one completion-safe annotation argument.
+type AnnotationArgument struct {
+	Name             string
+	Kinds            []annotation.Kind
+	ListElementKinds []annotation.Kind
+	Required         bool
+	Positional       bool
+}
+
+// AnnotationDefinition is one available built-in or selected extension.
+type AnnotationDefinition struct {
+	Name       string
+	Targets    []annotation.Target
+	Repeatable bool
+	Arguments  []AnnotationArgument
+}
+
+// Result is an immutable-by-construction compiler analysis result.
+type Result struct {
+	workspaceRoot  string
+	sequence       uint64
+	diagnostics    diagnostic.Set
+	annotations    []Annotation
+	providerGraph  ProviderGraph
+	moduleGraph    ModuleGraph
+	configurations []Configuration
+	definitions    []AnnotationDefinition
+	actions        []diagnostic.SuggestedFix
+	application    application.Model
+	plan           generate.Plan
+	hasPlan        bool
+}
+
+// WorkspaceRoot returns the normalized absolute analysis root.
+func (result Result) WorkspaceRoot() string {
+	return result.workspaceRoot
+}
+
+// Sequence returns the caller-supplied request sequence.
+func (result Result) Sequence() uint64 {
+	return result.sequence
+}
+
+// Diagnostics returns the immutable shared diagnostic set.
+func (result Result) Diagnostics() diagnostic.Set {
+	return diagnostic.NewSet(result.diagnostics.Items()...)
+}
+
+// Annotations returns defensive resolved annotation summaries.
+func (result Result) Annotations() []Annotation {
+	return slices.Clone(result.annotations)
+}
+
+// ProviderGraph returns a deep defensive graph summary.
+func (result Result) ProviderGraph() ProviderGraph {
+	return cloneProviderGraph(result.providerGraph)
+}
+
+// ModuleGraph returns a deep defensive module summary.
+func (result Result) ModuleGraph() ModuleGraph {
+	return cloneModuleGraph(result.moduleGraph)
+}
+
+// Configurations returns deep defensive configuration metadata.
+func (result Result) Configurations() []Configuration {
+	return cloneConfigurations(result.configurations)
+}
+
+// AnnotationDefinitions returns completion-safe available definitions.
+func (result Result) AnnotationDefinitions() []AnnotationDefinition {
+	return cloneDefinitions(result.definitions)
+}
+
+// CodeActions returns version-aware safe fixes carried by diagnostics.
+func (result Result) CodeActions() []diagnostic.SuggestedFix {
+	return cloneActions(result.actions)
+}
+
+// ApplicationModel returns the immutable application IR assembled from the
+// same typed program. Its public accessors return defensive metadata copies.
+func (result Result) ApplicationModel() application.Model {
+	return result.application
+}
+
+// GenerationReady reports whether a pure guarded generation plan is available.
+func (result Result) GenerationReady() bool {
+	return result.hasPlan
+}
+
+// GenerationPlan returns the immutable pure plan when analysis succeeded.
+func (result Result) GenerationPlan() (generate.Plan, bool) {
+	return result.plan, result.hasPlan
+}

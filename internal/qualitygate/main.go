@@ -375,6 +375,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./compiler/diagnostic", "FuzzDiagnosticReportJSON"},
 		{"./compiler/load", "FuzzGeneratedMainBridgeError"},
 		{"./compiler/parser", "FuzzParseComment"},
+		{"./compiler/service", "FuzzNormalizeOverlay"},
 		{"./compiler/validate", "FuzzOccurrences"},
 		{"./config", "FuzzDecodeJSONObject"},
 		{"./config", "FuzzResolveScalars"},
