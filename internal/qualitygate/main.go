@@ -473,6 +473,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./web", "FuzzDecodeJSON"},
 		{"./httpclient", "FuzzResolveReference"},
 		{"./mail", "FuzzNewMessage"},
+		{"./mail/mailtest", "FuzzSnapshotMIME"},
 		{"./session", "FuzzManagerLoad"},
 		{"./starter", "FuzzParseManifest"},
 		{"./view", "FuzzRendererEscaping"},
