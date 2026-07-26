@@ -188,6 +188,94 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 	runGoTest(t, root, "./internal/spicegen/command")
 }
 
+func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
+	root := scheduleGenerationFixture(t)
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+
+	first, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	second, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render(second) diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	if !bytes.Equal(
+		first.Files()[0].Content(),
+		second.Files()[0].Content(),
+	) || !bytes.Equal(
+		first.ManifestContent(),
+		second.ManifestContent(),
+	) {
+		t.Fatal("identical scheduling metadata changed generated output")
+	}
+	source := string(first.Files()[0].Content())
+	for _, expected := range []string{
+		"ScheduleContext",
+		"ScheduleWaiter",
+		"ScheduleObservers",
+		"scheduleContext = context.WithoutCancel(ctx)",
+		"generatedScheduler, err := spiceschedule.New(",
+		`Module: "example.com/scheduled/jobs"`,
+		"InitialDelay:",
+		"1000000000,",
+		"Delay:",
+		"2000000000,",
+		"ContinueOnError: true",
+		"provider0.Refresh",
+		`"spice.schedule"`,
+		"generatedScheduler.Start",
+		"generatedScheduler.Shutdown",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf(
+				"generated scheduling source missing %q:\n%s",
+				expected,
+				source,
+			)
+		}
+	}
+	assertOrdered(
+		t,
+		source,
+		"jobs.NewWorker()",
+		"spiceschedule.New(",
+		"application.hooks = []spicelifecycle.Hook{",
+	)
+
+	writePlan(t, root, first)
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/scheduled/zz_spice_schedule_test.go",
+		generatedScheduleTest,
+	)
+	runGoTest(t, root, "./internal/spicegen/scheduled")
+}
+
 func TestRenderNormalizesBootstrapAnnotationListOrder(t *testing.T) {
 	t.Parallel()
 	firstRoot := commandOrderFixture(t, `["metrics", "health"]`)
@@ -560,6 +648,9 @@ func privateProvider() Service { return Service{} }
 // @OnStart
 func (Service) privateStart(context.Context) error { return nil }
 
+// @schedule.FixedDelay(delay="1s")
+func (Service) privateJob(context.Context) error { return nil }
+
 // @Application
 func Application(Service) {}
 `,
@@ -570,9 +661,10 @@ func Application(Service) {}
 		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
 	_, diagnostics = Render(program, model, applicationTarget, target)
-	if len(diagnostics) != 2 ||
+	if len(diagnostics) != 3 ||
 		!containsGenerationDiagnostic(diagnostics, "target-scoped generated packages require exported @Bean functions") ||
-		!containsGenerationDiagnostic(diagnostics, "target-scoped generated packages require exported hook methods") {
+		!containsGenerationDiagnostic(diagnostics, "target-scoped generated packages require exported hook methods") ||
+		!containsGenerationDiagnostic(diagnostics, "target-scoped generated packages require exported scheduled methods") {
 		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
 }
@@ -978,6 +1070,114 @@ func TestGeneratedConfigurationApplication(t *testing.T) {
 		AllowUnknownConfiguration: true,
 	}); application == nil || constructionErr != nil {
 		t.Fatalf("allowed unknown application = %#v, %v", application, constructionErr)
+	}
+}
+`
+
+const generatedScheduleTest = `package spicegen
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"example.com/scheduled/jobs"
+	spiceschedule "github.com/StevenBuglione/spice/schedule"
+)
+
+func TestGeneratedFixedDelayScheduler(t *testing.T) {
+	jobs.Reset()
+	invalid, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			ScheduleObservers: []spiceschedule.Observer{nil},
+		},
+	)
+	if invalid != nil ||
+		err == nil ||
+		!strings.Contains(err.Error(), "observer 0 is nil") ||
+		!slices.Equal(jobs.Events(), []string{"construct", "cleanup"}) {
+		t.Fatalf(
+			"invalid construction = %#v, %v, events=%v",
+			invalid,
+			err,
+			jobs.Events(),
+		)
+	}
+
+	jobs.Reset()
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	invalid, err = NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{ScheduleContext: cancelled},
+	)
+	if invalid != nil ||
+		!errors.Is(err, context.Canceled) ||
+		!slices.Equal(jobs.Events(), []string{"construct", "cleanup"}) {
+		t.Fatalf(
+			"cancelled construction = %#v, %v, events=%v",
+			invalid,
+			err,
+			jobs.Events(),
+		)
+	}
+
+	jobs.Reset()
+	var waits atomic.Uint64
+	waiter := func(ctx context.Context, _ time.Duration) error {
+		if waits.Add(1) == 1 {
+			return nil
+		}
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}
+	var results []spiceschedule.Result
+	application, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			ScheduleWaiter: waiter,
+			ScheduleObservers: []spiceschedule.Observer{
+				func(_ context.Context, result spiceschedule.Result) {
+					results = append(results, result)
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewApplicationWithOptions() error = %v", err)
+	}
+	if err := application.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	select {
+	case <-jobs.Started():
+	case <-time.After(time.Second):
+		t.Fatal("generated scheduled method did not run")
+	}
+	jobs.Release()
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("second Stop() error = %v", err)
+	}
+	if !slices.Equal(
+		jobs.Events(),
+		[]string{"construct", "run", "cleanup"},
+	) {
+		t.Fatalf("events = %v", jobs.Events())
+	}
+	if len(results) != 1 ||
+		results[0].Definition.Module != "example.com/scheduled/jobs" ||
+		results[0].Run != 1 ||
+		results[0].Err != nil ||
+		results[0].Panicked {
+		t.Fatalf("results = %#v", results)
 	}
 }
 `
@@ -1606,6 +1806,103 @@ import "example.com/shop/components"
 
 // @Application
 func Shop(*components.Server) {
+	panic("application marker bodies must not execute")
+}
+`,
+	})
+}
+
+func scheduleGenerationFixture(t *testing.T) string {
+	t.Helper()
+	return writeModule(t, "example.com/scheduled", map[string]string{
+		"jobs/jobs.go": `// Package jobs owns scheduled work.
+//
+// @Module
+package jobs
+
+import (
+	"context"
+	"sync"
+
+	"github.com/StevenBuglione/spice/lifecycle"
+)
+
+type Worker struct{}
+
+var state = struct {
+	sync.Mutex
+	events  []string
+	started chan struct{}
+	release chan struct{}
+}{
+	started: make(chan struct{}),
+	release: make(chan struct{}),
+}
+
+func Reset() {
+	state.Lock()
+	defer state.Unlock()
+	state.events = nil
+	state.started = make(chan struct{})
+	state.release = make(chan struct{})
+}
+
+func Events() []string {
+	state.Lock()
+	defer state.Unlock()
+	return append([]string(nil), state.events...)
+}
+
+func Started() <-chan struct{} {
+	state.Lock()
+	defer state.Unlock()
+	return state.started
+}
+
+func Release() {
+	state.Lock()
+	release := state.release
+	state.Unlock()
+	close(release)
+}
+
+func record(event string) {
+	state.Lock()
+	defer state.Unlock()
+	state.events = append(state.events, event)
+}
+
+// @Bean
+func NewWorker() (*Worker, lifecycle.Cleanup) {
+	record("construct")
+	return &Worker{}, func(context.Context) error {
+		record("cleanup")
+		return nil
+	}
+}
+
+// @schedule.FixedDelay(delay="2s", initialDelay="1s", continueOnError=true)
+func (*Worker) Refresh(ctx context.Context) error {
+	record("run")
+	state.Lock()
+	started := state.started
+	release := state.release
+	state.Unlock()
+	close(started)
+	select {
+	case <-release:
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/scheduled/jobs"
+
+// @Application
+func Scheduled(*jobs.Worker) {
 	panic("application marker bodies must not execute")
 }
 `,

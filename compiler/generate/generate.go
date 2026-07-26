@@ -23,6 +23,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/controller"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
+	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
 	runtimeconfig "github.com/StevenBuglione/spice/config"
 )
 
@@ -43,6 +44,7 @@ const (
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
 	managementPath    = "github.com/StevenBuglione/spice/management"
 	observabilityPath = "github.com/StevenBuglione/spice/observability"
+	schedulePath      = "github.com/StevenBuglione/spice/schedule"
 	securityPath      = "github.com/StevenBuglione/spice/security"
 	webPath           = "github.com/StevenBuglione/spice/web"
 
@@ -309,8 +311,10 @@ func renderSource(
 	providers := model.Providers()
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
+	jobs := model.Jobs()
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
 	features.authorization = hasAuthorization(controllers)
+	features.scheduling = len(jobs) != 0
 	aliases := importAliases(providers, configTypes, controllers, features)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
@@ -367,6 +371,12 @@ func renderSource(
 	); providerErr != nil {
 		return nil, providerErr
 	}
+	writeScheduleSetup(
+		&source,
+		jobs,
+		providerVariables,
+		providerModules,
+	)
 	if features.hasMux {
 		writeRouteMux(&source, providers, providerVariables)
 	}
@@ -383,7 +393,13 @@ func renderSource(
 			authorizationMiddleware,
 		)
 	}
-	writeHooks(&source, model, providerVariables, providerModules)
+	writeHooks(
+		&source,
+		model,
+		providerVariables,
+		providerModules,
+		applicationTarget.PackagePath,
+	)
 	writeManagementSetup(&source, applicationTarget, features)
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
@@ -882,6 +898,11 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 	if features.logging {
 		source.WriteString("\tLogger *slog.Logger\n")
 	}
+	if features.scheduling {
+		source.WriteString("\tScheduleContext context.Context\n")
+		source.WriteString("\tScheduleWaiter spiceschedule.Waiter\n")
+		source.WriteString("\tScheduleObservers []spiceschedule.Observer\n")
+	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
 	source.WriteString("}\n\n")
 }
@@ -1155,9 +1176,11 @@ func writeHooks(
 	model application.Model,
 	providerVariables map[string]string,
 	providerModules map[string]string,
+	applicationModule string,
 ) {
 	components := model.Components()
-	if len(components) == 0 {
+	jobs := model.Jobs()
+	if len(components) == 0 && len(jobs) == 0 {
 		return
 	}
 	source.WriteString("\tapplication.hooks = []spicelifecycle.Hook{\n")
@@ -1176,6 +1199,84 @@ func writeHooks(
 		}
 		source.WriteString("\t\t},\n")
 	}
+	if len(jobs) != 0 {
+		source.WriteString("\t\t{\n")
+		source.WriteString("\t\t\tID: \"spice.schedule\",\n")
+		fmt.Fprintf(
+			source,
+			"\t\t\tModule: %s,\n",
+			strconv.Quote(applicationModule),
+		)
+		source.WriteString("\t\t\tStart: generatedScheduler.Start,\n")
+		source.WriteString("\t\t\tStop: generatedScheduler.Shutdown,\n")
+		source.WriteString("\t\t},\n")
+	}
+	source.WriteString("\t}\n")
+}
+
+func writeScheduleSetup(
+	source *bytes.Buffer,
+	jobs []compilerschedule.Job,
+	providerVariables map[string]string,
+	providerModules map[string]string,
+) {
+	if len(jobs) == 0 {
+		return
+	}
+	source.WriteString("\tscheduleContext := options.ScheduleContext\n")
+	source.WriteString("\tif scheduleContext == nil {\n")
+	source.WriteString("\t\tscheduleContext = context.WithoutCancel(ctx)\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tgeneratedScheduler, err := spiceschedule.New(\n")
+	source.WriteString("\t\tscheduleContext,\n")
+	source.WriteString("\t\t[]spiceschedule.Job{\n")
+	for _, job := range jobs {
+		module := providerModules[job.ProviderID]
+		if module == "" {
+			module = job.Method.PackagePath
+		}
+		source.WriteString("\t\t\t{\n")
+		source.WriteString("\t\t\t\tDefinition: spiceschedule.Definition{\n")
+		fmt.Fprintf(
+			source,
+			"\t\t\t\t\tID: %s,\n",
+			strconv.Quote(job.MethodID),
+		)
+		fmt.Fprintf(
+			source,
+			"\t\t\t\t\tModule: %s,\n",
+			strconv.Quote(module),
+		)
+		source.WriteString("\t\t\t\t},\n")
+		if job.InitialDelay != 0 {
+			fmt.Fprintf(
+				source,
+				"\t\t\t\tInitialDelay: %d,\n",
+				job.InitialDelay,
+			)
+		}
+		fmt.Fprintf(
+			source,
+			"\t\t\t\tDelay: %d,\n",
+			job.Delay,
+		)
+		if job.ContinueOnError {
+			source.WriteString("\t\t\t\tContinueOnError: true,\n")
+		}
+		fmt.Fprintf(
+			source,
+			"\t\t\t\tRun: %s.%s,\n",
+			providerVariables[job.ProviderID],
+			job.Method.Name,
+		)
+		source.WriteString("\t\t\t},\n")
+	}
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t\toptions.ScheduleWaiter,\n")
+	source.WriteString("\t\toptions.ScheduleObservers...,\n")
+	source.WriteString("\t)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"construct generated scheduler: %w\", err))\n")
 	source.WriteString("\t}\n")
 }
 
@@ -1284,6 +1385,9 @@ func importAliases(
 	if features.authorization {
 		aliases[securityPath] = "spicesecurity"
 	}
+	if features.scheduling {
+		aliases[schedulePath] = "spiceschedule"
+	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
@@ -1309,6 +1413,7 @@ func importAliases(
 		"spicelifecycle":            {},
 		"spicemanagement":           {},
 		"spiceobservability":        {},
+		"spiceschedule":             {},
 		"spicesecurity":             {},
 		"spiceweb":                  {},
 		"syscall":                   {},
@@ -1538,9 +1643,36 @@ func validateRenderable(
 	}
 	diagnostics = append(
 		diagnostics,
+		scheduledMethodDiagnostics(model, applicationTarget)...,
+	)
+	diagnostics = append(
+		diagnostics,
 		reservedConfigurationDiagnostics(model, applicationTarget)...,
 	)
 	sortDiagnostics(diagnostics)
+	return diagnostics
+}
+
+func scheduledMethodDiagnostics(
+	model application.Model,
+	applicationTarget application.Target,
+) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, job := range model.Jobs() {
+		if token.IsExported(job.Method.Name) {
+			continue
+		}
+		diagnostics = append(diagnostics, Diagnostic{
+			Position:         job.Position,
+			PhysicalPosition: job.PhysicalPosition,
+			TargetID:         applicationTarget.SymbolID,
+			Kind:             "unexported-scheduled-method",
+			Message: fmt.Sprintf(
+				"scheduled method %s is unexported; target-scoped generated packages require exported scheduled methods",
+				job.MethodID,
+			),
+		})
+	}
 	return diagnostics
 }
 
@@ -1569,6 +1701,15 @@ func reservedConfigurationDiagnostics(
 		}
 	}
 	return diagnostics
+}
+
+type modelHashScheduleJob struct {
+	ID              string `json:"id"`
+	Provider        string `json:"provider"`
+	Module          string `json:"module"`
+	InitialDelay    int64  `json:"initial_delay"`
+	Delay           int64  `json:"delay"`
+	ContinueOnError bool   `json:"continue_on_error"`
 }
 
 func modelHash(
@@ -1672,6 +1813,7 @@ func modelHash(
 		Controllers    []inputController           `json:"controllers"`
 		Edges          []inputEdge                 `json:"edges"`
 		Components     []inputComponent            `json:"components"`
+		Jobs           []modelHashScheduleJob      `json:"jobs"`
 		Roots          []inputRoot                 `json:"roots"`
 		Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
 	}
@@ -1785,6 +1927,7 @@ func modelHash(
 		}
 		value.Components = append(value.Components, item)
 	}
+	value.Jobs = modelHashScheduleJobs(model.Jobs(), providerModules)
 	for _, root := range applicationTarget.Roots() {
 		value.Roots = append(value.Roots, inputRoot{
 			Index:    root.Index,
@@ -1797,6 +1940,28 @@ func modelHash(
 		return "", err
 	}
 	return contentHash(encoded), nil
+}
+
+func modelHashScheduleJobs(
+	jobs []compilerschedule.Job,
+	providerModules map[string]string,
+) []modelHashScheduleJob {
+	result := make([]modelHashScheduleJob, len(jobs))
+	for index, job := range jobs {
+		module := providerModules[job.ProviderID]
+		if module == "" {
+			module = job.Method.PackagePath
+		}
+		result[index] = modelHashScheduleJob{
+			ID:              job.MethodID,
+			Provider:        job.ProviderID,
+			Module:          module,
+			InitialDelay:    int64(job.InitialDelay),
+			Delay:           int64(job.Delay),
+			ContinueOnError: job.ContinueOnError,
+		}
+	}
+	return result
 }
 
 func contentHash(content []byte) string {

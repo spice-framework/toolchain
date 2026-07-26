@@ -39,6 +39,7 @@ type commandFeatures struct {
 	metrics       bool
 	hasMux        bool
 	authorization bool
+	scheduling    bool
 }
 
 func commandFeaturesFor(

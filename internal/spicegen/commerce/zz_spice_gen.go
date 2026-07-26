@@ -23,6 +23,7 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 	spicemanagement "github.com/StevenBuglione/spice/management"
 	spiceobservability "github.com/StevenBuglione/spice/observability"
+	spiceschedule "github.com/StevenBuglione/spice/schedule"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
@@ -51,6 +52,9 @@ type ApplicationOptions struct {
 	HTTPObservers             []spiceweb.HTTPObserver
 	Middleware                []spiceweb.Middleware
 	Logger                    *slog.Logger
+	ScheduleContext           context.Context
+	ScheduleWaiter            spiceschedule.Waiter
+	ScheduleObservers         []spiceschedule.Observer
 	Observers                 []spicelifecycle.Observer
 }
 
@@ -313,6 +317,29 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	_ = provider8
 	provider9 := orders.NewController(provider8)
 	_ = provider9
+	scheduleContext := options.ScheduleContext
+	if scheduleContext == nil {
+		scheduleContext = context.WithoutCancel(ctx)
+	}
+	generatedScheduler, err := spiceschedule.New(
+		scheduleContext,
+		[]spiceschedule.Job{
+			{
+				Definition: spiceschedule.Definition{
+					ID:     "spice:symbol:v1|method|59:github.com/StevenBuglione/spice/examples/commerce/inventory|7:Service|5:Audit",
+					Module: "github.com/StevenBuglione/spice/examples/commerce/inventory",
+				},
+				InitialDelay: 30000000000,
+				Delay:        300000000000,
+				Run:          provider7.Audit,
+			},
+		},
+		options.ScheduleWaiter,
+		options.ScheduleObservers...,
+	)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated scheduler: %w", err))
+	}
 	routeMux := provider0
 	application.mux = routeMux
 	application.handler = routeMux
@@ -406,6 +433,12 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			Module: "github.com/StevenBuglione/spice/examples/commerce/platform",
 			Start:  provider5.Start,
 			Stop:   provider5.Stop,
+		},
+		{
+			ID:     "spice.schedule",
+			Module: "github.com/StevenBuglione/spice/examples/commerce/bootstrap",
+			Start:  generatedScheduler.Start,
+			Stop:   generatedScheduler.Shutdown,
 		},
 	}
 	managementChecks, err := spicemanagement.LifecycleChecks(TargetID, "github.com/StevenBuglione/spice/examples/commerce/bootstrap", application.State)
