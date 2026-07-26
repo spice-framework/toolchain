@@ -46,11 +46,12 @@ const (
 type Endpoint string
 
 const (
-	EndpointHealth    Endpoint = "health"
-	EndpointLiveness  Endpoint = "liveness"
-	EndpointReadiness Endpoint = "readiness"
-	EndpointInfo      Endpoint = "info"
-	EndpointMetrics   Endpoint = "metrics"
+	EndpointHealth      Endpoint = "health"
+	EndpointLiveness    Endpoint = "liveness"
+	EndpointReadiness   Endpoint = "readiness"
+	EndpointInfo        Endpoint = "info"
+	EndpointMetrics     Endpoint = "metrics"
+	EndpointConfigProps Endpoint = "configprops"
 )
 
 // OptionDefinition describes the semantic rules for one feature argument.
@@ -760,6 +761,7 @@ func endpointNames() []string {
 		string(EndpointReadiness),
 		string(EndpointInfo),
 		string(EndpointMetrics),
+		string(EndpointConfigProps),
 	}
 }
 

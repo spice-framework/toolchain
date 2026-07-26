@@ -37,6 +37,7 @@ type commandFeatures struct {
 	management      bool
 	logging         bool
 	metrics         bool
+	configProps     bool
 	hasMux          bool
 	authorization   bool
 	scheduling      bool
@@ -61,6 +62,7 @@ func commandFeaturesFor(
 		management:      managementEnabled,
 		logging:         metadata.Enabled(compilerbootstrap.CapabilityLogging),
 		metrics:         slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
+		configProps:     slices.Contains(endpoints, compilerbootstrap.EndpointConfigProps),
 		hasMux:          hasControllers || managementEnabled || httpObservation,
 		httpObservation: httpObservation,
 	}
@@ -243,6 +245,12 @@ func writeManagementSetup(
 	source.WriteString("\tif err != nil {\n")
 	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management checks: %w\", err))\n")
 	source.WriteString("\t}\n")
+	if features.configProps {
+		source.WriteString("\tmanagementConfiguration, err := spicemanagement.NewConfigurationReport(configurationSchema, configurationSnapshot)\n")
+		source.WriteString("\tif err != nil {\n")
+		source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management configuration report: %w\", err))\n")
+		source.WriteString("\t}\n")
+	}
 	source.WriteString("\tmanagementHandler, err := spicemanagement.NewHandler(spicemanagement.HandlerOptions{\n")
 	source.WriteString("\t\tManager: managementManager,\n")
 	source.WriteString("\t\tInfo: map[string]string{\n")
@@ -252,6 +260,9 @@ func writeManagementSetup(
 	source.WriteString("\t\t},\n")
 	if features.metrics {
 		source.WriteString("\t\tMetrics: managementMetrics,\n")
+	}
+	if features.configProps {
+		source.WriteString("\t\tConfiguration: &managementConfiguration,\n")
 	}
 	source.WriteString("\t\tExpose: []spicemanagement.Endpoint{\n")
 	for _, endpoint := range features.endpoints {
@@ -279,6 +290,8 @@ func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
 		return "spicemanagement.EndpointInfo"
 	case compilerbootstrap.EndpointMetrics:
 		return "spicemanagement.EndpointMetrics"
+	case compilerbootstrap.EndpointConfigProps:
+		return "spicemanagement.EndpointConfigProps"
 	}
 	return strconv.Quote(string(endpoint))
 }

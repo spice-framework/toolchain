@@ -35,6 +35,7 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 						{Kind: annotation.KindString, String: "metrics"},
 						{Kind: annotation.KindString, String: "health"},
 						{Kind: annotation.KindString, String: "info"},
+						{Kind: annotation.KindString, String: "configprops"},
 					},
 				},
 			},
@@ -63,7 +64,12 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 	if !found {
 		t.Fatal("Management() did not find enabled management metadata")
 	}
-	wantEndpoints := []Endpoint{EndpointHealth, EndpointInfo, EndpointMetrics}
+	wantEndpoints := []Endpoint{
+		EndpointConfigProps,
+		EndpointHealth,
+		EndpointInfo,
+		EndpointMetrics,
+	}
 	if endpoints := management.Endpoints(); !slices.Equal(endpoints, wantEndpoints) {
 		t.Fatalf("Endpoints() = %v, want %v", endpoints, wantEndpoints)
 	}

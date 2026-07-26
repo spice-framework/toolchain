@@ -526,6 +526,10 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management checks: %w", err))
 	}
+	managementConfiguration, err := spicemanagement.NewConfigurationReport(configurationSchema, configurationSnapshot)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management configuration report: %w", err))
+	}
 	managementHandler, err := spicemanagement.NewHandler(spicemanagement.HandlerOptions{
 		Manager: managementManager,
 		Info: map[string]string{
@@ -533,8 +537,10 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			"module":      "github.com/StevenBuglione/spice/examples/commerce/bootstrap",
 			"framework":   "Spice",
 		},
-		Metrics: managementMetrics,
+		Metrics:       managementMetrics,
+		Configuration: &managementConfiguration,
 		Expose: []spicemanagement.Endpoint{
+			spicemanagement.EndpointConfigProps,
 			spicemanagement.EndpointHealth,
 			spicemanagement.EndpointInfo,
 			spicemanagement.EndpointLiveness,
