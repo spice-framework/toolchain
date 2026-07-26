@@ -32,20 +32,36 @@ type openAPIInfo struct {
 }
 
 type openAPIComponents struct {
-	Schemas map[string]openAPISchema `json:"schemas"`
+	Schemas         map[string]openAPISchema         `json:"schemas"`
+	SecuritySchemes map[string]openAPISecurityScheme `json:"securitySchemes,omitempty"`
 }
 
 type openAPIPath map[string]openAPIOperation
 
 type openAPIOperation struct {
-	OperationID string                     `json:"operationId"`
-	Summary     string                     `json:"summary"`
-	Tags        []string                   `json:"tags,omitempty"`
-	Parameters  []openAPIParameter         `json:"parameters,omitempty"`
-	RequestBody *openAPIRequestBody        `json:"requestBody,omitempty"`
-	Responses   map[string]openAPIResponse `json:"responses"`
-	SpiceSymbol string                     `json:"x-spice-symbol"`
-	SpiceModule string                     `json:"x-spice-module,omitempty"`
+	OperationID        string                     `json:"operationId"`
+	Summary            string                     `json:"summary"`
+	Tags               []string                   `json:"tags,omitempty"`
+	Parameters         []openAPIParameter         `json:"parameters,omitempty"`
+	RequestBody        *openAPIRequestBody        `json:"requestBody,omitempty"`
+	Responses          map[string]openAPIResponse `json:"responses"`
+	Security           []map[string][]string      `json:"security,omitempty"`
+	SpiceSymbol        string                     `json:"x-spice-symbol"`
+	SpiceModule        string                     `json:"x-spice-module,omitempty"`
+	SpiceAuthorization *openAPIAuthorization      `json:"x-spice-authorization,omitempty"`
+}
+
+type openAPISecurityScheme struct {
+	Type   string `json:"type"`
+	Scheme string `json:"scheme"`
+}
+
+type openAPIAuthorization struct {
+	Owner         string   `json:"owner"`
+	Authenticated bool     `json:"authenticated,omitempty"`
+	AnyRoles      []string `json:"anyRoles,omitempty"`
+	AllRoles      []string `json:"allRoles,omitempty"`
+	AllScopes     []string `json:"allScopes,omitempty"`
 }
 
 type openAPIParameter struct {
@@ -101,9 +117,13 @@ func renderOpenAPI(
 		Paths: make(map[string]openAPIPath),
 	}
 	operationIDCounts := make(map[string]int)
+	protected := false
 	for _, item := range model.Controllers() {
 		for _, route := range item.Routes() {
 			operationIDCounts[item.Name+"_"+route.Name]++
+			if _, authorized := route.Authorization(); authorized {
+				protected = true
+			}
 		}
 	}
 	for _, item := range model.Controllers() {
@@ -125,6 +145,14 @@ func renderOpenAPI(
 		}
 	}
 	document.Components.Schemas = builder.components
+	if protected {
+		document.Components.SecuritySchemes = map[string]openAPISecurityScheme{
+			"SpicePrincipal": {
+				Type:   "http",
+				Scheme: "bearer",
+			},
+		}
+	}
 	content, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return nil, err
@@ -146,6 +174,20 @@ func buildOpenAPIOperation(
 	}
 	if route.Module != "" {
 		operation.Tags = []string{route.Module}
+	}
+	if authorization, protected := route.Authorization(); protected {
+		operation.Security = []map[string][]string{
+			{"SpicePrincipal": {}},
+		}
+		operation.SpiceAuthorization = &openAPIAuthorization{
+			Owner:         authorization.Module,
+			Authenticated: authorization.Authenticated,
+			AnyRoles:      authorization.AnyRoles(),
+			AllRoles:      authorization.AllRoles(),
+			AllScopes:     authorization.AllScopes(),
+		}
+		operation.Responses["401"] = problemResponse()
+		operation.Responses["403"] = problemResponse()
 	}
 	if route.Raw {
 		operation.Responses["default"] = openAPIResponse{

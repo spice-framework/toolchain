@@ -26,6 +26,7 @@ func TestOccurrencesAcceptsValidBuiltInsAndArguments(t *testing.T) {
 		parsedOccurrence(t, "service.go", 9, `// @Service`, scan.TargetType, "UserService"),
 		parsedOccurrence(t, "app.go", 10, `// @management.Enable(expose=["health", "info"])`, scan.TargetFunction, "main"),
 		parsedOccurrence(t, "app.go", 11, `// @observability.Logging`, scan.TargetFunction, "main"),
+		parsedOccurrence(t, "controller.go", 12, `// @security.Authorize(authenticated=true, anyRoles=["admin"], allScopes=["users:read"])`, scan.TargetMethod, "Secure"),
 	}
 	if diagnostics := Occurrences(occurrences, builtin.Registry()); len(diagnostics) != 0 {
 		t.Fatalf("Occurrences() diagnostics = %#v", diagnostics)
@@ -49,6 +50,9 @@ func TestOccurrencesRejectsInvalidArguments(t *testing.T) {
 		{name: "marker arguments", comment: `// @Service(name="users")`, target: scan.TargetType, contains: []string{"does not accept arguments"}},
 		{name: "multiple positional", comment: `// @Get("/one", "/two")`, target: scan.TargetMethod, contains: []string{"accepts at most one positional argument"}},
 		{name: "wrong management list item", comment: `// @management.Enable(expose=["health", readiness])`, target: scan.TargetFunction, contains: []string{`argument "expose" list item 1 requires string, got identifier`}},
+		{name: "wrong authorization boolean", comment: `// @security.Authorize(authenticated="true")`, target: scan.TargetMethod, contains: []string{`argument "authenticated" requires boolean, got string`}},
+		{name: "wrong authorization list item", comment: `// @security.Authorize(allScopes=["users:read", scope])`, target: scan.TargetMethod, contains: []string{`argument "allScopes" list item 1 requires string, got identifier`}},
+		{name: "authorization named only", comment: `// @security.Authorize(true)`, target: scan.TargetMethod, contains: []string{`does not accept positional arguments`}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -82,11 +86,14 @@ func TestOccurrencesContinuesTargetAndExistenceValidation(t *testing.T) {
 	t.Parallel()
 	occurrences := []scan.Occurrence{
 		parsedOccurrence(t, "invalid.go", 1, `// @Controller(prefix="/users")`, scan.TargetFunction, "NewController"),
-		parsedOccurrence(t, "security.go", 2, `// @security.Authorize`, scan.TargetMethod, "Admin"),
+		parsedOccurrence(t, "security.go", 2, `// @security.Authorize`, scan.TargetType, "Admin"),
 	}
 	diagnostics := Occurrences(occurrences, builtin.Registry())
 	got := diagnosticsText(diagnostics)
-	for _, expected := range []string{"cannot target function", "unknown annotation @security.Authorize"} {
+	for _, expected := range []string{
+		"@Controller cannot target function",
+		"@security.Authorize cannot target type",
+	} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("diagnostics = %q, missing %q", got, expected)
 		}

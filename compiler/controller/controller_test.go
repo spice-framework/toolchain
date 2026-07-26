@@ -209,6 +209,164 @@ func (*Second) Get(context.Context, Request) (Response, error) { return Response
 	}
 }
 
+func TestBuildCreatesImmutableRouteAuthorization(t *testing.T) {
+	source := authorizationController(
+		"// @security.Authorize(allScopes=[\"orders:write\"], anyRoles=[\"customer\", \"admin\"], authenticated=true)",
+		true,
+	)
+	catalog := buildCatalog(t, source)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	route := catalog.Controllers()[0].Routes()[0]
+	authorization, found := route.Authorization()
+	if !found {
+		t.Fatal("Route.Authorization() did not find policy")
+	}
+	if authorization.PolicyID != route.SymbolID ||
+		authorization.Module != "example.com/webapp/api" ||
+		!authorization.Authenticated ||
+		!slices.Equal(
+			authorization.AnyRoles(),
+			[]string{"admin", "customer"},
+		) ||
+		!slices.Equal(
+			authorization.AllScopes(),
+			[]string{"orders:write"},
+		) ||
+		len(authorization.AllRoles()) != 0 ||
+		authorization.Position.Filename == "" ||
+		authorization.PhysicalPosition.Filename == "" {
+		t.Fatalf("authorization = %#v", authorization)
+	}
+	roles := authorization.AnyRoles()
+	roles[0] = "changed"
+	authorization.anyRoles[0] = "also-changed"
+	fresh, found := catalog.Controllers()[0].Routes()[0].Authorization()
+	if !found || fresh.AnyRoles()[0] != "admin" {
+		t.Fatalf("authorization exposed mutable roles: %#v", fresh)
+	}
+}
+
+func TestBuildRejectsInvalidRouteAuthorization(t *testing.T) {
+	tests := []struct {
+		name       string
+		annotation string
+		module     bool
+		want       string
+	}{
+		{
+			name:       "empty policy",
+			annotation: "// @security.Authorize",
+			module:     true,
+			want:       "must require authentication, a role, or a scope",
+		},
+		{
+			name:       "false-only policy",
+			annotation: "// @security.Authorize(authenticated=false)",
+			module:     true,
+			want:       "must require authentication, a role, or a scope",
+		},
+		{
+			name:       "positional argument",
+			annotation: "// @security.Authorize(true)",
+			module:     true,
+			want:       "accepts only named arguments",
+		},
+		{
+			name:       "wrong list kind",
+			annotation: "// @security.Authorize(anyRoles=true)",
+			module:     true,
+			want:       "requires a string list",
+		},
+		{
+			name:       "wrong item kind",
+			annotation: "// @security.Authorize(anyRoles=[\"admin\", 1])",
+			module:     true,
+			want:       "item 1 requires string",
+		},
+		{
+			name:       "blank item",
+			annotation: "// @security.Authorize(allScopes=[\" \"])",
+			module:     true,
+			want:       "must be non-empty",
+		},
+		{
+			name:       "duplicate item",
+			annotation: "// @security.Authorize(anyRoles=[\"admin\", \"admin\"])",
+			module:     true,
+			want:       "repeats \"admin\"",
+		},
+		{
+			name:       "unknown argument",
+			annotation: "// @security.Authorize(role=[\"admin\"])",
+			module:     true,
+			want:       "does not define argument \"role\"",
+		},
+		{
+			name: "duplicate annotation",
+			annotation: "// @security.Authorize(authenticated=true)\n" +
+				"// @security.Authorize(allRoles=[\"admin\"])",
+			module: true,
+			want:   "is repeated",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := buildCatalog(
+				t,
+				authorizationController(
+					test.annotation,
+					test.module,
+				),
+			)
+			if !containsDiagnostic(catalog.Diagnostics(), test.want) {
+				t.Fatalf(
+					"diagnostics = %v, want %q",
+					diagnosticStrings(catalog.Diagnostics()),
+					test.want,
+				)
+			}
+		})
+	}
+}
+
+func TestBuildUsesPackageIdentityForUnassignedAuthorization(t *testing.T) {
+	catalog := buildCatalog(
+		t,
+		authorizationController(
+			"// @security.Authorize(authenticated=true)",
+			false,
+		),
+	)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	authorization, found := catalog.Controllers()[0].Routes()[0].
+		Authorization()
+	if !found ||
+		authorization.Module != "example.com/webapp/api" {
+		t.Fatalf("authorization = %#v, found=%t", authorization, found)
+	}
+}
+
+func TestBuildRejectsAuthorizationWithoutRoute(t *testing.T) {
+	catalog := buildCatalog(t, `// Package api has no controller.
+//
+// @Module
+package api
+
+// @security.Authorize(authenticated=true)
+func Operation() {}
+`)
+	if !containsDiagnostic(
+		catalog.Diagnostics(),
+		"must declare exactly one valid @Get or @Post route",
+	) {
+		t.Fatalf("diagnostics = %v", diagnosticStrings(catalog.Diagnostics()))
+	}
+}
+
 func TestBuildDefendsAgainstInvalidPipelineInput(t *testing.T) {
 	if diagnostics := Build(nil, resolve.Result{}, provider.Catalog{}, modulith.Model{}).Diagnostics(); len(diagnostics) != 1 ||
 		!strings.Contains(diagnostics[0].Error(), "loaded program") {
@@ -230,6 +388,32 @@ func TestBuildDefendsAgainstInvalidPipelineInput(t *testing.T) {
 	if diagnostic.Error() != "<unknown>:1:1: broken" {
 		t.Fatalf("Diagnostic.Error() = %q", diagnostic.Error())
 	}
+}
+
+func authorizationController(annotationSource string, module bool) string {
+	packageComment := ""
+	if module {
+		packageComment = "// Package api owns protected routes.\n//\n// @Module\n"
+	}
+	return packageComment + `package api
+
+import "context"
+
+type Request struct{}
+type Response struct{}
+
+// @Controller
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("/")
+` + annotationSource + `
+func (*API) Get(context.Context, Request) (Response, error) {
+	return Response{}, nil
+}
+`
 }
 
 func validController(route, declarations string) string {

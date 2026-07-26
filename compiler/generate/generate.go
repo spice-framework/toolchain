@@ -43,6 +43,7 @@ const (
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
 	managementPath    = "github.com/StevenBuglione/spice/management"
 	observabilityPath = "github.com/StevenBuglione/spice/observability"
+	securityPath      = "github.com/StevenBuglione/spice/security"
 	webPath           = "github.com/StevenBuglione/spice/web"
 
 	shutdownConfigurationKey = "spice.shutdown-timeout"
@@ -309,6 +310,7 @@ func renderSource(
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
+	features.authorization = hasAuthorization(controllers)
 	aliases := importAliases(providers, configTypes, controllers, features)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
@@ -348,6 +350,7 @@ func renderSource(
 	)
 	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
 	writeBootstrapObservers(&source, features)
+	writeAuthorizationSetup(&source, features)
 	source.WriteString("\tfor index, observer := range observers {\n")
 	source.WriteString("\t\tif err := application.coordinator.RegisterObserver(observer); err != nil {\n")
 	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
@@ -368,7 +371,17 @@ func renderSource(
 		writeRouteMux(&source, providers, providerVariables)
 	}
 	if len(controllers) != 0 {
-		writeControllerRoutes(&source, controllers, providerVariables, aliases)
+		authorizationMiddleware := writeRouteAuthorizations(
+			&source,
+			controllers,
+		)
+		writeControllerRoutes(
+			&source,
+			controllers,
+			providerVariables,
+			aliases,
+			authorizationMiddleware,
+		)
 	}
 	writeHooks(&source, model, providerVariables, providerModules)
 	writeManagementSetup(&source, applicationTarget, features)
@@ -425,30 +438,177 @@ func writeControllerRoutes(
 	controllers []controller.Controller,
 	providerVariables map[string]string,
 	aliases map[string]string,
+	authorizationMiddleware map[string]string,
 ) {
 	routeIndex := 0
 	for _, item := range controllers {
 		receiver := providerVariables[item.ProviderID]
 		for _, route := range item.Routes() {
 			pattern := route.HTTPMethod + " " + route.Path
+			middleware := "options.Middleware"
+			if protected, found := authorizationMiddleware[route.SymbolID]; found {
+				middleware = protected
+			}
 			observation := writeRouteObservation(source, route, pattern, routeIndex)
 			if route.Raw {
 				fmt.Fprintf(
 					source,
-					"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(%s.%s), %s, options.Middleware...); routeErr != nil {\n",
+					"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(%s.%s), %s, %s...); routeErr != nil {\n",
 					strconv.Quote(pattern),
 					receiver,
 					route.Name,
 					observation,
+					middleware,
 				)
 				writeRouteRegistrationError(source, pattern)
 				routeIndex++
 				continue
 			}
-			writeTypedRoute(source, route, receiver, pattern, observation, aliases)
+			writeTypedRoute(
+				source,
+				route,
+				receiver,
+				pattern,
+				observation,
+				middleware,
+				aliases,
+			)
 			routeIndex++
 		}
 	}
+}
+
+func hasAuthorization(controllers []controller.Controller) bool {
+	for _, item := range controllers {
+		for _, route := range item.Routes() {
+			if _, protected := route.Authorization(); protected {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeRouteAuthorizations(
+	source *bytes.Buffer,
+	controllers []controller.Controller,
+) map[string]string {
+	result := make(map[string]string)
+	routeIndex := 0
+	for _, item := range controllers {
+		for _, route := range item.Routes() {
+			if authorization, protected := route.Authorization(); protected {
+				result[route.SymbolID] = writeRouteAuthorization(
+					source,
+					authorization,
+					route.HTTPMethod+" "+route.Path,
+					routeIndex,
+				)
+			}
+			routeIndex++
+		}
+	}
+	return result
+}
+
+func writeRouteAuthorization(
+	source *bytes.Buffer,
+	authorization controller.Authorization,
+	pattern string,
+	index int,
+) string {
+	policy := "authorizationPolicy" + strconv.Itoa(index)
+	policyErr := policy + "Err"
+	fmt.Fprintf(
+		source,
+		"\t%s, %s := spicesecurity.NewPolicy(spicesecurity.PolicySpec{\n",
+		policy,
+		policyErr,
+	)
+	source.WriteString("\t\tDefinition: spicesecurity.Definition{\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tID: %s,\n\t\t\tModule: %s,\n",
+		strconv.Quote(authorization.PolicyID),
+		strconv.Quote(authorization.Module),
+	)
+	source.WriteString("\t\t},\n")
+	if authorization.Authenticated {
+		source.WriteString("\t\tAuthenticated: true,\n")
+	}
+	writeAuthorizationNames(
+		source,
+		"AnyRoles",
+		authorization.AnyRoles(),
+	)
+	writeAuthorizationNames(
+		source,
+		"AllRoles",
+		authorization.AllRoles(),
+	)
+	writeAuthorizationNames(
+		source,
+		"AllScopes",
+		authorization.AllScopes(),
+	)
+	source.WriteString("\t})\n")
+	fmt.Fprintf(source, "\tif %s != nil {\n", policyErr)
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, %s))\n",
+		strconv.Quote(
+			"construct generated authorization policy for route "+
+				pattern+": %w",
+		),
+		policyErr,
+	)
+	source.WriteString("\t}\n")
+	guard := "authorizationGuard" + strconv.Itoa(index)
+	guardErr := guard + "Err"
+	fmt.Fprintf(
+		source,
+		"\t%s, %s := spicesecurity.Guard(authorizer, %s, options.AuthorizationWriteFailure)\n",
+		guard,
+		guardErr,
+		policy,
+	)
+	fmt.Fprintf(source, "\tif %s != nil {\n", guardErr)
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, %s))\n",
+		strconv.Quote(
+			"construct generated authorization guard for route "+
+				pattern+": %w",
+		),
+		guardErr,
+	)
+	source.WriteString("\t}\n")
+	middleware := "routeMiddleware" + strconv.Itoa(index)
+	fmt.Fprintf(
+		source,
+		"\t%s := append(append([]spiceweb.Middleware(nil), options.Middleware...), %s)\n",
+		middleware,
+		guard,
+	)
+	return middleware
+}
+
+func writeAuthorizationNames(
+	source *bytes.Buffer,
+	field string,
+	values []string,
+) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Fprintf(source, "\t\t%s: []string{", field)
+	for index, value := range values {
+		if index != 0 {
+			source.WriteString(", ")
+		}
+		source.WriteString(strconv.Quote(value))
+	}
+	source.WriteString("},\n")
 }
 
 func writeRouteObservation(
@@ -486,6 +646,7 @@ func writeTypedRoute(
 	receiver string,
 	pattern string,
 	observation string,
+	middleware string,
 	aliases map[string]string,
 ) {
 	fmt.Fprintf(
@@ -545,8 +706,9 @@ func writeTypedRoute(
 	source.WriteString("\t\t}\n")
 	fmt.Fprintf(
 		source,
-		"\t}), %s, options.Middleware...); routeErr != nil {\n",
+		"\t}), %s, %s...); routeErr != nil {\n",
 		observation,
+		middleware,
 	)
 	writeRouteRegistrationError(source, pattern)
 }
@@ -712,6 +874,10 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 		source.WriteString("\tMaxRequestBodyBytes int64\n")
 		source.WriteString("\tHTTPObservers []spiceweb.HTTPObserver\n")
 		source.WriteString("\tMiddleware []spiceweb.Middleware\n")
+	}
+	if features.authorization {
+		source.WriteString("\tAuthorizationObservers []spicesecurity.Observer\n")
+		source.WriteString("\tAuthorizationWriteFailure spicesecurity.WriteFailure\n")
 	}
 	if features.logging {
 		source.WriteString("\tLogger *slog.Logger\n")
@@ -1115,6 +1281,9 @@ func importAliases(
 	if features.logging {
 		aliases[observabilityPath] = "spiceobservability"
 	}
+	if features.authorization {
+		aliases[securityPath] = "spicesecurity"
+	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
@@ -1140,6 +1309,7 @@ func importAliases(
 		"spicelifecycle":            {},
 		"spicemanagement":           {},
 		"spiceobservability":        {},
+		"spicesecurity":             {},
 		"spiceweb":                  {},
 		"syscall":                   {},
 		"time":                      {},
@@ -1465,17 +1635,26 @@ func modelHash(
 		Kind     controller.ScalarKind `json:"kind,omitempty"`
 		Type     string                `json:"type"`
 	}
+	type inputAuthorization struct {
+		PolicyID      string   `json:"policy_id"`
+		Module        string   `json:"module"`
+		Authenticated bool     `json:"authenticated,omitempty"`
+		AnyRoles      []string `json:"any_roles,omitempty"`
+		AllRoles      []string `json:"all_roles,omitempty"`
+		AllScopes     []string `json:"all_scopes,omitempty"`
+	}
 	type inputRoute struct {
-		ID        string         `json:"id"`
-		Method    string         `json:"method"`
-		Path      string         `json:"path"`
-		Provider  string         `json:"provider"`
-		Request   string         `json:"request,omitempty"`
-		Response  string         `json:"response,omitempty"`
-		Validator string         `json:"validator,omitempty"`
-		Raw       bool           `json:"raw,omitempty"`
-		NoContent bool           `json:"no_content,omitempty"`
-		Bindings  []inputBinding `json:"bindings"`
+		ID            string              `json:"id"`
+		Method        string              `json:"method"`
+		Path          string              `json:"path"`
+		Provider      string              `json:"provider"`
+		Request       string              `json:"request,omitempty"`
+		Response      string              `json:"response,omitempty"`
+		Validator     string              `json:"validator,omitempty"`
+		Raw           bool                `json:"raw,omitempty"`
+		NoContent     bool                `json:"no_content,omitempty"`
+		Bindings      []inputBinding      `json:"bindings"`
+		Authorization *inputAuthorization `json:"authorization,omitempty"`
 	}
 	type inputController struct {
 		ID       string       `json:"id"`
@@ -1563,6 +1742,16 @@ func modelHash(
 				Validator: route.ValidatorID,
 				Raw:       route.Raw,
 				NoContent: route.NoContent,
+			}
+			if authorization, protected := route.Authorization(); protected {
+				routeInput.Authorization = &inputAuthorization{
+					PolicyID:      authorization.PolicyID,
+					Module:        authorization.Module,
+					Authenticated: authorization.Authenticated,
+					AnyRoles:      authorization.AnyRoles(),
+					AllRoles:      authorization.AllRoles(),
+					AllScopes:     authorization.AllScopes(),
+				}
 			}
 			for _, binding := range route.Bindings() {
 				routeInput.Bindings = append(routeInput.Bindings, inputBinding{

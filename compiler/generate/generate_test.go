@@ -420,6 +420,7 @@ func NewMux() *http.ServeMux {
 func NewAPI() *API { return &API{} }
 
 // @Get("/{id}")
+// @security.Authorize(anyRoles=["reader", "admin"], allScopes=["users:read"])
 func (*API) Get(_ context.Context, request GetRequest) (Response, error) {
 	if request.ID == "conflict" {
 		return Response{}, spiceweb.NewError(spiceweb.Problem{
@@ -490,18 +491,38 @@ func Web(*api.API) {}
 		postOperation.RequestBody == nil ||
 		postOperation.Responses["204"].Description != "No Content" ||
 		rawOperation.Responses["default"].Description != "Response owned by raw net/http handler" ||
+		len(getOperation.Security) != 1 ||
+		len(getOperation.Responses["401"].Content) == 0 ||
+		len(getOperation.Responses["403"].Content) == 0 ||
+		getOperation.SpiceAuthorization == nil ||
+		getOperation.SpiceAuthorization.Owner != "example.com/web/api" ||
+		!slices.Equal(
+			getOperation.SpiceAuthorization.AnyRoles,
+			[]string{"admin", "reader"},
+		) ||
+		!slices.Equal(
+			getOperation.SpiceAuthorization.AllScopes,
+			[]string{"users:read"},
+		) ||
+		openAPI.Components.SecuritySchemes["SpicePrincipal"].Scheme != "bearer" ||
 		openAPI.Components.Schemas["SpiceProblem"].Type != "object" {
 		t.Fatalf("generated OpenAPI = %#v", openAPI)
 	}
 	source := string(files[1].Content())
 	for _, expected := range []string{
 		`http "net/http"`,
+		`spicesecurity "github.com/StevenBuglione/spice/security"`,
 		`spiceweb "github.com/StevenBuglione/spice/web"`,
 		"type ApplicationOptions struct",
 		"func (application *Application) Handler() http.Handler",
 		`spiceweb.RegisterObserved(routeMux, "GET /users/{id}"`,
 		`spiceweb.RegisterObserved(routeMux, "POST /users/{id}"`,
 		"spiceweb.ObservationMiddleware(",
+		"spicesecurity.NewPolicy(",
+		`AnyRoles:  []string{"admin", "reader"}`,
+		`AllScopes: []string{"users:read"}`,
+		"spicesecurity.Guard(",
+		"routeMiddleware1",
 		"[]spiceweb.HTTPObserver",
 		"options.Middleware...",
 		"spiceweb.Parameter(",
@@ -514,6 +535,12 @@ func Web(*api.API) {}
 			t.Fatalf("generated source missing %q:\n%s", expected, source)
 		}
 	}
+	assertOrdered(
+		t,
+		source,
+		"spicesecurity.NewPolicy(",
+		`spiceweb.RegisterObserved(routeMux, "GET /users/raw/status"`,
+	)
 	writePlan(t, root, plan)
 	writeTestFile(t, root, "internal/spicegen/web/http_test.go", generatedHTTPTest)
 	runGoTest(t, root, "./internal/spicegen/web")
@@ -966,6 +993,7 @@ import (
 	"testing"
 
 	"example.com/web/api"
+	spicesecurity "github.com/StevenBuglione/spice/security"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
@@ -995,11 +1023,49 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 			})
 		}
 	}
+	principalMiddleware := func(
+		principal spicesecurity.Principal,
+	) spiceweb.Middleware {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(
+				writer http.ResponseWriter,
+				request *http.Request,
+			) {
+				ctx, attachErr := spicesecurity.WithPrincipal(
+					request.Context(),
+					principal,
+				)
+				if attachErr != nil {
+					panic(attachErr)
+				}
+				next.ServeHTTP(writer, request.WithContext(ctx))
+			})
+		}
+	}
+	principal, err := spicesecurity.NewPrincipal(
+		"user-1",
+		"https://issuer.example",
+		[]string{"reader"},
+		[]string{"users:read"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	httpObserver := &recordingHTTPObserver{}
+	var authorizationDecisions []spicesecurity.Decision
 	application, err := NewApplicationWithOptions(context.Background(), ApplicationOptions{
 		HTTPObservers: []spiceweb.HTTPObserver{httpObserver},
+		AuthorizationObservers: []spicesecurity.Observer{
+			func(_ context.Context, decision spicesecurity.Decision) {
+				authorizationDecisions = append(
+					authorizationDecisions,
+					decision,
+				)
+			},
+		},
 		Middleware: []spiceweb.Middleware{
 			namedMiddleware("first"),
+			principalMiddleware(principal),
 			namedMiddleware("second"),
 		},
 	})
@@ -1035,6 +1101,85 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 		httpObserver.results[0].Bytes == 0 ||
 		httpObserver.results[0].Panicked {
 		t.Fatalf("HTTP observation = routes=%#v results=%#v", httpObserver.routes, httpObserver.results)
+	}
+	if len(authorizationDecisions) != 1 ||
+		!authorizationDecisions[0].Allowed ||
+		authorizationDecisions[0].Definition.Module != "example.com/web/api" ||
+		!strings.Contains(
+			authorizationDecisions[0].Definition.ID,
+			"|3:API|3:Get",
+		) {
+		t.Fatalf(
+			"authorization decisions = %#v",
+			authorizationDecisions,
+		)
+	}
+
+	anonymousApplication, err := NewApplication(context.Background())
+	if err != nil {
+		t.Fatalf("NewApplication(anonymous) error = %v", err)
+	}
+	response = request(
+		t,
+		anonymousApplication.Handler(),
+		http.MethodGet,
+		"/users/42",
+		"",
+		map[string]string{
+			"Accept":  "application/json",
+			"X-Limit": "7",
+		},
+	)
+	if response.Code != http.StatusUnauthorized ||
+		response.Header().Get("WWW-Authenticate") != "Bearer" ||
+		!strings.Contains(
+			response.Body.String(),
+			"Authentication required",
+		) {
+		t.Fatalf(
+			"anonymous response = %d %s",
+			response.Code,
+			response.Body.String(),
+		)
+	}
+	forbiddenPrincipal, err := spicesecurity.NewPrincipal(
+		"user-2",
+		"https://issuer.example",
+		[]string{"guest"},
+		[]string{"users:read"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbiddenApplication, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Middleware: []spiceweb.Middleware{
+				principalMiddleware(forbiddenPrincipal),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewApplication(forbidden) error = %v", err)
+	}
+	response = request(
+		t,
+		forbiddenApplication.Handler(),
+		http.MethodGet,
+		"/users/42",
+		"",
+		map[string]string{
+			"Accept":  "application/json",
+			"X-Limit": "7",
+		},
+	)
+	if response.Code != http.StatusForbidden ||
+		!strings.Contains(response.Body.String(), "Forbidden") {
+		t.Fatalf(
+			"forbidden response = %d %s",
+			response.Code,
+			response.Body.String(),
+		)
 	}
 
 	response = request(t, application.Handler(), http.MethodGet, "/users/42?verbose=secret-invalid", "", map[string]string{
@@ -1097,6 +1242,26 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	if invalidApplication != nil || constructionErr == nil ||
 		!strings.Contains(constructionErr.Error(), "observer 0 is nil") {
 		t.Fatalf("nil HTTP observer construction = %#v, %v", invalidApplication, constructionErr)
+	}
+	var nilAuthorizationObserver spicesecurity.Observer
+	invalidApplication, constructionErr = NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			AuthorizationObservers: []spicesecurity.Observer{
+				nilAuthorizationObserver,
+			},
+		},
+	)
+	if invalidApplication != nil || constructionErr == nil ||
+		!strings.Contains(
+			constructionErr.Error(),
+			"observer 0 is nil",
+		) {
+		t.Fatalf(
+			"nil authorization observer construction = %#v, %v",
+			invalidApplication,
+			constructionErr,
+		)
 	}
 
 	var nilApplication *Application

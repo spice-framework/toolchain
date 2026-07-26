@@ -33,11 +33,12 @@ type modelHashBootstrapEntryPoint struct {
 }
 
 type commandFeatures struct {
-	endpoints  []compilerbootstrap.Endpoint
-	management bool
-	logging    bool
-	metrics    bool
-	hasMux     bool
+	endpoints     []compilerbootstrap.Endpoint
+	management    bool
+	logging       bool
+	metrics       bool
+	hasMux        bool
+	authorization bool
 }
 
 func commandFeaturesFor(
@@ -128,6 +129,19 @@ func writeBootstrapObservers(source *bytes.Buffer, features commandFeatures) {
 			source.WriteString("\thttpObservers = append([]spiceweb.HTTPObserver{httpLogs}, httpObservers...)\n")
 		}
 	}
+}
+
+func writeAuthorizationSetup(
+	source *bytes.Buffer,
+	features commandFeatures,
+) {
+	if !features.authorization {
+		return
+	}
+	source.WriteString("\tauthorizer, authorizationErr := spicesecurity.NewAuthorizer(options.AuthorizationObservers...)\n")
+	source.WriteString("\tif authorizationErr != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"construct generated authorizer: %w\", authorizationErr))\n")
+	source.WriteString("\t}\n")
 }
 
 func writeRouteMux(

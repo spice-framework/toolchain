@@ -61,6 +61,34 @@ type Binding struct {
 	PhysicalPosition token.Position
 }
 
+// Authorization is one validated deny-by-default policy attached to a
+// generated HTTP route.
+type Authorization struct {
+	PolicyID         string
+	Module           string
+	Authenticated    bool
+	Position         token.Position
+	PhysicalPosition token.Position
+	anyRoles         []string
+	allRoles         []string
+	allScopes        []string
+}
+
+// AnyRoles returns the sorted roles of which at least one is required.
+func (authorization Authorization) AnyRoles() []string {
+	return append([]string(nil), authorization.anyRoles...)
+}
+
+// AllRoles returns the sorted roles that are all required.
+func (authorization Authorization) AllRoles() []string {
+	return append([]string(nil), authorization.allRoles...)
+}
+
+// AllScopes returns the sorted scopes that are all required.
+func (authorization Authorization) AllScopes() []string {
+	return append([]string(nil), authorization.allScopes...)
+}
+
 // Route is one validated controller method and HTTP pattern.
 type Route struct {
 	Symbol           load.Symbol
@@ -81,11 +109,21 @@ type Route struct {
 	Position         token.Position
 	PhysicalPosition token.Position
 	bindings         []Binding
+	authorization    *Authorization
 }
 
 // Bindings returns request fields in declaration order.
 func (r Route) Bindings() []Binding {
 	return append([]Binding(nil), r.bindings...)
+}
+
+// Authorization returns immutable generated policy metadata when the route is
+// explicitly protected.
+func (r Route) Authorization() (Authorization, bool) {
+	if r.authorization == nil {
+		return Authorization{}, false
+	}
+	return cloneAuthorization(*r.authorization), true
 }
 
 // Controller is one @Controller type and its stable routes.
@@ -108,6 +146,12 @@ func (c Controller) Routes() []Route {
 	result := append([]Route(nil), c.routes...)
 	for index := range result {
 		result[index].bindings = append([]Binding(nil), c.routes[index].bindings...)
+		if c.routes[index].authorization != nil {
+			authorization := cloneAuthorization(
+				*c.routes[index].authorization,
+			)
+			result[index].authorization = &authorization
+		}
 	}
 	return result
 }
@@ -257,8 +301,226 @@ func Build(
 		}
 		controller.routes = append(controller.routes, route)
 	}
+	applyAuthorizations(&catalog, resolution)
 	finalize(&catalog)
 	return catalog
+}
+
+type routeLocation struct {
+	controller int
+	route      int
+}
+
+func applyAuthorizations(catalog *Catalog, resolution resolve.Result) {
+	routes := make(map[string][]routeLocation)
+	for controllerIndex := range catalog.controllers {
+		for routeIndex, route := range catalog.controllers[controllerIndex].routes {
+			routes[route.SymbolID] = append(
+				routes[route.SymbolID],
+				routeLocation{controller: controllerIndex, route: routeIndex},
+			)
+		}
+	}
+	seen := make(map[string]resolve.Occurrence)
+	for _, occurrence := range resolution.Occurrences {
+		if occurrence.Annotation.Name != "security.Authorize" {
+			continue
+		}
+		if previous, duplicate := seen[occurrence.SymbolID]; duplicate {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"duplicate-authorization",
+					fmt.Sprintf(
+						"@security.Authorize %q is repeated; first declaration is at %s",
+						occurrence.Name,
+						previous.DisplayPosition,
+					),
+				),
+			)
+			continue
+		}
+		seen[occurrence.SymbolID] = occurrence
+		locations := routes[occurrence.SymbolID]
+		if len(locations) != 1 {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"invalid-authorization-target",
+					fmt.Sprintf(
+						"@security.Authorize method %q must declare exactly one valid @Get or @Post route",
+						occurrence.Name,
+					),
+				),
+			)
+			continue
+		}
+		location := locations[0]
+		route := &catalog.controllers[location.controller].
+			routes[location.route]
+		authorization, problem := analyzeAuthorization(occurrence, *route)
+		if problem != "" {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"invalid-authorization",
+					problem,
+				),
+			)
+			continue
+		}
+		route.authorization = &authorization
+	}
+}
+
+func analyzeAuthorization(
+	occurrence resolve.Occurrence,
+	route Route,
+) (Authorization, string) {
+	if occurrence.Target != annotation.TargetMethod {
+		return Authorization{}, fmt.Sprintf(
+			"@security.Authorize %q must target an HTTP route method",
+			occurrence.Name,
+		)
+	}
+	owner := route.Module
+	if owner == "" {
+		owner = route.Symbol.PackagePath
+	}
+	if owner == "" {
+		return Authorization{}, fmt.Sprintf(
+			"@security.Authorize method %q has no stable package owner",
+			occurrence.Name,
+		)
+	}
+	authorization := Authorization{
+		PolicyID:         route.SymbolID,
+		Module:           owner,
+		Position:         occurrence.DisplayPosition,
+		PhysicalPosition: physicalPosition(occurrence),
+	}
+	seenArguments := make(map[string]struct{})
+	for _, argument := range occurrence.Annotation.Arguments {
+		if problem := applyAuthorizationArgument(
+			&authorization,
+			argument,
+			seenArguments,
+		); problem != "" {
+			return Authorization{}, problem
+		}
+	}
+	if !authorization.Authenticated &&
+		len(authorization.anyRoles) == 0 &&
+		len(authorization.allRoles) == 0 &&
+		len(authorization.allScopes) == 0 {
+		return Authorization{}, fmt.Sprintf(
+			"@security.Authorize method %q must require authentication, a role, or a scope",
+			occurrence.Name,
+		)
+	}
+	return authorization, ""
+}
+
+func applyAuthorizationArgument(
+	authorization *Authorization,
+	argument annotation.Argument,
+	seen map[string]struct{},
+) string {
+	if argument.Name == "" {
+		return "@security.Authorize accepts only named arguments"
+	}
+	if _, duplicate := seen[argument.Name]; duplicate {
+		return fmt.Sprintf(
+			"@security.Authorize assigns argument %q more than once",
+			argument.Name,
+		)
+	}
+	seen[argument.Name] = struct{}{}
+	if argument.Name == "authenticated" {
+		if argument.Value.Kind != annotation.KindBoolean {
+			return fmt.Sprintf(
+				"@security.Authorize argument %q requires boolean",
+				argument.Name,
+			)
+		}
+		authorization.Authenticated = argument.Value.Boolean
+		return ""
+	}
+	values, problem := authorizationNames(argument.Name, argument.Value)
+	if problem != "" {
+		return problem
+	}
+	switch argument.Name {
+	case "anyRoles":
+		authorization.anyRoles = values
+	case "allRoles":
+		authorization.allRoles = values
+	case "allScopes":
+		authorization.allScopes = values
+	default:
+		return fmt.Sprintf(
+			"@security.Authorize does not define argument %q",
+			argument.Name,
+		)
+	}
+	return ""
+}
+
+func authorizationNames(
+	name string,
+	value annotation.Value,
+) ([]string, string) {
+	if name != "anyRoles" && name != "allRoles" && name != "allScopes" {
+		return nil, fmt.Sprintf(
+			"@security.Authorize does not define argument %q",
+			name,
+		)
+	}
+	if value.Kind != annotation.KindList {
+		return nil, fmt.Sprintf(
+			"@security.Authorize argument %q requires a string list",
+			name,
+		)
+	}
+	result := make([]string, 0, len(value.List))
+	seen := make(map[string]struct{}, len(value.List))
+	for index, item := range value.List {
+		if item.Kind != annotation.KindString {
+			return nil, fmt.Sprintf(
+				"@security.Authorize argument %q item %d requires string",
+				name,
+				index,
+			)
+		}
+		if item.String == "" || strings.TrimSpace(item.String) != item.String {
+			return nil, fmt.Sprintf(
+				"@security.Authorize argument %q item %d must be non-empty and have no surrounding space",
+				name,
+				index,
+			)
+		}
+		if _, duplicate := seen[item.String]; duplicate {
+			return nil, fmt.Sprintf(
+				"@security.Authorize argument %q repeats %q",
+				name,
+				item.String,
+			)
+		}
+		seen[item.String] = struct{}{}
+		result = append(result, item.String)
+	}
+	sort.Strings(result)
+	return result, ""
+}
+
+func cloneAuthorization(value Authorization) Authorization {
+	value.anyRoles = append([]string(nil), value.anyRoles...)
+	value.allRoles = append([]string(nil), value.allRoles...)
+	value.allScopes = append([]string(nil), value.allScopes...)
+	return value
 }
 
 func analyzeController(
