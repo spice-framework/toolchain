@@ -331,6 +331,7 @@ func TestRenderGeneratesBoundedTypedAsyncSubmission(t *testing.T) {
 		"AsyncObservers",
 		"generatedAsyncExecutor, err := spiceasync.NewExecutor(",
 		`"spice.async"`,
+		"return application.coordinator.Run(ctx, application.hooks, shutdown)\n}\n\nfunc (application *Application) SubmitWorkerDeliver(",
 		"func (application *Application) SubmitWorkerDeliver(",
 		"provider0.Deliver(taskContext, argument1, argument2)",
 		"func (application *Application) AsyncSnapshot() spiceasync.Snapshot",

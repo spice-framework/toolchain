@@ -1795,6 +1795,9 @@ func writeAsyncApplicationMethods(
 	tasks []compilerasync.Task,
 	aliases map[string]string,
 ) {
+	if len(tasks) != 0 {
+		source.WriteString("\n")
+	}
 	for _, task := range tasks {
 		declarations := asyncParameterDeclarations(task, aliases)
 		arguments := asyncArgumentNames(task)

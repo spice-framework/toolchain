@@ -15,6 +15,7 @@ import (
 	syscall "syscall"
 	time "time"
 
+	spiceasync "github.com/StevenBuglione/spice/async"
 	spicecache "github.com/StevenBuglione/spice/cache"
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	spiceevent "github.com/StevenBuglione/spice/event"
@@ -38,11 +39,13 @@ const (
 )
 
 type Application struct {
-	coordinator     *spicelifecycle.Coordinator
-	hooks           []spicelifecycle.Hook
-	shutdownTimeout time.Duration
-	mux             *http.ServeMux
-	handler         http.Handler
+	coordinator            *spicelifecycle.Coordinator
+	hooks                  []spicelifecycle.Hook
+	shutdownTimeout        time.Duration
+	asyncExecutor          *spiceasync.Executor
+	submitServiceVerifySKU func(context.Context, string) error
+	mux                    *http.ServeMux
+	handler                http.Handler
 }
 
 type ApplicationOptions struct {
@@ -57,6 +60,8 @@ type ApplicationOptions struct {
 	ScheduleContext           context.Context
 	ScheduleWaiter            spiceschedule.Waiter
 	ScheduleObservers         []spiceschedule.Observer
+	AsyncContext              context.Context
+	AsyncObservers            []spiceasync.Observer
 	EventObservers            []spiceevent.Observer
 	CacheClock                func() time.Time
 	CacheObservers            []spicecache.Observer
@@ -152,6 +157,14 @@ func ConfigurationSchema() (spiceconfig.Schema, error) {
 			Module:      "github.com/StevenBuglione/spice/examples/commerce/orders",
 			Environment: "SPICE_CACHE_COMMERCE_ORDERS_BY_ID_TTL",
 			Default:     "5m",
+			HasDefault:  true,
+		},
+		spiceconfig.Property{
+			Key:         "spice.async.max-concurrency",
+			Kind:        spiceconfig.KindInteger,
+			Description: "Maximum concurrent generated asynchronous tasks",
+			Environment: "SPICE_ASYNC_MAX_CONCURRENCY",
+			Default:     "16",
 			HasDefault:  true,
 		},
 		spiceconfig.Property{
@@ -362,6 +375,41 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	_ = provider10
 	provider11 := orders.NewController(provider10)
 	_ = provider11
+	asyncConcurrency, err := configurationSnapshot.Integer("spice.async.max-concurrency")
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode generated async concurrency: %w", err))
+	}
+	if asyncConcurrency < 1 || uint64(asyncConcurrency) > uint64(^uint(0)>>1) {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode generated async concurrency: value must fit a positive int"))
+	}
+	asyncContext := options.AsyncContext
+	if asyncContext == nil {
+		asyncContext = context.WithoutCancel(ctx)
+	}
+	generatedAsyncExecutor, err := spiceasync.NewExecutor(
+		asyncContext,
+		int(asyncConcurrency),
+		options.AsyncObservers...,
+	)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated async executor: %w", err))
+	}
+	if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/bootstrap", "spice.async", generatedAsyncExecutor.Shutdown); err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated async cleanup: %w", err))
+	}
+	application.asyncExecutor = generatedAsyncExecutor
+	application.submitServiceVerifySKU = func(admission context.Context, argument1 string) error {
+		return generatedAsyncExecutor.Submit(
+			admission,
+			spiceasync.Definition{
+				ID:     "spice:symbol:v1|method|59:github.com/StevenBuglione/spice/examples/commerce/inventory|7:Service|9:VerifySKU",
+				Module: "github.com/StevenBuglione/spice/examples/commerce/inventory",
+			},
+			func(taskContext context.Context) error {
+				return provider9.VerifySKU(taskContext, argument1)
+			},
+		)
+	}
 	generatedCache0Capacity, err := configurationSnapshot.Integer("spice.cache.commerce.orders.by-id.capacity")
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode capacity for cache commerce.orders.by-id: %w", err))
@@ -645,6 +693,23 @@ func (application *Application) Run(ctx context.Context, shutdown spicelifecycle
 		return fmt.Errorf("run application: application is nil")
 	}
 	return application.coordinator.Run(ctx, application.hooks, shutdown)
+}
+
+func (application *Application) SubmitServiceVerifySKU(admission context.Context, argument1 string) error {
+	if application == nil || application.submitServiceVerifySKU == nil {
+		return fmt.Errorf("submit asynchronous task spice:symbol:v1|method|59:github.com/StevenBuglione/spice/examples/commerce/inventory|7:Service|9:VerifySKU: application is nil")
+	}
+	if state := application.State(); state != spicelifecycle.StateReady {
+		return fmt.Errorf("submit asynchronous task spice:symbol:v1|method|59:github.com/StevenBuglione/spice/examples/commerce/inventory|7:Service|9:VerifySKU: application state %s is not ready", state)
+	}
+	return application.submitServiceVerifySKU(admission, argument1)
+}
+
+func (application *Application) AsyncSnapshot() spiceasync.Snapshot {
+	if application == nil || application.asyncExecutor == nil {
+		return spiceasync.Snapshot{Closed: true}
+	}
+	return application.asyncExecutor.Snapshot()
 }
 
 func (application *Application) Handler() http.Handler {
