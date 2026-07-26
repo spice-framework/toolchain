@@ -398,7 +398,7 @@ func writeProviders(
 	configByProvider := configurationProviderIndex(configTypes)
 	for index, item := range providers {
 		switch item.Source {
-		case provider.SourceBean:
+		case provider.SourceBean, provider.SourceStarter:
 			writeProviderCall(
 				source,
 				item,
@@ -1411,13 +1411,15 @@ func modelHash(
 		Type  string `json:"type"`
 	}
 	type inputProvider struct {
-		ID      string            `json:"id"`
-		Source  provider.Source   `json:"source"`
-		Module  string            `json:"module,omitempty"`
-		Output  string            `json:"output"`
-		Cleanup bool              `json:"cleanup"`
-		Error   bool              `json:"error"`
-		Inputs  []inputDependency `json:"inputs"`
+		ID            string            `json:"id"`
+		Source        provider.Source   `json:"source"`
+		SourceID      string            `json:"source_id,omitempty"`
+		SourceVersion string            `json:"source_version,omitempty"`
+		Module        string            `json:"module,omitempty"`
+		Output        string            `json:"output"`
+		Cleanup       bool              `json:"cleanup"`
+		Error         bool              `json:"error"`
+		Inputs        []inputDependency `json:"inputs"`
 	}
 	type inputEdge struct {
 		Consumer  string `json:"consumer"`
@@ -1508,13 +1510,15 @@ func modelHash(
 			inputs[index] = inputDependency{Index: dependency.Index, Type: dependency.TypeID}
 		}
 		value.Providers = append(value.Providers, inputProvider{
-			ID:      item.SymbolID,
-			Source:  item.Source,
-			Module:  providerModules[item.SymbolID],
-			Output:  item.OutputTypeID,
-			Cleanup: item.ReturnsCleanup,
-			Error:   item.ReturnsError,
-			Inputs:  inputs,
+			ID:            item.SymbolID,
+			Source:        item.Source,
+			SourceID:      item.SourceID,
+			SourceVersion: item.SourceVersion,
+			Module:        providerModules[item.SymbolID],
+			Output:        item.OutputTypeID,
+			Cleanup:       item.ReturnsCleanup,
+			Error:         item.ReturnsError,
+			Inputs:        inputs,
 		})
 	}
 	for _, configType := range model.Configurations() {

@@ -128,10 +128,26 @@ func missingDiagnostic(consumer *provider.Provider, input provider.Dependency) D
 		ProviderID:       consumer.SymbolID,
 		Kind:             "missing-dependency",
 		Message: fmt.Sprintf(
-			"@Bean provider %s (%s) requires exact type %s for %s, but no provider produces that type",
-			providerLabel(consumer), consumer.SymbolID, input.TypeID, parameterLabel(input),
+			"%s %s (%s) requires exact type %s for %s, but no provider produces that type",
+			providerRole(consumer),
+			providerLabel(consumer),
+			consumer.SymbolID,
+			input.TypeID,
+			parameterLabel(input),
 		),
 	}
+}
+
+func providerRole(item *provider.Provider) string {
+	switch item.Source {
+	case provider.SourceBean:
+		return "@Bean provider"
+	case provider.SourceStarter:
+		return "starter entrypoint"
+	case provider.SourceConfiguration:
+		return "configuration provider"
+	}
+	return "provider"
 }
 
 func parameterLabel(input provider.Dependency) string {

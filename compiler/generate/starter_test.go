@@ -1,0 +1,228 @@
+package generate
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/StevenBuglione/spice/compiler/application"
+	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/StevenBuglione/spice/compiler/resolve"
+)
+
+func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {
+	root := starterGenerationFixture(t)
+	program, err := load.Load(context.Background(), load.Options{Dir: root}, "./...")
+	if err != nil {
+		t.Fatalf("load.Load() error = %v", err)
+	}
+	resolution := resolve.Annotations(program)
+	if len(resolution.Diagnostics) != 0 {
+		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+
+	firstModel := buildStarterModel(t, program, resolution, "1.2.3")
+	targets := firstModel.Targets()
+	if len(targets) != 1 {
+		t.Fatalf("Targets() = %#v", targets)
+	}
+	target, diagnostics := DefaultTarget(program, targets[0])
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", diagnostics)
+	}
+	firstPlan, diagnostics := Render(program, firstModel, targets[0], target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", diagnostics)
+	}
+	source := firstPlan.Files()[0].Content()
+	for _, expected := range []string{
+		"app.Options()",
+		"search.New(provider0)",
+		"app.NewServer(provider1)",
+		`search "example.com/starterfixture/search"`,
+	} {
+		if !bytes.Contains(source, []byte(expected)) {
+			t.Fatalf("generated source missing %q:\n%s", expected, source)
+		}
+	}
+	assertOrdered(t, string(source), "app.Options()", "search.New(provider0)", "app.NewServer(provider1)")
+
+	secondModel := buildStarterModel(t, program, resolution, "1.2.4")
+	secondTargets := secondModel.Targets()
+	secondPlan, secondDiagnostics := Render(program, secondModel, secondTargets[0], target)
+	if len(secondDiagnostics) != 0 {
+		t.Fatalf("second Render() diagnostics = %v", secondDiagnostics)
+	}
+	if firstPlan.Manifest().InputSHA256 == secondPlan.Manifest().InputSHA256 {
+		t.Fatal("starter source version did not change the generated ownership hash")
+	}
+	if !bytes.Equal(source, secondPlan.Files()[0].Content()) {
+		t.Fatal("starter provenance changed ordinary generated Go source")
+	}
+
+	writePlan(t, root, firstPlan)
+	writeTestFile(t, root, "internal/spicegen/commerce/zz_spice_gen_test.go", starterGeneratedRuntimeTest)
+	runGoTest(t, root, "./internal/spicegen/commerce")
+}
+
+func TestApplicationReportsMissingStarterDependencyWithStarterRole(t *testing.T) {
+	root := starterGenerationFixture(t)
+	program, err := load.Load(context.Background(), load.Options{Dir: root}, "./...")
+	if err != nil {
+		t.Fatalf("load.Load() error = %v", err)
+	}
+	resolution := resolve.Annotations(program)
+	filtered := resolve.Result{}
+	for _, occurrence := range resolution.Occurrences {
+		if occurrence.Annotation.Name != "Bean" || occurrence.Name != "Options" {
+			filtered.Occurrences = append(filtered.Occurrences, occurrence)
+		}
+	}
+	catalog := provider.BuildEntrypoints(program, []provider.Entrypoint{starterEntrypoint("1.2.3")})
+	model := application.BuildWithOptions(program, filtered, application.BuildOptions{
+		ProviderCatalogs: []provider.Catalog{catalog},
+	})
+	diagnostics := model.Diagnostics()
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Stage != application.StageGraph ||
+		!strings.Contains(diagnostics[0].Message, "starter entrypoint example.com/starterfixture/search.New") ||
+		!strings.Contains(diagnostics[0].Message, "requires exact type example.com/starterfixture/search.Options") {
+		t.Fatalf("BuildWithOptions() diagnostics = %#v", diagnostics)
+	}
+}
+
+func buildStarterModel(
+	t *testing.T,
+	program *load.Program,
+	resolution resolve.Result,
+	version string,
+) application.Model {
+	t.Helper()
+	catalog := provider.BuildEntrypoints(program, []provider.Entrypoint{starterEntrypoint(version)})
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildEntrypoints() diagnostics = %v", diagnostics)
+	}
+	model := application.BuildWithOptions(program, resolution, application.BuildOptions{
+		ProviderCatalogs: []provider.Catalog{catalog},
+	})
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildWithOptions() diagnostics = %v", diagnostics)
+	}
+	providers := model.Providers()
+	if len(providers) != 3 ||
+		providers[1].Source != provider.SourceStarter ||
+		providers[1].SourceID != "example.com/acme/starter/search" ||
+		providers[1].SourceVersion != version {
+		t.Fatalf("Providers() = %#v", providers)
+	}
+	return model
+}
+
+func starterEntrypoint(version string) provider.Entrypoint {
+	return provider.Entrypoint{
+		PackagePath:   "example.com/starterfixture/search",
+		Symbol:        "New",
+		SourceID:      "example.com/acme/starter/search",
+		SourceVersion: version,
+	}
+}
+
+func starterGenerationFixture(t *testing.T) string {
+	t.Helper()
+	return writeModule(t, "example.com/starterfixture", map[string]string{
+		"search/search.go": `package search
+
+import (
+	"context"
+	"sync"
+
+	"github.com/StevenBuglione/spice/lifecycle"
+)
+
+type Options struct{}
+type Client struct{}
+
+var state = struct {
+	sync.Mutex
+	events []string
+}{}
+
+func Reset() {
+	state.Lock()
+	defer state.Unlock()
+	state.events = nil
+}
+
+func Events() []string {
+	state.Lock()
+	defer state.Unlock()
+	return append([]string(nil), state.events...)
+}
+
+func record(event string) {
+	state.Lock()
+	defer state.Unlock()
+	state.events = append(state.events, event)
+}
+
+func New(Options) (*Client, lifecycle.Cleanup, error) {
+	record("construct client")
+	return &Client{}, func(context.Context) error {
+		record("cleanup client")
+		return nil
+	}, nil
+}
+`,
+		"app/application.go": `package app
+
+import "example.com/starterfixture/search"
+
+type Server struct{}
+
+// @Bean
+func Options() search.Options {
+	return search.Options{}
+}
+
+// @Bean
+func NewServer(*search.Client) *Server {
+	return &Server{}
+}
+
+// @Application
+func Commerce(*Server) {
+	panic("application marker must not execute during analysis")
+}
+`,
+	})
+}
+
+const starterGeneratedRuntimeTest = `package spicegen
+
+import (
+	"context"
+	"slices"
+	"testing"
+
+	"example.com/starterfixture/search"
+)
+
+func TestGeneratedStarterConstructionAndCleanup(t *testing.T) {
+	search.Reset()
+	application, err := NewApplication(context.Background())
+	if err != nil {
+		t.Fatalf("NewApplication() error = %v", err)
+	}
+	if got, want := search.Events(), []string{"construct client"}; !slices.Equal(got, want) {
+		t.Fatalf("construction events = %v, want %v", got, want)
+	}
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if got, want := search.Events(), []string{"construct client", "cleanup client"}; !slices.Equal(got, want) {
+		t.Fatalf("stop events = %v, want %v", got, want)
+	}
+}
+`

@@ -41,6 +41,8 @@ const (
 	SourceBean Source = "bean"
 	// SourceConfiguration identifies a generated typed configuration binder.
 	SourceConfiguration Source = "configuration"
+	// SourceStarter identifies an explicitly selected starter entrypoint.
+	SourceStarter Source = "starter"
 )
 
 // Provider describes one exact-type construction node. Bean providers call a
@@ -59,6 +61,16 @@ type Provider struct {
 	Dependencies     []Dependency
 	ReturnsCleanup   bool
 	ReturnsError     bool
+	SourceID         string
+	SourceVersion    string
+}
+
+// Entrypoint identifies one explicitly selected starter provider function.
+type Entrypoint struct {
+	PackagePath   string
+	Symbol        string
+	SourceID      string
+	SourceVersion string
 }
 
 // Diagnostic is one deterministic source-positioned catalog failure.
@@ -129,6 +141,147 @@ func Add(catalog Catalog, additions ...Provider) Catalog {
 	return result
 }
 
+// Merge combines already validated catalogs and rechecks exact output
+// uniqueness across the result.
+func Merge(catalogs ...Catalog) Catalog {
+	result := Catalog{}
+	for _, catalog := range catalogs {
+		result.providers = append(result.providers, catalog.Providers()...)
+		result.diagnostics = append(result.diagnostics, catalog.Diagnostics()...)
+	}
+	sort.SliceStable(result.providers, func(i, j int) bool {
+		return result.providers[i].SymbolID < result.providers[j].SymbolID
+	})
+	if len(result.diagnostics) == 0 {
+		result.diagnostics = duplicateDiagnostics(result.providers)
+	}
+	sortDiagnostics(result.diagnostics)
+	return result
+}
+
+// BuildEntrypoints validates explicit starter functions from the same typed
+// Program used for application analysis. It never executes the functions.
+func BuildEntrypoints(program *load.Program, entrypoints []Entrypoint) Catalog {
+	catalog := Catalog{}
+	if program == nil {
+		catalog.diagnostics = []Diagnostic{{
+			Kind:    "internal",
+			Message: "starter entrypoint catalog requires a loaded program",
+		}}
+		return catalog
+	}
+
+	symbols := make(map[string]load.Symbol)
+	for _, symbol := range program.Symbols() {
+		if symbol.Kind == load.SymbolFunction && symbol.Receiver == "" {
+			symbols[symbol.PackagePath+"\x00"+symbol.Name] = symbol
+		}
+	}
+	fileSets := make(map[string]*token.FileSet)
+	for _, pkg := range program.Packages() {
+		if pkg.Raw != nil && pkg.Raw.Fset != nil {
+			fileSets[pkg.Path] = pkg.Raw.Fset
+		}
+	}
+	cleanupType := canonicalCleanupType(program)
+	seen := make(map[string]struct{}, len(entrypoints))
+	for _, entrypoint := range entrypoints {
+		if problem := entrypointProblem(entrypoint); problem != "" {
+			catalog.diagnostics = append(catalog.diagnostics, Diagnostic{
+				Kind:    "invalid-entrypoint",
+				Message: problem,
+			})
+			continue
+		}
+		key := entrypoint.PackagePath + "\x00" + entrypoint.Symbol
+		if _, duplicate := seen[key]; duplicate {
+			catalog.diagnostics = append(catalog.diagnostics, Diagnostic{
+				Kind: "duplicate-entrypoint",
+				Message: fmt.Sprintf(
+					"starter entrypoint %s.%s is selected more than once",
+					entrypoint.PackagePath,
+					entrypoint.Symbol,
+				),
+			})
+			continue
+		}
+		seen[key] = struct{}{}
+		symbol, found := symbols[key]
+		if !found {
+			catalog.diagnostics = append(catalog.diagnostics, Diagnostic{
+				Kind: "missing-entrypoint",
+				Message: fmt.Sprintf(
+					"starter %q entrypoint %s.%s is not a loaded package-level function",
+					entrypoint.SourceID,
+					entrypoint.PackagePath,
+					entrypoint.Symbol,
+				),
+			})
+			continue
+		}
+		occurrence := resolve.Occurrence{
+			Target:          annotation.TargetFunction,
+			Name:            symbol.Name,
+			SymbolID:        symbol.ID,
+			PackagePath:     symbol.PackagePath,
+			PhysicalFile:    symbol.PhysicalPosition.Filename,
+			PhysicalOffset:  symbol.PhysicalPosition.Offset,
+			DisplayPosition: symbol.Position,
+		}
+		item, diagnostic := analyzeProvider(
+			occurrence,
+			symbol,
+			fileSets[symbol.PackagePath],
+			cleanupType,
+			SourceStarter,
+			entrypoint.SourceID,
+			entrypoint.SourceVersion,
+			"starter entrypoint",
+		)
+		if diagnostic != nil {
+			catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
+			continue
+		}
+		catalog.providers = append(catalog.providers, item)
+	}
+	sort.SliceStable(catalog.providers, func(i, j int) bool {
+		return catalog.providers[i].SymbolID < catalog.providers[j].SymbolID
+	})
+	catalog.diagnostics = append(catalog.diagnostics, duplicateDiagnostics(catalog.providers)...)
+	sortDiagnostics(catalog.diagnostics)
+	return catalog
+}
+
+func entrypointProblem(entrypoint Entrypoint) string {
+	switch {
+	case strings.TrimSpace(entrypoint.PackagePath) == "" ||
+		strings.TrimSpace(entrypoint.PackagePath) != entrypoint.PackagePath:
+		return "starter entrypoint requires a trimmed package path"
+	case !token.IsExported(entrypoint.Symbol):
+		return fmt.Sprintf(
+			"starter entrypoint %s.%s requires an exported Go symbol",
+			entrypoint.PackagePath,
+			entrypoint.Symbol,
+		)
+	case strings.TrimSpace(entrypoint.SourceID) == "" ||
+		strings.TrimSpace(entrypoint.SourceID) != entrypoint.SourceID:
+		return fmt.Sprintf(
+			"starter entrypoint %s.%s requires a trimmed source ID",
+			entrypoint.PackagePath,
+			entrypoint.Symbol,
+		)
+	case strings.TrimSpace(entrypoint.SourceVersion) == "" ||
+		strings.TrimSpace(entrypoint.SourceVersion) != entrypoint.SourceVersion:
+		return fmt.Sprintf(
+			"starter entrypoint %s.%s requires a trimmed source version",
+			entrypoint.PackagePath,
+			entrypoint.Symbol,
+		)
+	default:
+		return ""
+	}
+}
+
 // Build validates resolved @Bean annotations using the exact live symbols and
 // types already owned by program. It never reloads, reparses, reflects on, or
 // executes provider functions.
@@ -164,7 +317,16 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 			))
 			continue
 		}
-		provider, diagnostic := analyzeProvider(occurrence, symbol, fileSets[symbol.PackagePath], cleanupType)
+		provider, diagnostic := analyzeProvider(
+			occurrence,
+			symbol,
+			fileSets[symbol.PackagePath],
+			cleanupType,
+			SourceBean,
+			"",
+			"",
+			"@Bean provider",
+		)
 		if diagnostic != nil {
 			catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
 			continue
@@ -196,12 +358,21 @@ func analyzeProvider(
 	symbol load.Symbol,
 	fileSet *token.FileSet,
 	cleanupType types.Type,
+	source Source,
+	sourceID string,
+	sourceVersion string,
+	role string,
 ) (Provider, *Diagnostic) {
 	label := symbol.DisplayLabel
 	if label == "" {
 		label = symbol.ID
 	}
-	signature, problem := providerSignature(occurrence, symbol, label)
+	targetLabel := role + " " + label
+	if source == SourceBean {
+		targetLabel = "@Bean " + label
+	}
+	label = role + " " + label
+	signature, problem := providerSignature(occurrence, symbol, label, targetLabel)
 	if problem != nil {
 		diagnostic := symbolDiagnostic(occurrence, symbol, problem.kind, problem.message)
 		return Provider{}, &diagnostic
@@ -214,7 +385,7 @@ func analyzeProvider(
 
 	dependencies := providerDependencies(signature, fileSet)
 	return Provider{
-		Source:           SourceBean,
+		Source:           source,
 		Symbol:           symbol,
 		SymbolID:         symbol.ID,
 		Name:             symbol.Name,
@@ -226,6 +397,8 @@ func analyzeProvider(
 		Dependencies:     dependencies,
 		ReturnsCleanup:   results.returnsCleanup,
 		ReturnsError:     results.returnsError,
+		SourceID:         sourceID,
+		SourceVersion:    sourceVersion,
 	}, nil
 }
 
@@ -233,24 +406,25 @@ func providerSignature(
 	occurrence resolve.Occurrence,
 	symbol load.Symbol,
 	label string,
+	targetLabel string,
 ) (*types.Signature, *providerProblem) {
 	if occurrence.Target != annotation.TargetFunction || symbol.Kind != load.SymbolFunction || symbol.Receiver != "" {
 		return nil, &providerProblem{
 			kind:    "invalid-target",
-			message: fmt.Sprintf("@Bean %s must target a package-level function; provider methods and other declarations are not supported", label),
+			message: fmt.Sprintf("%s must target a package-level function; provider methods and other declarations are not supported", targetLabel),
 		}
 	}
 	if len(occurrence.Annotation.Arguments) != 0 {
 		return nil, &providerProblem{
 			kind:    "arguments",
-			message: fmt.Sprintf("@Bean provider %s does not accept annotation arguments", label),
+			message: fmt.Sprintf("%s does not accept annotation arguments", label),
 		}
 	}
 	signature := symbol.Signature
 	if signature == nil {
 		return nil, &providerProblem{
 			kind:    "missing-signature",
-			message: fmt.Sprintf("@Bean provider %s has no typed function signature", label),
+			message: fmt.Sprintf("%s has no typed function signature", label),
 		}
 	}
 	if signature.TypeParams() != nil && signature.TypeParams().Len() > 0 {
@@ -419,7 +593,7 @@ func signatureProblem(kind, label, reason string) *providerProblem {
 }
 
 func invalidSignatureMessage(label, reason string) string {
-	return fmt.Sprintf("@Bean provider %s has an unsupported signature: %s; accepted forms are %s", label, reason, acceptedSignature)
+	return fmt.Sprintf("%s has an unsupported signature: %s; accepted forms are %s", label, reason, acceptedSignature)
 }
 
 func isError(value types.Type) bool {

@@ -124,6 +124,7 @@ type Model struct {
 // matching definitions before building the application model.
 type BuildOptions struct {
 	BootstrapDefinitions []compilerbootstrap.Definition
+	ProviderCatalogs     []provider.Catalog
 }
 
 // Providers returns providers in deterministic dependency-first construction
@@ -246,6 +247,14 @@ func BuildWithOptions(
 		return model
 	}
 	providerCatalog = provider.Add(providerCatalog, configurationProviders(model.configTypes)...)
+	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = providerDiagnostics(diagnostics)
+		return model
+	}
+	catalogs := make([]provider.Catalog, 1, 1+len(options.ProviderCatalogs))
+	catalogs[0] = providerCatalog
+	catalogs = append(catalogs, options.ProviderCatalogs...)
+	providerCatalog = provider.Merge(catalogs...)
 	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
 		model.diagnostics = providerDiagnostics(diagnostics)
 		return model
