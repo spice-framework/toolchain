@@ -203,6 +203,60 @@ func TestEngineRecoversAfterInitialFailure(t *testing.T) {
 	}
 }
 
+func TestEngineReplacesAfterSuccessfulStopEscalation(t *testing.T) {
+	t.Parallel()
+	clock := newFakeClock(time.Unix(35_000, 0))
+	watcher := newFakeWatcher()
+	pipeline := newFakePipeline()
+	launcher := newFakeLauncher()
+	sink := newFakeSink()
+	engine, err := NewEngine(
+		Config{
+			QuietPeriod: time.Second,
+			MaxDelay:    time.Second,
+			StopTimeout: time.Second,
+		},
+		watcher,
+		clock,
+		pipeline,
+		launcher,
+		sink,
+	)
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- engine.Run(ctx)
+	}()
+
+	initial := receivePreparation(t, pipeline.requests)
+	initialCandidate, _ := testCandidate(t, "initial")
+	initial.respond <- preparationResponse{candidate: initialCandidate}
+	waitForEvent(t, sink.events, EventApplicationStarted)
+	firstProcess := receiveProcess(t, launcher.started)
+	firstProcess.stopErr = ErrGracefulStopTimeout
+
+	watcher.events <- FileEvent{Path: "main.go", Kind: ChangeWrite}
+	waitForEvent(t, sink.events, EventChangeDetected)
+	clock.Advance(time.Second)
+	next := receivePreparation(t, pipeline.requests)
+	nextCandidate, _ := testCandidate(t, "next")
+	next.respond <- preparationResponse{candidate: nextCandidate}
+	waitForEvent(t, sink.events, EventShutdownTimedOut)
+	started := waitForEvent(t, sink.events, EventApplicationStarted)
+	if started.Revision != 2 {
+		t.Fatalf("started revision = %d, want 2", started.Revision)
+	}
+	receiveProcess(t, launcher.started)
+
+	cancel()
+	if err := receiveRunResult(t, runDone); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestEngineReportsWatcherClosure(t *testing.T) {
 	t.Parallel()
 	clock := newFakeClock(time.Unix(40_000, 0))
@@ -390,6 +444,7 @@ type fakeProcess struct {
 	wait     chan error
 	stops    atomic.Int64
 	stopOnce sync.Once
+	stopErr  error
 }
 
 func (process *fakeProcess) Wait() <-chan error {
@@ -407,7 +462,7 @@ func (process *fakeProcess) Stop(ctx context.Context) error {
 		process.wait <- nil
 		close(process.wait)
 	})
-	return nil
+	return process.stopErr
 }
 
 type fakeSink struct {

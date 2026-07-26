@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+// ErrGracefulStopTimeout reports that graceful shutdown exceeded its deadline
+// but process escalation completed successfully.
+var ErrGracefulStopTimeout = errors.New("development graceful stop timed out")
+
 // ChangeKind identifies the filesystem transition represented by a file event.
 type ChangeKind string
 
@@ -126,6 +130,10 @@ const (
 	EventChangeDetected EventKind = "change_detected"
 	// EventAnalysisStarted reports that a debounced batch entered preparation.
 	EventAnalysisStarted EventKind = "analysis_started"
+	// EventGenerationComplete reports guarded generated-file application.
+	EventGenerationComplete EventKind = "generation_complete"
+	// EventBuildComplete reports creation of a unique executable candidate.
+	EventBuildComplete EventKind = "build_complete"
 	// EventCandidateReady reports a completely prepared build candidate.
 	EventCandidateReady EventKind = "candidate_ready"
 	// EventPreparationFailed reports an analysis, generation, or build failure.
@@ -144,6 +152,8 @@ const (
 	EventWatchError EventKind = "watch_error"
 	// EventCleanupFailed reports failure to release an obsolete artifact.
 	EventCleanupFailed EventKind = "cleanup_failed"
+	// EventShutdownTimedOut reports successful escalation after a stop deadline.
+	EventShutdownTimedOut EventKind = "shutdown_timed_out"
 )
 
 // Event is a concise structured development-loop observation.

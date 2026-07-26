@@ -106,6 +106,7 @@ type replacementResult struct {
 	process          Process
 	previousStopped  bool
 	err              error
+	warning          error
 }
 
 // Run performs the initial preparation and supervises changes until
@@ -175,6 +176,9 @@ func (state *engineState) loop(ctx context.Context) error {
 			return ctx.Err()
 		case event, ok := <-events:
 			if !ok {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
 				return ErrWatcherClosed
 			}
 			state.acceptFileEvent(event)
@@ -368,6 +372,10 @@ func (state *engineState) replace(
 		result.err = previous.Stop(stopCtx)
 		stopCancel()
 		result.previousStopped = true
+		if errors.Is(result.err, ErrGracefulStopTimeout) {
+			result.warning = result.err
+			result.err = nil
+		}
 	}
 	if result.err == nil {
 		result.err = ctx.Err()
@@ -416,6 +424,14 @@ func (state *engineState) finishReplacement(result replacementResult) {
 		state.activeCandidate = Candidate{}
 		state.activeRevision = 0
 		state.activeWait = nil
+	}
+	if result.warning != nil {
+		state.engine.sink.Emit(Event{
+			Kind:     EventShutdownTimedOut,
+			Revision: result.previousRevision,
+			Err:      result.warning,
+			Stale:    true,
+		})
 	}
 	if result.revision != state.revision || state.debouncer.Pending() {
 		state.discardReplacement(result)

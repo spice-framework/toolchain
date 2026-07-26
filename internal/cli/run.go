@@ -103,6 +103,8 @@ func runWithExecutors(
 		return buildCommand(arguments[1:], stdout, stderr, options, loader, builder)
 	case "run":
 		return runCommand(arguments[1:], stdout, stderr, options, loader)
+	case "dev":
+		return devCommand(arguments[1:], stdout, stderr, options, loader)
 	default:
 		return unknownCommand(arguments[0], stderr)
 	}
@@ -639,11 +641,28 @@ func prepareGeneration(
 	options load.Options,
 	loader programLoader,
 ) (codegen.Plan, string, bool) {
+	return prepareGenerationContext(
+		context.Background(),
+		arguments,
+		stderr,
+		options,
+		loader,
+	)
+}
+
+func prepareGenerationContext(
+	ctx context.Context,
+	arguments generationArguments,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+) (codegen.Plan, string, bool) {
 	patterns := arguments.patterns
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
-	program, resolution, metadata, ok := resolveValidatedCompilerPatterns(
+	program, resolution, metadata, ok := resolveValidatedCompilerPatternsContext(
+		ctx,
 		patterns,
 		stderr,
 		withAnalysisBuildTag(options),
@@ -921,7 +940,25 @@ func annotations(patterns []string, stdout, stderr io.Writer, options load.Optio
 }
 
 func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, loader programLoader, operation string) (*load.Program, resolve.Result, bool) {
-	program, err := loader(context.Background(), options, patterns...)
+	return resolvePatternsContext(
+		context.Background(),
+		patterns,
+		stderr,
+		options,
+		loader,
+		operation,
+	)
+}
+
+func resolvePatternsContext(
+	ctx context.Context,
+	patterns []string,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+	operation string,
+) (*load.Program, resolve.Result, bool) {
+	program, err := loader(ctx, options, patterns...)
 	if err != nil {
 		if writeErr := writef(stderr, "Spice %s failed: %v\n", operation, err); writeErr != nil {
 			return nil, resolve.Result{}, false
@@ -950,11 +987,32 @@ func resolveValidatedCompilerPatterns(
 	operation string,
 	failurePrefix string,
 ) (*load.Program, resolve.Result, compilerMetadata, bool) {
+	return resolveValidatedCompilerPatternsContext(
+		context.Background(),
+		patterns,
+		stderr,
+		options,
+		loader,
+		operation,
+		failurePrefix,
+	)
+}
+
+func resolveValidatedCompilerPatternsContext(
+	ctx context.Context,
+	patterns []string,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+	operation string,
+	failurePrefix string,
+) (*load.Program, resolve.Result, compilerMetadata, bool) {
 	metadata, ok := prepareCompilerMetadata(stderr, options, operation)
 	if !ok {
 		return nil, resolve.Result{}, compilerMetadata{}, false
 	}
-	program, result, ok := resolvePatterns(
+	program, result, ok := resolvePatternsContext(
+		ctx,
 		patterns,
 		stderr,
 		metadata.loadOptions(options),
@@ -980,7 +1038,7 @@ func resolveValidatedCompilerPatterns(
 		result.Occurrences,
 	)
 	if len(requirements) != 0 {
-		modules, err := loadModuleVersions(context.Background(), options)
+		modules, err := loadModuleVersions(ctx, options)
 		if err != nil {
 			if writeErr := writef(
 				stderr,
@@ -1266,6 +1324,7 @@ Usage:
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
   spice build [--target name] [package-pattern ...]
   spice run [--target name] [package-pattern ...] [-- application-argument ...]
+  spice dev [--target name] [dev-option ...] [package-pattern ...] [-- application-argument ...]
 
 Commands:
   version      Print the Spice version.
@@ -1276,6 +1335,15 @@ Commands:
   generate     Render and safely apply or check generated application code.
   build        Generate an application and run the standard trimpath build.
   run          Generate, build, and execute a package-main application.
+  dev          Watch, regenerate, build, and gracefully restart an application.
+
+Development options:
+  --quiet duration         Debounce quiet period (default 150ms).
+  --max-delay duration     Maximum change-burst delay (default 2s).
+  --poll duration          Portable recursive polling interval (default 500ms).
+  --stop-timeout duration  Graceful process-stop bound (default 15s).
+  --include pattern        Add a watched workspace-relative path pattern.
+  --exclude pattern        Exclude a workspace-relative path pattern.
 
 Starter selection:
   Commit .spice/starters.json to explicitly compose compatible third-party
