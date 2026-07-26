@@ -124,6 +124,78 @@ func TestRunBuildGeneratesAndExecutesTrimpathBuild(t *testing.T) {
 	}
 }
 
+func TestRunGenerateBuildsPreferredPackageMainWithoutManualImports(t *testing.T) {
+	repository, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/package-main\n\ngo 1.26.0\n\n" +
+			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
+			"replace github.com/StevenBuglione/spice => " +
+			filepath.ToSlash(repository) + "\n",
+		"cmd/shop/main.go": `package main
+
+import "os"
+
+// @Application
+// @management.Enable(expose=["health"])
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`,
+		"platform/platform.go": `// Package platform owns HTTP setup.
+//
+// @Module
+package platform
+
+import "net/http"
+
+// @Bean
+func Mux() *http.ServeMux {
+	return http.NewServeMux()
+}
+`,
+	})
+
+	code, stdout, stderr := runModule(root, "generate")
+	if code != 0 ||
+		!strings.Contains(stdout, "generated target Shop") ||
+		stderr != "" {
+		t.Fatalf(
+			"generate: code=%d stdout=%q stderr=%q",
+			code,
+			stdout,
+			stderr,
+		)
+	}
+	generatedPath := filepath.Join(root, "cmd", "shop", "zz_spice_gen.go")
+	content, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "package main") ||
+		!strings.Contains(
+			string(content),
+			"func spiceMain(arguments []string) int",
+		) ||
+		!strings.Contains(string(content), "platform.Mux()") {
+		t.Fatalf("generated package-main source:\n%s", content)
+	}
+
+	code, stdout, stderr = runModule(root, "build")
+	if code != 0 ||
+		!strings.Contains(stdout, "Spice build passed for target Shop") ||
+		stderr != "" {
+		t.Fatalf(
+			"build: code=%d stdout=%q stderr=%q",
+			code,
+			stdout,
+			stderr,
+		)
+	}
+}
+
 func TestRunBuildReportsExecutorFailure(t *testing.T) {
 	root := generationCLIModule(t, generationApplicationSource)
 	sentinel := errors.New("builder failed")
@@ -294,12 +366,16 @@ func Application(Value) {}
 func TestSelectApplicationTargetSupportsStableIdentityAndAmbiguity(t *testing.T) {
 	t.Parallel()
 	targets := []application.Target{
-		{Name: "Web", SymbolID: "web-id"},
-		{Name: "Worker", SymbolID: "worker-id"},
+		{Name: "Web", SymbolID: "web-id", PackagePath: "example.com/web"},
+		{Name: "Worker", SymbolID: "worker-id", PackagePath: "example.com/worker"},
 	}
 	target, err := selectApplicationTarget(targets, "worker-id")
 	if err != nil || target.Name != "Worker" {
 		t.Fatalf("selectApplicationTarget() = %#v, %v", target, err)
+	}
+	target, err = selectApplicationTarget(targets, "example.com/web")
+	if err != nil || target.Name != "Web" {
+		t.Fatalf("selectApplicationTarget(import path) = %#v, %v", target, err)
 	}
 	if _, err := selectApplicationTarget(
 		[]application.Target{{Name: "Web"}, {Name: "web"}},
@@ -328,6 +404,9 @@ func TestWithAnalysisBuildTagPreservesCallerTags(t *testing.T) {
 	}
 	if !slices.Equal(result.BuildFlags, want) {
 		t.Fatalf("BuildFlags = %v, want %v", result.BuildFlags, want)
+	}
+	if !result.AllowGeneratedMainBridge {
+		t.Fatal("withAnalysisBuildTag() disabled the generated main bridge")
 	}
 	if got := goFlags([]string{"OTHER=value"}); got != "" {
 		t.Fatalf("goFlags(no GOFLAGS) = %q", got)

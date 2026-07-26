@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"path"
 	"slices"
 	"sort"
 
@@ -26,7 +27,10 @@ import (
 	compilertransaction "github.com/StevenBuglione/spice/compiler/transaction"
 )
 
-const acceptedMarkerSignature = "func(applicationRoots...)"
+const (
+	acceptedMainMarkerSignature   = "package main: func main()"
+	acceptedLegacyMarkerSignature = "func(applicationRoots...)"
+)
 
 // Stage identifies the compiler phase that produced a model diagnostic.
 type Stage string
@@ -84,6 +88,7 @@ type Target struct {
 	PhysicalPosition token.Position
 	roots            []Root
 	bootstrap        compilerbootstrap.Metadata
+	automatic        bool
 }
 
 // Roots returns the target's roots in function-parameter order.
@@ -94,6 +99,13 @@ func (t Target) Roots() []Root {
 // Bootstrap returns immutable, typed application-platform feature metadata.
 func (t Target) Bootstrap() compilerbootstrap.Metadata {
 	return t.bootstrap
+}
+
+// AutomaticDiscovery reports whether this is the preferred package-main
+// marker whose application graph is discovered from the selected local module
+// scope rather than enumerated as marker parameters.
+func (t Target) AutomaticDiscovery() bool {
+	return t.automatic
 }
 
 // Diagnostic is one deterministic source-positioned application-model failure.
@@ -659,7 +671,7 @@ func targetRuntimeCapabilities(
 ) []compilerbootstrap.RuntimeCapability {
 	reachable := reachableProviders(target, edges)
 	for _, item := range providers {
-		if !reachable[item.SymbolID] {
+		if !target.automatic && !reachable[item.SymbolID] {
 			continue
 		}
 		if pointerNamedType(item.Output, "net/http", "ServeMux") {
@@ -797,11 +809,12 @@ func analyzeMarker(
 	return Target{
 		Symbol:           symbol,
 		SymbolID:         symbol.ID,
-		Name:             symbol.Name,
+		Name:             applicationTargetName(symbol),
 		PackagePath:      symbol.PackagePath,
 		Position:         occurrence.DisplayPosition,
 		PhysicalPosition: token.Position{Filename: occurrence.PhysicalFile, Offset: occurrence.PhysicalOffset},
 		roots:            roots,
+		automatic:        preferredMainMarker(symbol),
 	}, nil
 }
 
@@ -861,7 +874,49 @@ func markerSignature(occurrence resolve.Occurrence, symbol load.Symbol) (*types.
 			fmt.Sprintf("application markers must return no results, got %d", signature.Results().Len()),
 		)
 	}
+	if symbol.Name == "main" {
+		if !preferredMainMarker(symbol) {
+			return nil, invalidSignatureDiagnostic(
+				occurrence,
+				symbol,
+				"main-package",
+				"the preferred main marker must be declared in package main",
+			)
+		}
+		if signature.Params().Len() != 0 {
+			return nil, invalidSignatureDiagnostic(
+				occurrence,
+				symbol,
+				"main-parameters",
+				fmt.Sprintf(
+					"package-main application markers must accept no parameters, got %d",
+					signature.Params().Len(),
+				),
+			)
+		}
+	}
 	return signature, nil
+}
+
+func preferredMainMarker(symbol load.Symbol) bool {
+	return symbol.Name == "main" &&
+		symbol.Object != nil &&
+		symbol.Object.Pkg() != nil &&
+		symbol.Object.Pkg().Name() == "main"
+}
+
+func applicationTargetName(symbol load.Symbol) string {
+	if !preferredMainMarker(symbol) {
+		return symbol.Name
+	}
+	name := path.Base(symbol.PackagePath)
+	if name == "" || name == "." || name == "/" {
+		return "application"
+	}
+	if name[0] >= 'a' && name[0] <= 'z' {
+		name = string(name[0]-('a'-'A')) + name[1:]
+	}
+	return name
 }
 
 func applicationRoots(
@@ -948,6 +1003,10 @@ func invalidSignatureDiagnostic(
 	kind string,
 	reason string,
 ) *Diagnostic {
+	accepted := acceptedLegacyMarkerSignature
+	if symbol.Name == "main" {
+		accepted = acceptedMainMarkerSignature
+	}
 	diagnostic := symbolDiagnostic(
 		occurrence,
 		symbol,
@@ -956,7 +1015,7 @@ func invalidSignatureDiagnostic(
 			"@Application marker %s has an unsupported signature: %s; accepted form is %s",
 			symbolLabel(symbol),
 			reason,
-			acceptedMarkerSignature,
+			accepted,
 		),
 	)
 	return &diagnostic

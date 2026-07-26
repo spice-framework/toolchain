@@ -372,6 +372,7 @@ func fuzz(ctx context.Context, root string) error {
 		pkg    string
 		target string
 	}{
+		{"./compiler/load", "FuzzGeneratedMainBridgeError"},
 		{"./compiler/parser", "FuzzParseComment"},
 		{"./compiler/validate", "FuzzOccurrences"},
 		{"./config", "FuzzDecodeJSONObject"},
@@ -467,11 +468,7 @@ func smoke(ctx context.Context, root string) error {
 		},
 		{
 			"go", "run", "./cmd/spice", "generate", "--check", "--target", "Commerce",
-			"./examples/commerce/bootstrap",
-			"./examples/commerce/inventory",
-			"./examples/commerce/orders",
-			"./examples/commerce/payments",
-			"./examples/commerce/platform",
+			"./examples/commerce/...",
 		},
 		{"go", "run", "./examples/commerce", "-check"},
 	}

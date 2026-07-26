@@ -806,6 +806,7 @@ func selectApplicationTarget(
 	var matches []application.Target
 	for _, target := range targets {
 		if target.Name == selector ||
+			target.PackagePath == selector ||
 			target.SymbolID == selector ||
 			strings.EqualFold(target.Name, selector) {
 			matches = append(matches, target)
@@ -1061,6 +1062,7 @@ func resolveValidatedCompilerPatterns(
 
 func withAnalysisBuildTag(options load.Options) load.Options {
 	result := options
+	result.AllowGeneratedMainBridge = true
 	result.BuildFlags = nil
 	tags := map[string]struct{}{codegen.AnalysisBuildTag: {}}
 	addTagsFromFlags(tags, goFlags(options.Env))
@@ -1264,7 +1266,7 @@ func validationDiagnostics(
 
 func packagePatterns(arguments []string) []string {
 	if len(arguments) == 0 {
-		return []string{"."}
+		return []string{"./..."}
 	}
 	return append([]string(nil), arguments...)
 }

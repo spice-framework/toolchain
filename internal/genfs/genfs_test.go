@@ -84,6 +84,198 @@ func TestApplyCreatesChecksAndPreservesUnchangedFiles(t *testing.T) {
 	}
 }
 
+func TestApplyApplicationPackagePreservesHandwrittenSource(t *testing.T) {
+	tests := []struct {
+		name       string
+		sourcePath string
+		pattern    string
+		outputDir  string
+	}{
+		{
+			name:       "nested command",
+			sourcePath: "cmd/shop/main.go",
+			pattern:    "./...",
+			outputDir:  "cmd/shop",
+		},
+		{
+			name:       "module root command",
+			sourcePath: "main.go",
+			pattern:    ".",
+			outputDir:  ".",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := generationModule(t)
+			source := []byte(`package main
+
+// @Application
+func main() {}
+`)
+			plan := renderMainPlan(
+				t,
+				root,
+				test.sourcePath,
+				test.pattern,
+				source,
+			)
+			if plan.Target().Layout != generate.LayoutApplicationPackage ||
+				plan.Target().OutputDir != test.outputDir {
+				t.Fatalf("Target() = %#v", plan.Target())
+			}
+			result, err := Apply(plan)
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if !result.Changed() {
+				t.Fatalf("Apply() = %#v", result)
+			}
+			sourcePath := filepath.Join(
+				root,
+				filepath.FromSlash(test.sourcePath),
+			)
+			if content := mustRead(t, sourcePath); !slices.Equal(content, source) {
+				t.Fatalf("handwritten source changed:\n%s", content)
+			}
+			status, err := Check(plan)
+			if err != nil || !status.Current {
+				t.Fatalf("Check() = %#v, %v", status, err)
+			}
+		})
+	}
+}
+
+func TestApplicationPackageUnexpectedMarkerScanIsPackageLocal(t *testing.T) {
+	root := generationModule(t)
+	plan := renderMainPlan(
+		t,
+		root,
+		"cmd/shop/main.go",
+		"./...",
+		[]byte("package main\n\n// @Application\nfunc main() {}\n"),
+	)
+	if _, err := Apply(plan); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	nested := filepath.Join(root, "cmd", "shop", "feature", "generated.go")
+	writeFile(t, nested, []byte(generatedMarker+"\n\npackage feature\n"))
+	status, err := Check(plan)
+	if err != nil || !status.Current {
+		t.Fatalf("Check(nested package marker) = %#v, %v", status, err)
+	}
+	direct := filepath.Join(root, "cmd", "shop", "foreign.go")
+	writeFile(t, direct, []byte(generatedMarker+"\n\npackage main\n"))
+	status, err = Check(plan)
+	if err != nil ||
+		!hasDifference(status, DifferenceUnexpectedGenerated) {
+		t.Fatalf("Check(direct package marker) = %#v, %v", status, err)
+	}
+}
+
+func TestApplyMigratesUnchangedLegacyGeneratedPackageOwnership(t *testing.T) {
+	root := generationModule(t)
+	legacyPlan := renderPlan(t, root, applicationSource)
+	for _, file := range legacyPlan.Files() {
+		writeFile(
+			t,
+			filepath.Join(root, filepath.FromSlash(file.Path)),
+			file.Content(),
+		)
+	}
+	legacyManifest := legacyPlan.Manifest()
+	legacyManifest.Schema = 1
+	legacyManifest.Target.Layout = ""
+	writeManifest(
+		t,
+		filepath.Join(
+			root,
+			filepath.FromSlash(legacyPlan.Target().ManifestPath),
+		),
+		legacyManifest,
+	)
+	if err := os.Remove(filepath.Join(root, "app", "application.go")); err != nil {
+		t.Fatal(err)
+	}
+	plan := renderMainPlan(
+		t,
+		root,
+		"cmd/application/main.go",
+		"./...",
+		[]byte("package main\n\n// @Application\nfunc main() {}\n"),
+	)
+	status, err := Check(plan)
+	if err != nil ||
+		!hasDifference(status, DifferenceStaleOwnedFile) ||
+		!hasDifference(status, DifferenceMissingFile) {
+		t.Fatalf("Check(legacy migration) = %#v, %v", status, err)
+	}
+	result, err := Apply(plan)
+	if err != nil {
+		t.Fatalf("Apply(legacy migration) error = %v", err)
+	}
+	if !slices.Equal(
+		result.Removed,
+		[]string{"internal/spicegen/application/zz_spice_gen.go"},
+	) ||
+		!slices.Equal(
+			result.Written,
+			[]string{"cmd/application/zz_spice_gen.go"},
+		) ||
+		!result.ManifestUpdated {
+		t.Fatalf("Apply(legacy migration) = %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"application",
+		"zz_spice_gen.go",
+	)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("legacy generated file remains: %v", err)
+	}
+}
+
+func TestApplyRefusesModifiedLegacyGeneratedPackageMigration(t *testing.T) {
+	root := generationModule(t)
+	legacyPlan := renderPlan(t, root, applicationSource)
+	legacyFile := legacyPlan.Files()[0]
+	legacyPath := filepath.Join(root, filepath.FromSlash(legacyFile.Path))
+	writeFile(t, legacyPath, append(legacyFile.Content(), []byte("// changed\n")...))
+	legacyManifest := legacyPlan.Manifest()
+	legacyManifest.Schema = 1
+	legacyManifest.Target.Layout = ""
+	writeManifest(
+		t,
+		filepath.Join(
+			root,
+			filepath.FromSlash(legacyPlan.Target().ManifestPath),
+		),
+		legacyManifest,
+	)
+	if err := os.Remove(filepath.Join(root, "app", "application.go")); err != nil {
+		t.Fatal(err)
+	}
+	plan := renderMainPlan(
+		t,
+		root,
+		"cmd/application/main.go",
+		"./...",
+		[]byte("package main\n\n// @Application\nfunc main() {}\n"),
+	)
+	_, err := Apply(plan)
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) ||
+		!hasDifference(
+			Status{Differences: conflict.Differences},
+			DifferenceManualEdit,
+		) {
+		t.Fatalf("Apply(modified legacy migration) error = %v", err)
+	}
+	if _, statErr := os.Stat(legacyPath); statErr != nil {
+		t.Fatalf("modified legacy file was removed: %v", statErr)
+	}
+}
+
 func TestApplyOwnsGeneratedOpenAPI(t *testing.T) {
 	root := generationModule(t)
 	plan := renderPlan(t, root, controllerApplicationSource)
@@ -640,6 +832,53 @@ func renderPlan(t *testing.T, root, source string) generate.Plan {
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	model := application.Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("application.Build() diagnostics = %v", diagnostics)
+	}
+	targets := model.Targets()
+	if len(targets) != 1 {
+		t.Fatalf("Targets() = %#v", targets)
+	}
+	target, diagnostics := generate.DefaultTarget(program, targets[0])
+	if len(diagnostics) != 0 {
+		t.Fatalf("generate.DefaultTarget() diagnostics = %v", diagnostics)
+	}
+	plan, diagnostics := generate.Render(program, model, targets[0], target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("generate.Render() diagnostics = %v", diagnostics)
+	}
+	return plan
+}
+
+func renderMainPlan(
+	t *testing.T,
+	root string,
+	sourcePath string,
+	pattern string,
+	source []byte,
+) generate.Plan {
+	t.Helper()
+	writeFile(
+		t,
+		filepath.Join(root, filepath.FromSlash(sourcePath)),
+		source,
+	)
+	program, err := load.Load(context.Background(), load.Options{
+		Dir:                      root,
+		BuildFlags:               []string{"-tags=" + generate.AnalysisBuildTag},
+		AllowGeneratedMainBridge: true,
+	}, pattern)
+	if err != nil {
+		t.Fatalf("load.Load() error = %v", err)
+	}
+	resolution := resolve.Annotations(program)
+	if len(resolution.Diagnostics) != 0 {
+		t.Fatalf(
+			"resolve.Annotations() diagnostics = %v",
+			resolution.Diagnostics,
+		)
 	}
 	model := application.Build(program, resolution)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {

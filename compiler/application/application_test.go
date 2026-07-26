@@ -457,6 +457,129 @@ func (Service) Method() {}
 	}
 }
 
+func TestBuildDiscoversPreferredPackageMainApplication(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/discovery\n\ngo 1.26.0\n",
+		"cmd/shop/main.go": `package main
+
+// @Application
+// @management.Enable(expose=["health"])
+// @observability.Logging
+func main() {}
+`,
+		"platform/platform.go": `// Package platform owns the HTTP runtime.
+//
+// @Module
+package platform
+
+import "net/http"
+
+// @Bean
+func Mux() *http.ServeMux {
+	panic("provider bodies must not execute during analysis")
+}
+`,
+	})
+
+	program, resolution := loadAndResolve(t, root, "./...")
+	model := Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	targets := model.Targets()
+	if len(targets) != 1 ||
+		targets[0].Name != "Shop" ||
+		targets[0].PackagePath != "example.com/discovery/cmd/shop" ||
+		!targets[0].AutomaticDiscovery() ||
+		len(targets[0].Roots()) != 0 {
+		t.Fatalf("Targets() = %#v", targets)
+	}
+	if providers := model.Providers(); len(providers) != 1 ||
+		providers[0].PackagePath != "example.com/discovery/platform" {
+		t.Fatalf("Providers() = %#v", providers)
+	}
+	if modules := model.Modules(); len(modules) != 1 ||
+		modules[0].ID != "example.com/discovery/platform" {
+		t.Fatalf("Modules() = %#v", modules)
+	}
+}
+
+func BenchmarkBuildPackageMainApplication(b *testing.B) {
+	root := writeModule(b, map[string]string{
+		"go.mod": "module example.com/benchmark\n\ngo 1.26.0\n",
+		"cmd/shop/main.go": `package main
+
+// @Application
+func main() {}
+`,
+		"feature/feature.go": `// Package feature owns benchmark services.
+//
+// @Module
+package feature
+
+type Service struct{}
+
+// @Bean
+func NewService() *Service { return &Service{} }
+`,
+	})
+	program, err := load.Load(
+		context.Background(),
+		load.Options{Dir: root},
+		"./...",
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	resolution := resolve.Annotations(program)
+	if len(resolution.Diagnostics) != 0 {
+		b.Fatal(resolution.Diagnostics)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		model := Build(program, resolution)
+		if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+			b.Fatal(diagnostics)
+		}
+	}
+}
+
+func TestBuildRejectsMisdeclaredPreferredMainMarkers(t *testing.T) {
+	tests := []struct {
+		name   string
+		module map[string]string
+		want   string
+	}{
+		{
+			name: "main name outside package main",
+			module: map[string]string{
+				"go.mod": "module example.com/wrongpackage\n\ngo 1.26.0\n",
+				"app/app.go": `package app
+
+// @Application
+func main() {}
+`,
+			},
+			want: "must be declared in package main",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := writeModule(t, test.module)
+			program, resolution := loadAndResolve(t, root, "./...")
+			model := Build(program, resolution)
+			diagnostics := model.Diagnostics()
+			if len(diagnostics) != 1 ||
+				diagnostics[0].Stage != StageApplication ||
+				!strings.Contains(diagnostics[0].Message, test.want) {
+				t.Fatalf("Build() diagnostics = %#v", diagnostics)
+			}
+		})
+	}
+}
+
 func TestBuildRejectsDuplicateApplicationMarker(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/duplicate\n\ngo 1.26.0\n",
@@ -878,9 +1001,9 @@ func loadAndResolve(t *testing.T, root string, patterns ...string) (*load.Progra
 	return program, resolution
 }
 
-func writeModule(t *testing.T, files map[string]string) string {
-	t.Helper()
-	root := t.TempDir()
+func writeModule(tb testing.TB, files map[string]string) string {
+	tb.Helper()
+	root := tb.TempDir()
 	paths := make([]string, 0, len(files))
 	for path := range files {
 		paths = append(paths, path)
@@ -889,20 +1012,20 @@ func writeModule(t *testing.T, files map[string]string) string {
 	for _, path := range paths {
 		full := filepath.Join(root, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		if err := os.WriteFile(full, []byte(files[path]), 0o600); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 	}
 	return root
 }
 
-func applicationRepositoryRoot(t *testing.T) string {
-	t.Helper()
+func applicationRepositoryRoot(tb testing.TB) string {
+	tb.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return root
 }

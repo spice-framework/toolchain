@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -114,6 +115,185 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 	writePlan(t, root, plan)
 	writeTestFile(t, root, "internal/spicegen/shop/zz_spice_gen_test.go", generatedRuntimeTest)
 	runGoTest(t, root, "./internal/spicegen/shop")
+}
+
+func TestRenderProducesSamePackageMainBridgeWithAutomaticDiscovery(t *testing.T) {
+	root := writeModule(t, "example.com/discovery", map[string]string{
+		"cmd/shop/main.go": `package main
+
+import "os"
+
+// @Application
+// @management.Enable(expose=["health"])
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`,
+		"platform/platform.go": `// Package platform owns the HTTP runtime.
+//
+// @Module
+package platform
+
+import "net/http"
+
+// @Bean
+func Mux() *http.ServeMux {
+	return http.NewServeMux()
+}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	if target.ID != "shop" ||
+		target.Layout != LayoutApplicationPackage ||
+		target.OutputDir != "cmd/shop" ||
+		target.PackagePath != "example.com/discovery/cmd/shop" ||
+		target.ManifestPath != ".spice/shop.manifest.json" {
+		t.Fatalf("DefaultTarget() = %#v", target)
+	}
+	plan, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	second, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 ||
+		!bytes.Equal(
+			plan.Files()[0].Content(),
+			second.Files()[0].Content(),
+		) ||
+		!bytes.Equal(plan.ManifestContent(), second.ManifestContent()) {
+		t.Fatalf(
+			"second Render() diagnostics = %v or output changed",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	source := string(generatedGoContent(t, plan))
+	for _, expected := range []string{
+		"package main",
+		"func spiceMain(arguments []string) int",
+		"platform.Mux()",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("generated package-main source missing %q:\n%s", expected, source)
+		}
+	}
+	for _, forbidden := range []string{
+		"package spicegen",
+		"func Main(arguments []string) int",
+		"internal/spicegen",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("generated package-main source contains %q:\n%s", forbidden, source)
+		}
+	}
+	writePlan(t, root, plan)
+	runGoTest(t, root, "./cmd/shop")
+}
+
+func BenchmarkRenderPackageMainApplication(b *testing.B) {
+	root := writeModule(b, "example.com/renderbenchmark", map[string]string{
+		"cmd/shop/main.go": `package main
+
+// @Application
+func main() {}
+`,
+		"feature/feature.go": `// Package feature owns benchmark services.
+//
+// @Module
+package feature
+
+type Service struct{}
+
+// @Bean
+func NewService() *Service { return &Service{} }
+`,
+	})
+	program, err := load.Load(
+		context.Background(),
+		load.Options{Dir: root},
+		"./...",
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	resolution := resolve.Annotations(program)
+	if len(resolution.Diagnostics) != 0 {
+		b.Fatal(resolution.Diagnostics)
+	}
+	model := application.Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		b.Fatal(diagnostics)
+	}
+	targets := model.Targets()
+	if len(targets) != 1 {
+		b.Fatalf("Targets() = %#v", targets)
+	}
+	target, diagnostics := DefaultTarget(program, targets[0])
+	if len(diagnostics) != 0 {
+		b.Fatal(diagnostics)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, diagnostics := Render(
+			program,
+			model,
+			targets[0],
+			target,
+		); len(diagnostics) != 0 {
+			b.Fatal(diagnostics)
+		}
+	}
+}
+
+func TestDefaultTargetSupportsModuleRootMainPackage(t *testing.T) {
+	root := writeModule(t, "example.com/rootcommand", map[string]string{
+		"main.go": `package main
+
+// @Application
+func main() {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, ".")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	if target.Layout != LayoutApplicationPackage ||
+		target.OutputDir != "." ||
+		target.PackagePath != "example.com/rootcommand" {
+		t.Fatalf("DefaultTarget() = %#v", target)
+	}
+	plan, diagnostics := Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	if files := plan.Files(); len(files) != 1 ||
+		files[0].Path != generatedFilename {
+		t.Fatalf("Files() = %#v", files)
+	}
+	writePlan(t, root, plan)
+	runGoTest(t, root, ".")
 }
 
 func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
@@ -880,6 +1060,32 @@ func Application() {}
 	}
 }
 
+func TestRenderRejectsPackageMainGeneratedNameCollision(t *testing.T) {
+	root := writeModule(t, "example.com/collision", map[string]string{
+		"cmd/app/main.go": `package main
+
+type Application struct{}
+
+// @Application
+func main() {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	_, diagnostics = Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "generated-name-collision" ||
+		!strings.Contains(diagnostics[0].Message, `"Application"`) {
+		t.Fatalf("Render() diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestRenderRejectsFrameworkOwnedConfigurationKey(t *testing.T) {
 	root := writeModule(t, "example.com/reserved", map[string]string{
 		"app/application.go": `package app
@@ -980,8 +1186,8 @@ func Application() {}
 	}
 
 	invalid := Target{ID: "Not-Portable"}
-	if _, targetDiagnostics := Render(program, model, applicationTarget, invalid); len(targetDiagnostics) != 6 {
-		t.Fatalf("Render(invalid target) diagnostics = %v, want 6", generationDiagnosticStrings(targetDiagnostics))
+	if _, targetDiagnostics := Render(program, model, applicationTarget, invalid); len(targetDiagnostics) != 7 {
+		t.Fatalf("Render(invalid target) diagnostics = %v, want 7", generationDiagnosticStrings(targetDiagnostics))
 	}
 	if _, defaultDiagnostics := DefaultTarget(nil, applicationTarget); len(defaultDiagnostics) != 1 {
 		t.Fatalf("DefaultTarget(nil) diagnostics = %#v", defaultDiagnostics)
@@ -2267,7 +2473,7 @@ func filePaths(files []File) []string {
 func generatedGoContent(t *testing.T, plan Plan) []byte {
 	t.Helper()
 	for _, file := range plan.Files() {
-		if strings.HasSuffix(file.Path, "/"+generatedFilename) {
+		if path.Base(file.Path) == generatedFilename {
 			return file.Content()
 		}
 	}
@@ -2917,7 +3123,10 @@ func buildApplication(
 	patterns ...string,
 ) (*load.Program, application.Model, application.Target) {
 	t.Helper()
-	program, err := load.Load(context.Background(), load.Options{Dir: root}, patterns...)
+	program, err := load.Load(context.Background(), load.Options{
+		Dir:                      root,
+		AllowGeneratedMainBridge: true,
+	}, patterns...)
 	if err != nil {
 		t.Fatalf("load.Load() error = %v", err)
 	}
@@ -2936,21 +3145,21 @@ func buildApplication(
 	return program, model, targets[0]
 }
 
-func writeModule(t *testing.T, modulePath string, files map[string]string) string {
-	t.Helper()
-	root := t.TempDir()
-	repository := repositoryRoot(t)
+func writeModule(tb testing.TB, modulePath string, files map[string]string) string {
+	tb.Helper()
+	root := tb.TempDir()
+	repository := repositoryRoot(tb)
 	goMod := "module " + modulePath + "\n\ngo 1.26.0\n\n" +
 		"require github.com/StevenBuglione/spice v0.0.0\n\n" +
 		"replace github.com/StevenBuglione/spice => " + filepath.ToSlash(repository) + "\n"
-	writeTestFile(t, root, "go.mod", goMod)
+	writeTestFile(tb, root, "go.mod", goMod)
 	paths := make([]string, 0, len(files))
 	for file := range files {
 		paths = append(paths, file)
 	}
 	sort.Strings(paths)
 	for _, file := range paths {
-		writeTestFile(t, root, file, files[file])
+		writeTestFile(tb, root, file, files[file])
 	}
 	return root
 }
@@ -2963,25 +3172,25 @@ func writePlan(t *testing.T, root string, plan Plan) {
 	writeTestFile(t, root, plan.Target().ManifestPath, string(plan.ManifestContent()))
 }
 
-func writeTestFile(t *testing.T, root, relativePath, content string) {
-	t.Helper()
+func writeTestFile(tb testing.TB, root, relativePath, content string) {
+	tb.Helper()
 	fullPath := filepath.Join(root, filepath.FromSlash(relativePath))
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 }
 
-func repositoryRoot(t *testing.T) string {
-	t.Helper()
+func repositoryRoot(tb testing.TB) string {
+	tb.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
-		t.Fatalf("filepath.Abs() error = %v", err)
+		tb.Fatalf("filepath.Abs() error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Fatalf("repository root %q: %v", root, err)
+		tb.Fatalf("repository root %q: %v", root, err)
 	}
 	return root
 }

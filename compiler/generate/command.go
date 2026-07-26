@@ -115,6 +115,7 @@ func writeBootstrapObservers(source *bytes.Buffer, features commandFeatures) {
 	source.WriteString("\tobservers := append([]spicelifecycle.Observer(nil), options.Observers...)\n")
 	if features.hasMux {
 		source.WriteString("\thttpObservers := append([]spiceweb.HTTPObserver(nil), options.HTTPObservers...)\n")
+		source.WriteString("\t_ = httpObservers\n")
 	}
 	if features.metrics {
 		source.WriteString("\tmanagementMetrics := spicemanagement.NewHTTPMetrics()\n")
@@ -393,7 +394,11 @@ func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
 	return strconv.Quote(string(endpoint))
 }
 
-func writeCommandAPI(source *bytes.Buffer, features commandFeatures) {
+func writeCommandAPI(
+	source *bytes.Buffer,
+	features commandFeatures,
+	layout Layout,
+) {
 	source.WriteString(`
 type ShutdownContextFactory func(time.Duration) (context.Context, context.CancelFunc)
 
@@ -408,8 +413,13 @@ type CommandOptions struct {
 	Application ApplicationOptions
 }
 
-func Main(arguments []string) int {
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+`)
+	entryPoint := "Main"
+	if layout == LayoutApplicationPackage {
+		entryPoint = "spiceMain"
+	}
+	fmt.Fprintf(source, "func %s(arguments []string) int {\n", entryPoint)
+	source.WriteString(`	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	environment, err := spiceconfig.OSEnvironment("SPICE_")
 	if err != nil {
 		logger.Error("Spice command configuration failed", slog.Any("error", err))

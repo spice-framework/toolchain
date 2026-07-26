@@ -14,6 +14,7 @@ import (
 	"go/types"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
 	compilerevent "github.com/StevenBuglione/spice/compiler/event"
+	compilerlifecycle "github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
@@ -34,14 +36,14 @@ import (
 
 const (
 	// SchemaVersion is the current generated ownership manifest schema.
-	SchemaVersion = 1
+	SchemaVersion = 2
 	// GeneratorVersion is recorded in manifests to make generator compatibility
 	// explicit during freshness checks.
 	GeneratorVersion = "0.1.0-dev"
 	// GoFormatLine is the supported Go formatter compatibility line.
 	GoFormatLine = "1.26"
-	// AnalysisBuildTag excludes committed generated packages while Spice
-	// analyzes source, allowing stale output to be regenerated safely.
+	// AnalysisBuildTag excludes committed generated source while Spice analyzes
+	// source, allowing stale output to be regenerated safely.
 	AnalysisBuildTag = "spice_generate"
 
 	generatedFilename = "zz_spice_gen.go"
@@ -63,9 +65,22 @@ const (
 
 var targetIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// Layout identifies where generated Go is compiled.
+type Layout string
+
+const (
+	// LayoutGeneratedPackage is the legacy importable
+	// internal/spicegen/<target> package layout.
+	LayoutGeneratedPackage Layout = "generated-package"
+	// LayoutApplicationPackage emits the command bridge beside an annotated
+	// package-main func main.
+	LayoutApplicationPackage Layout = "application-package"
+)
+
 // Target identifies one module-scoped generated application output.
 type Target struct {
 	ID           string
+	Layout       Layout
 	ModulePath   string
 	ModuleRoot   string
 	PackagePath  string
@@ -76,6 +91,7 @@ type Target struct {
 // TargetSummary is the safe, serializable subset of a generation target.
 type TargetSummary struct {
 	ID           string `json:"id"`
+	Layout       Layout `json:"layout"`
 	ModulePath   string `json:"module"`
 	PackagePath  string `json:"package"`
 	OutputDir    string `json:"output_dir"`
@@ -171,8 +187,8 @@ func (d Diagnostic) Error() string {
 }
 
 // DefaultTarget derives the standard module-scoped output for one application
-// marker: internal/spicegen/<lowercase-function-name> and
-// .spice/<target>.manifest.json.
+// marker. Preferred package-main markers write beside main.go; legacy markers
+// write below internal/spicegen. Both use .spice/<target>.manifest.json.
 func DefaultTarget(program *load.Program, applicationTarget application.Target) (Target, []Diagnostic) {
 	if program == nil {
 		return Target{}, []Diagnostic{{
@@ -191,13 +207,34 @@ func DefaultTarget(program *load.Program, applicationTarget application.Target) 
 			),
 		)}
 	}
-	id := strings.ToLower(applicationTarget.Name)
+	id := defaultTargetID(applicationTarget.Name)
+	layout := LayoutGeneratedPackage
 	outputDir := path.Join("internal", "spicegen", id)
+	packagePath := path.Join(pkg.Raw.Module.Path, outputDir)
+	if applicationTarget.AutomaticDiscovery() {
+		layout = LayoutApplicationPackage
+		relative, err := filepath.Rel(pkg.Raw.Module.Dir, pkg.Dir)
+		if err != nil ||
+			(!filepath.IsLocal(relative) && relative != ".") {
+			return Target{}, []Diagnostic{targetDiagnostic(
+				applicationTarget,
+				"package-directory",
+				fmt.Sprintf(
+					"derive package-main output for %s inside module %s",
+					applicationTarget.PackagePath,
+					pkg.Raw.Module.Path,
+				),
+			)}
+		}
+		outputDir = filepath.ToSlash(relative)
+		packagePath = applicationTarget.PackagePath
+	}
 	target := Target{
 		ID:           id,
+		Layout:       layout,
 		ModulePath:   pkg.Raw.Module.Path,
 		ModuleRoot:   pkg.Raw.Module.Dir,
-		PackagePath:  path.Join(pkg.Raw.Module.Path, outputDir),
+		PackagePath:  packagePath,
 		OutputDir:    outputDir,
 		ManifestPath: path.Join(".spice", id+".manifest.json"),
 	}
@@ -205,6 +242,27 @@ func DefaultTarget(program *load.Program, applicationTarget application.Target) 
 		return Target{}, diagnostics
 	}
 	return target, nil
+}
+
+func defaultTargetID(name string) string {
+	lower := strings.ToLower(name)
+	var result strings.Builder
+	for _, character := range []byte(lower) {
+		validLetter := character >= 'a' && character <= 'z'
+		validDigit := character >= '0' && character <= '9'
+		switch {
+		case validLetter || (validDigit && result.Len() != 0):
+			result.WriteByte(character)
+		case result.Len() != 0 &&
+			result.String()[result.Len()-1] != '_':
+			result.WriteByte('_')
+		}
+	}
+	id := strings.TrimSuffix(result.String(), "_")
+	if id == "" {
+		return "application"
+	}
+	return id
 }
 
 // Render creates canonical generated Go and ownership manifest bytes entirely
@@ -355,7 +413,11 @@ func renderSource(
 	var source bytes.Buffer
 	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n")
 	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
-	source.WriteString("package spicegen\n\n")
+	packageName := "spicegen"
+	if target.Layout == LayoutApplicationPackage {
+		packageName = "main"
+	}
+	fmt.Fprintf(&source, "package %s\n\n", packageName)
 	writeImports(&source, aliases)
 	writeGeneratedConstants(&source, target.ID)
 	source.WriteString("type Application struct {\n")
@@ -467,7 +529,7 @@ func renderSource(
 	if features.hasMux {
 		writeHandlerMethod(&source)
 	}
-	writeCommandAPI(&source, features)
+	writeCommandAPI(&source, features, target.Layout)
 
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {
@@ -2365,6 +2427,11 @@ func validateTarget(target Target, applicationTarget application.Target) []Diagn
 	if target.ManifestPath == "" {
 		add("manifest-path", "generated manifest path is required")
 	}
+	switch target.Layout {
+	case LayoutGeneratedPackage, LayoutApplicationPackage:
+	default:
+		add("layout", fmt.Sprintf("generation target layout %q is unsupported", target.Layout))
+	}
 	sortDiagnostics(diagnostics)
 	return diagnostics
 }
@@ -2377,27 +2444,96 @@ func validateRenderable(
 ) []Diagnostic {
 	var diagnostics []Diagnostic
 	packages := program.Packages()
-	sourcePackage, ok := packageByPath(packages, applicationTarget.PackagePath)
-	if ok && sourcePackage.Types != nil {
-		for _, imported := range sourcePackage.Types.Imports() {
-			if imported.Path() == target.PackagePath {
-				diagnostics = append(diagnostics, targetDiagnostic(
-					applicationTarget,
-					"import-cycle",
-					fmt.Sprintf(
-						"application package %s imports generated package %s; generated output must be imported only by an outer command package",
-						sourcePackage.Path,
-						target.PackagePath,
-					),
-				))
-			}
-		}
+	diagnostics = append(
+		diagnostics,
+		generatedImportCycleDiagnostics(
+			packages,
+			applicationTarget,
+			target,
+		)...,
+	)
+	if target.Layout == LayoutApplicationPackage {
+		diagnostics = append(
+			diagnostics,
+			generatedPackageCollisionDiagnostics(
+				program,
+				applicationTarget,
+			)...,
+		)
 	}
+	diagnostics = append(
+		diagnostics,
+		providerVisibilityDiagnostics(
+			packages,
+			model.Providers(),
+			applicationTarget,
+			target,
+		)...,
+	)
+	diagnostics = append(
+		diagnostics,
+		lifecycleVisibilityDiagnostics(
+			model.Components(),
+			applicationTarget,
+		)...,
+	)
+	diagnostics = append(
+		diagnostics,
+		scheduledMethodDiagnostics(model, applicationTarget)...,
+	)
+	diagnostics = append(
+		diagnostics,
+		reservedConfigurationDiagnostics(model, applicationTarget)...,
+	)
+	sortDiagnostics(diagnostics)
+	return diagnostics
+}
+
+func generatedImportCycleDiagnostics(
+	packages []load.Package,
+	applicationTarget application.Target,
+	target Target,
+) []Diagnostic {
+	if target.Layout != LayoutGeneratedPackage {
+		return nil
+	}
+	sourcePackage, ok := packageByPath(
+		packages,
+		applicationTarget.PackagePath,
+	)
+	if !ok || sourcePackage.Types == nil {
+		return nil
+	}
+	var diagnostics []Diagnostic
+	for _, imported := range sourcePackage.Types.Imports() {
+		if imported.Path() != target.PackagePath {
+			continue
+		}
+		diagnostics = append(diagnostics, targetDiagnostic(
+			applicationTarget,
+			"import-cycle",
+			fmt.Sprintf(
+				"application package %s imports generated package %s; generated output must be imported only by an outer command package",
+				sourcePackage.Path,
+				target.PackagePath,
+			),
+		))
+	}
+	return diagnostics
+}
+
+func providerVisibilityDiagnostics(
+	packages []load.Package,
+	providers []provider.Provider,
+	applicationTarget application.Target,
+	target Target,
+) []Diagnostic {
 	packageNames := make(map[string]string, len(packages))
 	for _, pkg := range packages {
 		packageNames[pkg.Path] = pkg.Name
 	}
-	for _, item := range model.Providers() {
+	var diagnostics []Diagnostic
+	for _, item := range providers {
 		switch {
 		case item.PackagePath == target.PackagePath:
 			diagnostics = append(diagnostics, providerRenderDiagnostic(
@@ -2429,7 +2565,15 @@ func validateRenderable(
 			))
 		}
 	}
-	for _, component := range model.Components() {
+	return diagnostics
+}
+
+func lifecycleVisibilityDiagnostics(
+	components []compilerlifecycle.Component,
+	applicationTarget application.Target,
+) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, component := range components {
 		methods := []load.Symbol{component.Start.Method}
 		if component.Stop != nil {
 			methods = append(methods, component.Stop.Method)
@@ -2450,15 +2594,6 @@ func validateRenderable(
 			})
 		}
 	}
-	diagnostics = append(
-		diagnostics,
-		scheduledMethodDiagnostics(model, applicationTarget)...,
-	)
-	diagnostics = append(
-		diagnostics,
-		reservedConfigurationDiagnostics(model, applicationTarget)...,
-	)
-	sortDiagnostics(diagnostics)
 	return diagnostics
 }
 
@@ -2479,6 +2614,49 @@ func scheduledMethodDiagnostics(
 			Message: fmt.Sprintf(
 				"scheduled method %s is unexported; target-scoped generated packages require exported scheduled methods",
 				job.MethodID,
+			),
+		})
+	}
+	return diagnostics
+}
+
+func generatedPackageCollisionDiagnostics(
+	program *load.Program,
+	applicationTarget application.Target,
+) []Diagnostic {
+	reserved := map[string]struct{}{
+		"Application":               {},
+		"ApplicationOptions":        {},
+		"CommandOptions":            {},
+		"ConfigurationSchema":       {},
+		"ExitFailure":               {},
+		"ExitSuccess":               {},
+		"ExitUsage":                 {},
+		"NewApplication":            {},
+		"NewApplicationWithOptions": {},
+		"RunCommand":                {},
+		"ShutdownContextFactory":    {},
+		"TargetID":                  {},
+		"spiceMain":                 {},
+	}
+	var diagnostics []Diagnostic
+	for _, symbol := range program.PrimarySymbols() {
+		if symbol.PackagePath != applicationTarget.PackagePath ||
+			symbol.Receiver != "" {
+			continue
+		}
+		if _, collision := reserved[symbol.Name]; !collision {
+			continue
+		}
+		diagnostics = append(diagnostics, Diagnostic{
+			Position:         symbol.Position,
+			PhysicalPosition: symbol.PhysicalPosition,
+			TargetID:         applicationTarget.SymbolID,
+			Kind:             "generated-name-collision",
+			Message: fmt.Sprintf(
+				"package-main declaration %s collides with Spice generated application API name %q",
+				symbol.ID,
+				symbol.Name,
 			),
 		})
 	}
@@ -3060,6 +3238,7 @@ func contentHash(content []byte) string {
 func summarizeTarget(target Target) TargetSummary {
 	return TargetSummary{
 		ID:           target.ID,
+		Layout:       target.Layout,
 		ModulePath:   target.ModulePath,
 		PackagePath:  target.PackagePath,
 		OutputDir:    target.OutputDir,

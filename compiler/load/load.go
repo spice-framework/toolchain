@@ -21,6 +21,10 @@ type Options struct {
 	BuildFlags        []string
 	Overlay           map[string][]byte
 	AuxiliaryPackages []string
+	// AllowGeneratedMainBridge permits only the unresolved spiceMain call in
+	// an annotated package-main func main while generated files are excluded
+	// for safe regeneration. All other package errors remain fatal.
+	AllowGeneratedMainBridge bool
 	// Tests is reserved for a future test-package model. The bootstrap loader
 	// rejects true because go/packages test variants can duplicate logical
 	// package and symbol identities.
@@ -59,7 +63,12 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		return nil, err
 	}
 
-	program := programFromRoots(roots, loadErr, auxiliary)
+	program := programFromRoots(
+		roots,
+		loadErr,
+		auxiliary,
+		options.AllowGeneratedMainBridge,
+	)
 	if len(program.diagnostics) > 0 || loadErr != nil {
 		return program, &LoadError{Diagnostics: program.Diagnostics()}
 	}
@@ -122,6 +131,7 @@ func programFromRoots(
 	roots []*packages.Package,
 	loadErr error,
 	auxiliaryPackages []string,
+	allowGeneratedMainBridge bool,
 ) *Program {
 	program := &Program{}
 	if loadErr != nil {
@@ -139,11 +149,12 @@ func programFromRoots(
 		if root == nil {
 			continue
 		}
-		record := packageRecord(root)
-		_, record.Auxiliary = auxiliary[record.Path]
-		program.packages = append(program.packages, record)
-		program.symbols = append(program.symbols, packageSymbols(root)...)
-		program.diagnostics = append(program.diagnostics, packageDiagnostics(root)...)
+		appendLoadedRoot(
+			program,
+			root,
+			auxiliary,
+			allowGeneratedMainBridge,
+		)
 	}
 
 	sort.SliceStable(program.packages, func(i, j int) bool {
@@ -173,6 +184,33 @@ func programFromRoots(
 	})
 	sortDiagnostics(program.diagnostics)
 	return program
+}
+
+func appendLoadedRoot(
+	program *Program,
+	root *packages.Package,
+	auxiliary map[string]struct{},
+	allowGeneratedMainBridge bool,
+) {
+	packageErrors := root.Errors
+	if allowGeneratedMainBridge {
+		packageErrors = filterGeneratedMainBridgeErrors(root, packageErrors)
+	}
+	illTyped := root.IllTyped || len(packageErrors) != 0
+	if allowGeneratedMainBridge &&
+		root.IllTyped &&
+		len(root.Errors) != 0 &&
+		len(packageErrors) == 0 {
+		illTyped = false
+	}
+	record := packageRecord(root, illTyped)
+	_, record.Auxiliary = auxiliary[record.Path]
+	program.packages = append(program.packages, record)
+	program.symbols = append(program.symbols, packageSymbols(root)...)
+	program.diagnostics = append(
+		program.diagnostics,
+		packageDiagnostics(packageErrors, root.PkgPath)...,
+	)
 }
 
 func cloneOverlay(overlay map[string][]byte) map[string][]byte {
@@ -237,7 +275,7 @@ func sourcePosition(root *packages.Package, position token.Pos, sourceFiles map[
 	return ok
 }
 
-func packageRecord(root *packages.Package) Package {
+func packageRecord(root *packages.Package, illTyped bool) Package {
 	files := sourceFileRecords(root)
 	compiledGoFiles := make([]string, len(files))
 	syntax := make([]*ast.File, len(files))
@@ -265,7 +303,7 @@ func packageRecord(root *packages.Package) Package {
 		ModulePath:      modulePath,
 		Files:           files,
 		CompiledGoFiles: compiledGoFiles,
-		IllTyped:        root.IllTyped || len(root.Errors) > 0,
+		IllTyped:        illTyped,
 		Types:           root.Types,
 		TypesInfo:       root.TypesInfo,
 		Syntax:          syntax,
@@ -311,12 +349,15 @@ func sourceFileRecords(root *packages.Package) []SourceFile {
 	return result
 }
 
-func packageDiagnostics(root *packages.Package) []Diagnostic {
-	diagnostics := make([]Diagnostic, 0, len(root.Errors))
-	for _, packageError := range root.Errors {
+func packageDiagnostics(
+	packageErrors []packages.Error,
+	packagePath string,
+) []Diagnostic {
+	diagnostics := make([]Diagnostic, 0, len(packageErrors))
+	for _, packageError := range packageErrors {
 		position, filename, line, column := normalizeDiagnosticPosition(packageError.Pos)
 		diagnostics = append(diagnostics, Diagnostic{
-			PackagePath: root.PkgPath,
+			PackagePath: packagePath,
 			Position:    position,
 			Filename:    filename,
 			Line:        line,
@@ -326,6 +367,160 @@ func packageDiagnostics(root *packages.Package) []Diagnostic {
 		})
 	}
 	return diagnostics
+}
+
+func filterGeneratedMainBridgeErrors(
+	root *packages.Package,
+	packageErrors []packages.Error,
+) []packages.Error {
+	positions := generatedMainBridgePositions(root)
+	if len(positions) == 0 {
+		return packageErrors
+	}
+	result := make([]packages.Error, 0, len(packageErrors))
+	for _, packageError := range packageErrors {
+		if generatedMainBridgeError(packageError, positions) {
+			continue
+		}
+		result = append(result, packageError)
+	}
+	return result
+}
+
+func generatedMainBridgePositions(root *packages.Package) map[string]struct{} {
+	result := make(map[string]struct{})
+	if root == nil || root.Name != "main" || root.Fset == nil {
+		return result
+	}
+	for _, file := range root.Syntax {
+		for _, function := range annotatedMainFunctions(file) {
+			addGeneratedMainBridgePositions(result, root, function)
+		}
+	}
+	return result
+}
+
+func annotatedMainFunctions(file *ast.File) []*ast.FuncDecl {
+	if file == nil || file.Name == nil || file.Name.Name != "main" {
+		return nil
+	}
+	var result []*ast.FuncDecl
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok ||
+			function.Recv != nil ||
+			function.Name == nil ||
+			function.Name.Name != "main" ||
+			function.Body == nil ||
+			!hasApplicationMarker(function.Doc) {
+			continue
+		}
+		result = append(result, function)
+	}
+	return result
+}
+
+func addGeneratedMainBridgePositions(
+	positions map[string]struct{},
+	root *packages.Package,
+	function *ast.FuncDecl,
+) {
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
+		if !ok || identifier.Name != "spiceMain" {
+			return true
+		}
+		for _, adjusted := range []bool{true, false} {
+			position := root.Fset.PositionFor(identifier.Pos(), adjusted)
+			addDiagnosticPosition(positions, position, root)
+		}
+		return true
+	})
+}
+
+func addDiagnosticPosition(
+	positions map[string]struct{},
+	position token.Position,
+	root *packages.Package,
+) {
+	positions[diagnosticPositionKey(
+		position.Filename,
+		position.Line,
+		position.Column,
+	)] = struct{}{}
+	for _, directory := range []string{
+		root.Dir,
+		moduleDirectory(root),
+	} {
+		if directory == "" {
+			continue
+		}
+		relative, err := filepath.Rel(directory, position.Filename)
+		if err != nil || !filepath.IsLocal(relative) {
+			continue
+		}
+		positions[diagnosticPositionKey(
+			relative,
+			position.Line,
+			position.Column,
+		)] = struct{}{}
+	}
+}
+
+func moduleDirectory(root *packages.Package) string {
+	if root == nil || root.Module == nil {
+		return ""
+	}
+	return root.Module.Dir
+}
+
+func hasApplicationMarker(comments *ast.CommentGroup) bool {
+	if comments == nil {
+		return false
+	}
+	for _, comment := range comments.List {
+		value := strings.TrimSpace(comment.Text)
+		value = strings.TrimSpace(strings.TrimPrefix(value, "//"))
+		if value == "@Application" {
+			return true
+		}
+	}
+	return false
+}
+
+func generatedMainBridgeError(
+	packageError packages.Error,
+	positions map[string]struct{},
+) bool {
+	position := packageError.Pos
+	message := strings.TrimSpace(packageError.Msg)
+	switch packageError.Kind {
+	case packages.TypeError:
+		if message != "undefined: spiceMain" {
+			return false
+		}
+	case packages.ListError:
+		lines := strings.Split(message, "\n")
+		if len(lines) != 2 ||
+			!strings.HasPrefix(strings.TrimSpace(lines[0]), "# ") {
+			return false
+		}
+		const suffix = ": undefined: spiceMain"
+		line := strings.TrimSpace(lines[1])
+		if !strings.HasSuffix(line, suffix) {
+			return false
+		}
+		position = strings.TrimSuffix(line, suffix)
+	case packages.UnknownError, packages.ParseError:
+		return false
+	}
+	_, filename, line, column := normalizeDiagnosticPosition(position)
+	_, ok := positions[diagnosticPositionKey(filename, line, column)]
+	return ok
+}
+
+func diagnosticPositionKey(filename string, line, column int) string {
+	return filepath.Clean(filename) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 func normalizeDiagnosticPosition(raw string) (position, filename string, line, column int) {

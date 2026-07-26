@@ -406,38 +406,69 @@ func inspectUnexpectedGenerated(root *os.Root, plan generate.Plan, state *inspec
 	if !info.IsDir() {
 		return fmt.Errorf("generated output directory %q is not a directory", outputDir)
 	}
+	if plan.Target().Layout == generate.LayoutApplicationPackage {
+		entries, readErr := fs.ReadDir(root.FS(), outputDir)
+		if readErr != nil {
+			return fmt.Errorf(
+				"read generated application package %q: %w",
+				outputDir,
+				readErr,
+			)
+		}
+		for _, entry := range entries {
+			filePath := path.Join(outputDir, entry.Name())
+			if err := inspectUnexpectedGeneratedEntry(
+				root,
+				filePath,
+				entry,
+				state,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	return fs.WalkDir(root.FS(), outputDir, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("generated output path %q is a symbolic link", filePath)
-		}
-		if entry.IsDir() || path.Ext(filePath) != ".go" {
-			return nil
-		}
-		if _, expected := state.expected[filePath]; expected {
-			return nil
-		}
-		if _, owned := state.owned[filePath]; owned {
-			return nil
-		}
-		content, err := fs.ReadFile(root.FS(), filePath)
-		if err != nil {
-			return err
-		}
-		if !hasGeneratedMarker(content) {
-			return nil
-		}
-		state.current[filePath] = content
-		state.status.Differences = append(state.status.Differences, Difference{
-			Kind:          DifferenceUnexpectedGenerated,
-			Path:          filePath,
-			CurrentSHA256: hashContent(content),
-			Message:       "generated marker exists without manifest ownership",
-		})
-		return nil
+		return inspectUnexpectedGeneratedEntry(root, filePath, entry, state)
 	})
+}
+
+func inspectUnexpectedGeneratedEntry(
+	root *os.Root,
+	filePath string,
+	entry fs.DirEntry,
+	state *inspection,
+) error {
+	if entry.Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("generated output path %q is a symbolic link", filePath)
+	}
+	if entry.IsDir() || path.Ext(filePath) != ".go" {
+		return nil
+	}
+	if _, expected := state.expected[filePath]; expected {
+		return nil
+	}
+	if _, owned := state.owned[filePath]; owned {
+		return nil
+	}
+	content, err := fs.ReadFile(root.FS(), filePath)
+	if err != nil {
+		return err
+	}
+	if !hasGeneratedMarker(content) {
+		return nil
+	}
+	state.current[filePath] = content
+	state.status.Differences = append(state.status.Differences, Difference{
+		Kind:          DifferenceUnexpectedGenerated,
+		Path:          filePath,
+		CurrentSHA256: hashContent(content),
+		Message:       "generated marker exists without manifest ownership",
+	})
+	return nil
 }
 
 func decodeManifest(content []byte, plan generate.Plan) (generate.Manifest, error) {
@@ -445,26 +476,39 @@ func decodeManifest(content []byte, plan generate.Plan) (generate.Manifest, erro
 	if err := json.Unmarshal(content, &manifest); err != nil {
 		return generate.Manifest{}, fmt.Errorf("decode ownership manifest: %w", err)
 	}
-	if manifest.Schema != generate.SchemaVersion {
+	switch manifest.Schema {
+	case generate.SchemaVersion:
+		if manifest.Target != plan.Manifest().Target {
+			return generate.Manifest{}, errors.New(
+				"ownership manifest target does not match the selected generation target",
+			)
+		}
+	case 1:
+		if !compatibleLegacyTarget(manifest.Target, plan.Target()) {
+			return generate.Manifest{}, errors.New(
+				"legacy ownership manifest target does not match the selected generation target",
+			)
+		}
+		manifest.Target.Layout = generate.LayoutGeneratedPackage
+	default:
 		return generate.Manifest{}, fmt.Errorf(
 			"ownership manifest schema %d is unsupported; expected %d",
 			manifest.Schema,
 			generate.SchemaVersion,
 		)
 	}
-	if manifest.Target != plan.Manifest().Target {
-		return generate.Manifest{}, errors.New("ownership manifest target does not match the selected generation target")
-	}
+	ownedTarget := manifestTarget(manifest, plan.Target())
 	seen := make(map[string]struct{}, len(manifest.Files))
 	for _, file := range manifest.Files {
 		if err := validateRelativePath(file.Path); err != nil {
 			return generate.Manifest{}, fmt.Errorf("ownership manifest path %q: %w", file.Path, err)
 		}
-		if !withinOutput(file.Path, plan.Target().OutputDir) || !supportedGeneratedExtension(file.Path) {
+		if !withinTargetOutput(ownedTarget, file.Path) ||
+			!supportedGeneratedExtension(file.Path) {
 			return generate.Manifest{}, fmt.Errorf(
 				"ownership manifest path %q is outside target output %q",
 				file.Path,
-				plan.Target().OutputDir,
+				ownedTarget.OutputDir,
 			)
 		}
 		if !validHash(file.SHA256) {
@@ -476,6 +520,47 @@ func decodeManifest(content []byte, plan generate.Plan) (generate.Manifest, erro
 		seen[strings.ToLower(file.Path)] = struct{}{}
 	}
 	return manifest, nil
+}
+
+func compatibleLegacyTarget(
+	legacy generate.TargetSummary,
+	selected generate.Target,
+) bool {
+	if legacy.Layout != "" ||
+		legacy.ID != selected.ID ||
+		legacy.ModulePath != selected.ModulePath ||
+		legacy.ManifestPath != selected.ManifestPath {
+		return false
+	}
+	switch selected.Layout {
+	case generate.LayoutGeneratedPackage:
+		return legacy.PackagePath == selected.PackagePath &&
+			legacy.OutputDir == selected.OutputDir
+	case generate.LayoutApplicationPackage:
+		output := path.Join("internal", "spicegen", selected.ID)
+		return legacy.OutputDir == output &&
+			legacy.PackagePath == path.Join(selected.ModulePath, output)
+	default:
+		return false
+	}
+}
+
+func manifestTarget(
+	manifest generate.Manifest,
+	selected generate.Target,
+) generate.Target {
+	if manifest.Schema != 1 {
+		return selected
+	}
+	return generate.Target{
+		ID:           manifest.Target.ID,
+		Layout:       generate.LayoutGeneratedPackage,
+		ModulePath:   manifest.Target.ModulePath,
+		ModuleRoot:   selected.ModuleRoot,
+		PackagePath:  manifest.Target.PackagePath,
+		OutputDir:    manifest.Target.OutputDir,
+		ManifestPath: manifest.Target.ManifestPath,
+	}
 }
 
 func validatePlan(plan generate.Plan) error {
@@ -494,13 +579,27 @@ func validatePlan(plan generate.Plan) error {
 }
 
 func validatePlanTarget(target generate.Target) error {
-	if err := validateRelativePath(target.OutputDir); err != nil {
+	switch target.Layout {
+	case generate.LayoutGeneratedPackage, generate.LayoutApplicationPackage:
+	default:
+		return fmt.Errorf(
+			"generation target layout %q is unsupported",
+			target.Layout,
+		)
+	}
+	if target.OutputDir == "." {
+		if target.Layout != generate.LayoutApplicationPackage {
+			return errors.New(
+				"generation output directory may be the module root only for an application-package target",
+			)
+		}
+	} else if err := validateRelativePath(target.OutputDir); err != nil {
 		return fmt.Errorf("generation output directory: %w", err)
 	}
 	if err := validateRelativePath(target.ManifestPath); err != nil {
 		return fmt.Errorf("generation manifest path: %w", err)
 	}
-	if withinOutput(target.ManifestPath, target.OutputDir) {
+	if withinTargetOutput(target, target.ManifestPath) {
 		return errors.New("generation manifest must be outside the generated package directory")
 	}
 	return nil
@@ -530,7 +629,7 @@ func validatePlanFiles(plan generate.Plan, target generate.Target, manifest gene
 		if err := validateRelativePath(file.Path); err != nil {
 			return fmt.Errorf("generated file %q: %w", file.Path, err)
 		}
-		if !withinOutput(file.Path, target.OutputDir) {
+		if !withinTargetOutput(target, file.Path) {
 			return fmt.Errorf("generated file %q is outside output directory %q", file.Path, target.OutputDir)
 		}
 		key := strings.ToLower(file.Path)
@@ -972,8 +1071,13 @@ func nonNilLines(lines []string) []string {
 	return lines
 }
 
-func withinOutput(filePath, outputDir string) bool {
-	return filePath != outputDir && strings.HasPrefix(filePath, outputDir+"/")
+func withinTargetOutput(target generate.Target, filePath string) bool {
+	if target.Layout == generate.LayoutApplicationPackage {
+		return path.Dir(filePath) == target.OutputDir ||
+			(target.OutputDir == "." && path.Dir(filePath) == ".")
+	}
+	return filePath != target.OutputDir &&
+		strings.HasPrefix(filePath, target.OutputDir+"/")
 }
 
 func hasGeneratedMarker(content []byte) bool {

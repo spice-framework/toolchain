@@ -11,7 +11,35 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
+
+func FuzzGeneratedMainBridgeError(f *testing.F) {
+	const position = "main.go:7:10"
+	positions := map[string]struct{}{
+		diagnosticPositionKey("main.go", 7, 10): {},
+	}
+	f.Add(int(packages.TypeError), position, "undefined: spiceMain")
+	f.Add(
+		int(packages.ListError),
+		"",
+		"# example.com/app\nmain.go:7:10: undefined: spiceMain",
+	)
+	f.Add(int(packages.ParseError), position, "undefined: spiceMain")
+
+	f.Fuzz(func(t *testing.T, rawKind int, rawPosition, message string) {
+		kind := packages.ErrorKind(rawKind)
+		if kind < packages.UnknownError || kind > packages.TypeError {
+			kind = packages.UnknownError
+		}
+		_ = generatedMainBridgeError(packages.Error{
+			Pos:  rawPosition,
+			Msg:  message,
+			Kind: kind,
+		}, positions)
+	})
+}
 
 func TestLoadMultiPackageProgram(t *testing.T) {
 	dir := writeModule(t, map[string]string{
@@ -308,6 +336,97 @@ func TestLoadOverlay(t *testing.T) {
 	}
 	if symbolByID(program.Symbols(), "example.com/overlay/app.Original") != nil {
 		t.Fatalf("original declaration survived overlay: %v", symbolIDs(program.Symbols()))
+	}
+}
+
+func TestLoadAllowsOnlyAnnotatedGeneratedMainBridge(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/bridge\n\ngo 1.26.0\n",
+		"cmd/shop/main.go": `package main
+
+import "os"
+
+// @Application
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`,
+		"feature/feature.go": "package feature\n\nvar Loaded = true\n",
+	})
+	program, err := Load(context.Background(), Options{
+		Dir:                      dir,
+		AllowGeneratedMainBridge: true,
+	}, "./...")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if diagnostics := program.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Diagnostics() = %#v", diagnostics)
+	}
+	if symbolByID(program.Symbols(), "example.com/bridge/cmd/shop.main") == nil ||
+		symbolByID(program.Symbols(), "example.com/bridge/feature.Loaded") == nil {
+		t.Fatalf("Symbols() = %v", symbolIDs(program.Symbols()))
+	}
+	for _, pkg := range program.Packages() {
+		if pkg.IllTyped {
+			t.Fatalf("package %s remained ill typed", pkg.Path)
+		}
+	}
+}
+
+func TestLoadDoesNotBroadenGeneratedMainBridgeException(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "unannotated",
+			source: `package main
+
+func main() {
+	_ = spiceMain(nil)
+}
+`,
+		},
+		{
+			name: "different undefined identifier",
+			source: `package main
+
+// @Application
+func main() {
+	_ = spiceMain(nil)
+	_ = missing
+}
+`,
+		},
+		{
+			name: "outside marker body",
+			source: `package main
+
+var value = spiceMain(nil)
+
+// @Application
+func main() {}
+`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := writeModule(t, map[string]string{
+				"go.mod":  "module example.com/rejected\n\ngo 1.26.0\n",
+				"main.go": test.source,
+			})
+			program, err := Load(context.Background(), Options{
+				Dir:                      dir,
+				AllowGeneratedMainBridge: true,
+			}, ".")
+			if err == nil {
+				t.Fatal("Load() error = nil")
+			}
+			if len(program.Diagnostics()) == 0 {
+				t.Fatal("Load() returned no diagnostics")
+			}
+		})
 	}
 }
 
