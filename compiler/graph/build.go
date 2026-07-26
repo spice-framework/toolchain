@@ -146,6 +146,8 @@ func providerRole(item *provider.Provider) string {
 		return "starter entrypoint"
 	case provider.SourceConfiguration:
 		return "configuration provider"
+	case provider.SourceEvent:
+		return "event topic provider"
 	}
 	return "provider"
 }

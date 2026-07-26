@@ -13,6 +13,7 @@ import (
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
+	compilerevent "github.com/StevenBuglione/spice/compiler/event"
 	"github.com/StevenBuglione/spice/compiler/graph"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
@@ -41,6 +42,8 @@ const (
 	StageSchedule Stage = "schedule"
 	// StageTransaction identifies generated transaction-boundary validation.
 	StageTransaction Stage = "transaction"
+	// StageEvent identifies typed event topic and listener validation.
+	StageEvent Stage = "event"
 	// StageModule identifies application-module architecture validation.
 	StageModule Stage = "module"
 	// StageConfiguration identifies typed configuration validation.
@@ -119,6 +122,7 @@ type Model struct {
 	edges        []graph.Edge
 	components   []lifecycle.Component
 	jobs         []compilerschedule.Job
+	events       []compilerevent.Topic
 	transactions []compilertransaction.Boundary
 	configTypes  []configuration.Type
 	controllers  []controller.Controller
@@ -164,6 +168,11 @@ func (m Model) Components() []lifecycle.Component {
 // identity order.
 func (m Model) Jobs() []compilerschedule.Job {
 	return append([]compilerschedule.Job(nil), m.jobs...)
+}
+
+// Events returns generated typed event topics in stable marker identity order.
+func (m Model) Events() []compilerevent.Topic {
+	return append([]compilerevent.Topic(nil), m.events...)
 }
 
 // Transactions returns immutable generated transaction boundaries in stable
@@ -261,22 +270,16 @@ func BuildWithOptions(
 	}
 	model.configTypes = configurationCatalog.Types()
 
-	providerCatalog := provider.Build(program, resolution)
-	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
-		model.diagnostics = providerDiagnostics(diagnostics)
-		return model
-	}
-	providerCatalog = provider.Add(providerCatalog, configurationProviders(model.configTypes)...)
-	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
-		model.diagnostics = providerDiagnostics(diagnostics)
-		return model
-	}
-	catalogs := make([]provider.Catalog, 1, 1+len(options.ProviderCatalogs))
-	catalogs[0] = providerCatalog
-	catalogs = append(catalogs, options.ProviderCatalogs...)
-	providerCatalog = provider.Merge(catalogs...)
-	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
-		model.diagnostics = providerDiagnostics(diagnostics)
+	providerCatalog, events, providerModelDiagnostics := buildProviderMetadata(
+		program,
+		resolution,
+		model.configTypes,
+		model.moduleModel,
+		options.ProviderCatalogs,
+	)
+	model.events = events
+	model.diagnostics = providerModelDiagnostics
+	if len(model.diagnostics) != 0 {
 		return model
 	}
 
@@ -342,6 +345,50 @@ func BuildWithOptions(
 		model.edges,
 	)
 	return model
+}
+
+func buildProviderMetadata(
+	program *load.Program,
+	resolution resolve.Result,
+	configurations []configuration.Type,
+	modules modulith.Model,
+	extensions []provider.Catalog,
+) (provider.Catalog, []compilerevent.Topic, []Diagnostic) {
+	providerCatalog := provider.Build(program, resolution)
+	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return provider.Catalog{}, nil, providerDiagnostics(diagnostics)
+	}
+	providerCatalog = provider.Add(
+		providerCatalog,
+		configurationProviders(configurations)...,
+	)
+	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return provider.Catalog{}, nil, providerDiagnostics(diagnostics)
+	}
+	catalogs := make([]provider.Catalog, 1, 1+len(extensions))
+	catalogs[0] = providerCatalog
+	catalogs = append(catalogs, extensions...)
+	providerCatalog = provider.Merge(catalogs...)
+	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return provider.Catalog{}, nil, providerDiagnostics(diagnostics)
+	}
+	eventCatalog := compilerevent.Build(
+		program,
+		resolution,
+		providerCatalog,
+		modules,
+	)
+	if diagnostics := eventCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return provider.Catalog{}, nil, eventDiagnostics(diagnostics)
+	}
+	providerCatalog = provider.Add(
+		providerCatalog,
+		eventCatalog.Providers()...,
+	)
+	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return provider.Catalog{}, nil, providerDiagnostics(diagnostics)
+	}
+	return providerCatalog, eventCatalog.Topics(), nil
 }
 
 func buildHTTPMetadata(
@@ -1040,6 +1087,24 @@ func transactionDiagnostics(
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.RouteID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func eventDiagnostics(
+	diagnostics []compilerevent.Diagnostic,
+) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageEvent,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.SymbolID,
 			Kind:             diagnostic.Kind,
 			Message:          diagnostic.Message,
 		}

@@ -41,6 +41,8 @@ const (
 	SourceBean Source = "bean"
 	// SourceConfiguration identifies a generated typed configuration binder.
 	SourceConfiguration Source = "configuration"
+	// SourceEvent identifies a generated typed event topic marker.
+	SourceEvent Source = "event"
 	// SourceStarter identifies an explicitly selected starter entrypoint.
 	SourceStarter Source = "starter"
 )

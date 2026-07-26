@@ -460,6 +460,11 @@ func writeProviders(
 				return fmt.Errorf("configuration provider %s has no typed configuration metadata", item.SymbolID)
 			}
 			writeConfigurationBinder(source, configType, index, aliases)
+		case provider.SourceEvent:
+			return fmt.Errorf(
+				"event provider %s requires generated topic support",
+				item.SymbolID,
+			)
 		default:
 			return fmt.Errorf("provider %s has unsupported source %q", item.SymbolID, item.Source)
 		}
