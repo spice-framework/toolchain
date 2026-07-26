@@ -1,10 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 )
 
@@ -173,6 +178,217 @@ func TestParseModuleArgumentsRejectsInvalidOptions(t *testing.T) {
 	)
 	if code != 1 || stdout != "" || !strings.Contains(stderr, "focus module") {
 		t.Fatalf("unknown focus code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestRunModuleTestSelectsFocusedDependencyPackages(t *testing.T) {
+	t.Parallel()
+	root := writeModule(t, map[string]string{
+		"inventory/package.go": `// Package inventory owns inventory.
+//
+// @Module
+package inventory
+
+type Store struct{}
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/fixture/inventory"])
+package orders
+`,
+		"orders/use/use.go": `package use
+
+import "example.com/fixture/inventory"
+
+var Store inventory.Store
+`,
+		"payments/package.go": `// Package payments is unrelated to the focused graph.
+//
+// @Module
+package payments
+`,
+		"unassigned/helper.go": `package unassigned
+`,
+	})
+	var directory string
+	var arguments []string
+	tester := func(
+		ctx context.Context,
+		gotDirectory string,
+		gotArguments []string,
+		stdout io.Writer,
+		_ io.Writer,
+	) error {
+		if ctx == nil {
+			t.Fatal("test context is nil")
+		}
+		directory = gotDirectory
+		arguments = append([]string(nil), gotArguments...)
+		if _, err := io.WriteString(stdout, "ordinary go test output\n"); err != nil {
+			return err
+		}
+		return nil
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := runWithExecutors(
+		[]string{
+			"test",
+			"--module=example.com/fixture/orders",
+			"--race",
+			"--count=2",
+			"--run=Order",
+			"--timeout=3s",
+			"./...",
+		},
+		&stdout,
+		&stderr,
+		load.Options{Dir: root},
+		load.Load,
+		executeGoBuild,
+		tester,
+	)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if directory != root {
+		t.Fatalf("test directory = %q, want %q", directory, root)
+	}
+	wantArguments := []string{
+		"-trimpath",
+		"-race",
+		"-count=2",
+		"-run=Order",
+		"-timeout=3s",
+		"example.com/fixture/inventory",
+		"example.com/fixture/orders",
+		"example.com/fixture/orders/use",
+	}
+	if !slices.Equal(arguments, wantArguments) {
+		t.Fatalf("test arguments = %#v, want %#v", arguments, wantArguments)
+	}
+	for _, expected := range []string{
+		"ordinary go test output",
+		"Spice module tests passed for example.com/fixture/orders: 3 package(s) across 2 module(s).",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("stdout=%q missing %q", stdout.String(), expected)
+		}
+	}
+}
+
+func TestRunModuleTestReportsExecutorFailure(t *testing.T) {
+	t.Parallel()
+	root := moduleDocumentationFixture(t)
+	sentinel := errors.New("test executor failed")
+	tester := func(context.Context, string, []string, io.Writer, io.Writer) error {
+		return sentinel
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := runWithExecutors(
+		[]string{"test", "--module=example.com/fixture/orders", "./..."},
+		&stdout,
+		&stderr,
+		load.Options{Dir: root},
+		load.Load,
+		executeGoBuild,
+		tester,
+	)
+	if code != 1 ||
+		stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), sentinel.Error()) ||
+		!strings.Contains(stderr.String(), "Spice module test failed") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunModuleTestRejectsArchitectureBeforeExecution(t *testing.T) {
+	t.Parallel()
+	root := writeModule(t, map[string]string{
+		"inventory/package.go": `// Package inventory owns inventory.
+//
+// @Module
+package inventory
+`,
+		"inventory/storage/storage.go": `package storage
+
+type Store struct{}
+`,
+		"orders/package.go": `// Package orders owns orders.
+//
+// @Module(allowedDependencies=["example.com/fixture/inventory"])
+package orders
+`,
+		"orders/use/use.go": `package use
+
+import "example.com/fixture/inventory/storage"
+
+var Store storage.Store
+`,
+	})
+	called := false
+	tester := func(context.Context, string, []string, io.Writer, io.Writer) error {
+		called = true
+		return nil
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := runWithExecutors(
+		[]string{"test", "--module=example.com/fixture/orders", "./..."},
+		&stdout,
+		&stderr,
+		load.Options{Dir: root},
+		load.Load,
+		executeGoBuild,
+		tester,
+	)
+	if code != 1 ||
+		called ||
+		stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "imports internal package") ||
+		!strings.Contains(stderr.String(), "module architecture error(s)") {
+		t.Fatalf(
+			"code=%d called=%t stdout=%q stderr=%q",
+			code,
+			called,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+}
+
+func TestParseModuleTestArgumentsRejectsInvalidOptions(t *testing.T) {
+	t.Parallel()
+	tests := [][]string{
+		nil,
+		{"--module"},
+		{"--module="},
+		{"--module=one", "--module=two"},
+		{"--race", "--race", "--module=one"},
+		{"--count=0", "--module=one"},
+		{"--count=no", "--module=one"},
+		{"--run=", "--module=one"},
+		{"--timeout=0s", "--module=one"},
+		{"--timeout=forever", "--module=one"},
+		{"--unknown", "--module=one"},
+	}
+	for _, arguments := range tests {
+		if _, err := parseModuleTestArguments(arguments); err == nil {
+			t.Fatalf("parseModuleTestArguments(%v) error = nil", arguments)
+		}
+	}
+	parsed, err := parseModuleTestArguments([]string{
+		"--module",
+		"example.com/fixture/orders",
+		"./orders/...",
+	})
+	if err != nil {
+		t.Fatalf("parseModuleTestArguments(valid) error = %v", err)
+	}
+	if parsed.module != "example.com/fixture/orders" ||
+		!slices.Equal(parsed.patterns, []string{"./orders/..."}) {
+		t.Fatalf("parseModuleTestArguments(valid) = %#v", parsed)
 	}
 }
 
