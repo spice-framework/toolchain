@@ -244,13 +244,13 @@ func writeStarterSelection(
 	entryPoint string,
 ) {
 	t.Helper()
-	const starterID = "example.com/acme/starter/search"
+	const starterID = "example.com/cli-generation/starter/search"
 	const entryPointPackage = "example.com/cli-generation/searchstarter"
 	manifest, err := publicstarter.New(publicstarter.Spec{
 		Schema:       publicstarter.Schema,
 		ID:           starterID,
 		Version:      version,
-		Module:       "example.com/acme",
+		Module:       "example.com/cli-generation",
 		SpiceAPI:     publicstarter.APIVersion,
 		MinimumGo:    "1.26.0",
 		License:      "Apache-2.0",
@@ -307,9 +307,9 @@ func writeConstructorStarterSelection(t *testing.T, root string) {
 	t.Helper()
 	manifest, err := publicstarter.New(publicstarter.Spec{
 		Schema:       publicstarter.Schema,
-		ID:           "example.com/acme/starter/search",
+		ID:           "example.com/cli-generation/starter/search",
 		Version:      "1.2.0",
-		Module:       "example.com/acme",
+		Module:       "example.com/cli-generation",
 		SpiceAPI:     publicstarter.APIVersion,
 		MinimumGo:    "1.26.0",
 		License:      "Apache-2.0",

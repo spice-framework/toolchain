@@ -172,7 +172,7 @@ func TestCatalogRejectsAmbiguousOrIncompatibleComposition(t *testing.T) {
 	searchAlias := annotatedManifest(t, "example.com/other/starter/search", "1.0.0", "search.Enable", "other.search")
 	capabilityAlias := annotatedManifest(t, "example.com/other/starter/index", "1.0.0", "index.Enable", "search.client")
 	builtinCapability := annotatedManifest(t, "example.com/other/starter/management", "1.0.0", "other.Management", "management")
-	entryPointAliasSpec := constructorManifest(t, "example.com/other/starter/cache").Spec()
+	entryPointAliasSpec := constructorManifest(t, "example.com/acme/starter/cache-other").Spec()
 	entryPointAliasSpec.Activation.EntryPoints = []publicstarter.EntryPoint{{
 		Package: searchID,
 		Symbol:  "New",

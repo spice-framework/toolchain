@@ -24,6 +24,12 @@ type Catalog struct {
 	entryPointPackages   []string
 }
 
+type dependencyContract struct {
+	sourceID string
+	version  string
+	license  string
+}
+
 // New validates manifests against the current Spice API and Go runtime.
 func New(manifests ...publicstarter.Manifest) (Catalog, error) {
 	return NewWithCompatibility(publicstarter.APIVersion, runtime.Version(), manifests...)
@@ -55,6 +61,7 @@ func NewWithCompatibility(
 	capabilitySources := make(map[compilerbootstrap.Capability]string)
 	entryPointSources := make(map[string]string)
 	entryPointPackages := make(map[string]struct{})
+	dependencyContracts := make(map[string]dependencyContract)
 	for _, definition := range compilerbootstrap.Builtins() {
 		capabilitySources[definition.Capability] = "Spice built-in"
 	}
@@ -70,19 +77,15 @@ func NewWithCompatibility(
 			)
 		}
 		manifestIDs[spec.ID] = struct{}{}
-		for _, entryPoint := range spec.Activation.EntryPoints {
-			key := entryPoint.Package + "\x00" + entryPoint.Symbol
-			if source, duplicate := entryPointSources[key]; duplicate {
-				return Catalog{}, fmt.Errorf(
-					"compose starter catalog: entrypoint %s.%s is contributed by both %q and %q",
-					entryPoint.Package,
-					entryPoint.Symbol,
-					source,
-					spec.ID,
-				)
-			}
-			entryPointSources[key] = spec.ID
-			entryPointPackages[entryPoint.Package] = struct{}{}
+		if err := registerEntryPoints(
+			spec,
+			entryPointSources,
+			entryPointPackages,
+		); err != nil {
+			return Catalog{}, err
+		}
+		if err := registerDependencyContracts(spec, dependencyContracts); err != nil {
+			return Catalog{}, err
 		}
 
 		for _, definition := range manifest.Definitions() {
@@ -136,6 +139,59 @@ func NewWithCompatibility(
 	}
 	sort.Strings(result.entryPointPackages)
 	return result, nil
+}
+
+func registerEntryPoints(
+	spec publicstarter.Spec,
+	sources map[string]string,
+	packages map[string]struct{},
+) error {
+	for _, entryPoint := range spec.Activation.EntryPoints {
+		key := entryPoint.Package + "\x00" + entryPoint.Symbol
+		if source, duplicate := sources[key]; duplicate {
+			return fmt.Errorf(
+				"compose starter catalog: entrypoint %s.%s is contributed by both %q and %q",
+				entryPoint.Package,
+				entryPoint.Symbol,
+				source,
+				spec.ID,
+			)
+		}
+		sources[key] = spec.ID
+		packages[entryPoint.Package] = struct{}{}
+	}
+	return nil
+}
+
+func registerDependencyContracts(
+	spec publicstarter.Spec,
+	contracts map[string]dependencyContract,
+) error {
+	for _, dependency := range spec.Dependencies {
+		contract, duplicate := contracts[dependency.Module]
+		if duplicate &&
+			(contract.version != dependency.Version ||
+				contract.license != dependency.License) {
+			return fmt.Errorf(
+				"compose starter catalog: dependency %s has conflicting reviews from %q (%s, %s) and %q (%s, %s)",
+				dependency.Module,
+				contract.sourceID,
+				contract.version,
+				contract.license,
+				spec.ID,
+				dependency.Version,
+				dependency.License,
+			)
+		}
+		if !duplicate {
+			contracts[dependency.Module] = dependencyContract{
+				sourceID: spec.ID,
+				version:  dependency.Version,
+				license:  dependency.License,
+			}
+		}
+	}
+	return nil
 }
 
 // Registry returns base plus every contributed annotation definition. A
