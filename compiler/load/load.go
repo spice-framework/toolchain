@@ -16,10 +16,11 @@ import (
 
 // Options configures one isolated package-loading operation.
 type Options struct {
-	Dir        string
-	Env        []string
-	BuildFlags []string
-	Overlay    map[string][]byte
+	Dir               string
+	Env               []string
+	BuildFlags        []string
+	Overlay           map[string][]byte
+	AuxiliaryPackages []string
 	// Tests is reserved for a future test-package model. The bootstrap loader
 	// rejects true because go/packages test variants can duplicate logical
 	// package and symbol identities.
@@ -51,12 +52,14 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		Tests:      false,
 	}
 
-	roots, loadErr := packages.Load(config, patterns...)
+	auxiliary := normalizedAuxiliaryPackages(options.AuxiliaryPackages)
+	loadPatterns := append(append([]string(nil), patterns...), auxiliary...)
+	roots, loadErr := packages.Load(config, loadPatterns...)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	program := programFromRoots(roots, loadErr)
+	program := programFromRoots(roots, loadErr, auxiliary)
 	if len(program.diagnostics) > 0 || loadErr != nil {
 		return program, &LoadError{Diagnostics: program.Diagnostics()}
 	}
@@ -73,10 +76,53 @@ func requestDiagnostics(options Options, patterns []string) []Diagnostic {
 			Message: "test-variant loading is unsupported; load application packages with Tests disabled",
 		}}
 	}
+	for _, packagePath := range options.AuxiliaryPackages {
+		if !validAuxiliaryPackagePath(packagePath) {
+			return []Diagnostic{{
+				Kind: "configuration",
+				Message: fmt.Sprintf(
+					"auxiliary package %q must be one exact trimmed Go import path",
+					packagePath,
+				),
+			}}
+		}
+	}
 	return nil
 }
 
-func programFromRoots(roots []*packages.Package, loadErr error) *Program {
+func validAuxiliaryPackagePath(packagePath string) bool {
+	return packagePath != "" &&
+		strings.TrimSpace(packagePath) == packagePath &&
+		!strings.HasPrefix(packagePath, ".") &&
+		!strings.HasPrefix(packagePath, "/") &&
+		!strings.Contains(packagePath, "...") &&
+		!strings.ContainsAny(packagePath, "\\ \t\r\n")
+}
+
+func normalizedAuxiliaryPackages(values []string) []string {
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return slicesCompact(result)
+}
+
+func slicesCompact(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	result := values[:1]
+	for _, value := range values[1:] {
+		if value != result[len(result)-1] {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func programFromRoots(
+	roots []*packages.Package,
+	loadErr error,
+	auxiliaryPackages []string,
+) *Program {
 	program := &Program{}
 	if loadErr != nil {
 		program.diagnostics = append(program.diagnostics, Diagnostic{
@@ -85,11 +131,16 @@ func programFromRoots(roots []*packages.Package, loadErr error) *Program {
 		})
 	}
 
+	auxiliary := make(map[string]struct{}, len(auxiliaryPackages))
+	for _, packagePath := range auxiliaryPackages {
+		auxiliary[packagePath] = struct{}{}
+	}
 	for _, root := range roots {
 		if root == nil {
 			continue
 		}
 		record := packageRecord(root)
+		_, record.Auxiliary = auxiliary[record.Path]
 		program.packages = append(program.packages, record)
 		program.symbols = append(program.symbols, packageSymbols(root)...)
 		program.diagnostics = append(program.diagnostics, packageDiagnostics(root)...)

@@ -268,13 +268,14 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 		}}}
 	}
 
-	packages := packageIndex(program.Packages())
+	primaryPackages := program.PrimaryPackages()
+	packages := packageIndex(primaryPackages)
 	model := Model{packageOwner: make(map[string]int)}
 	model.modules, model.diagnostics = discoverModules(resolution.Occurrences, packages)
 	assignPackages(&model, packages)
 	discoverNamedInterfaces(&model, resolution.Occurrences, packages)
 	validateDependencies(&model)
-	discoverImportEdges(&model, program.Packages())
+	discoverImportEdges(&model, primaryPackages)
 	discoverCycles(&model)
 	sortModel(&model)
 	rebuildPackageOwners(&model)

@@ -86,10 +86,10 @@ func Annotations(program *load.Program) Result {
 		return Result{Diagnostics: []Diagnostic{{Kind: "internal", Message: "typed annotation resolution requires a loaded program"}}}
 	}
 
-	index := buildSymbolIndex(program.Symbols())
+	index := buildSymbolIndex(program.PrimarySymbols())
 	result := Result{}
 	seenFiles := make(map[string]struct{})
-	for _, pkg := range program.Packages() {
+	for _, pkg := range program.PrimaryPackages() {
 		resolvePackage(&result, pkg, index, seenFiles)
 	}
 	sortResult(&result)

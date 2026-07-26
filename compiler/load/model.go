@@ -76,12 +76,15 @@ type Symbol struct {
 }
 
 // Package is one root package selected by the standard Go package driver.
+// Auxiliary packages share the Program's type universe but are excluded from
+// primary annotation and application-module discovery.
 type Package struct {
 	ID              string
 	Path            string
 	Name            string
 	Dir             string
 	ModulePath      string
+	Auxiliary       bool
 	Files           []SourceFile
 	CompiledGoFiles []string
 	IllTyped        bool
@@ -105,8 +108,27 @@ func (p *Program) Packages() []Package {
 	if p == nil {
 		return nil
 	}
-	result := make([]Package, len(p.packages))
-	copy(result, p.packages)
+	return clonePackages(p.packages)
+}
+
+// PrimaryPackages returns roots selected for application annotation and module
+// analysis, excluding auxiliary compiler-extension packages.
+func (p *Program) PrimaryPackages() []Package {
+	if p == nil {
+		return nil
+	}
+	result := make([]Package, 0, len(p.packages))
+	for _, pkg := range p.packages {
+		if !pkg.Auxiliary {
+			result = append(result, pkg)
+		}
+	}
+	return clonePackages(result)
+}
+
+func clonePackages(packages []Package) []Package {
+	result := make([]Package, len(packages))
+	copy(result, packages)
 	for i := range result {
 		result[i].Files = append([]SourceFile(nil), result[i].Files...)
 		result[i].CompiledGoFiles = append([]string(nil), result[i].CompiledGoFiles...)
@@ -122,6 +144,26 @@ func (p *Program) Symbols() []Symbol {
 	}
 	result := make([]Symbol, len(p.symbols))
 	copy(result, p.symbols)
+	return result
+}
+
+// PrimarySymbols returns declarations owned by primary application roots.
+func (p *Program) PrimarySymbols() []Symbol {
+	if p == nil {
+		return nil
+	}
+	auxiliary := make(map[string]struct{})
+	for _, pkg := range p.packages {
+		if pkg.Auxiliary {
+			auxiliary[pkg.Path] = struct{}{}
+		}
+	}
+	result := make([]Symbol, 0, len(p.symbols))
+	for _, symbol := range p.symbols {
+		if _, excluded := auxiliary[symbol.PackagePath]; !excluded {
+			result = append(result, symbol)
+		}
+	}
 	return result
 }
 
