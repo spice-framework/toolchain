@@ -11,6 +11,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
+	compilercache "github.com/StevenBuglione/spice/compiler/cache"
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
 	compilerevent "github.com/StevenBuglione/spice/compiler/event"
@@ -50,6 +51,8 @@ const (
 	StageConfiguration Stage = "configuration"
 	// StageController identifies typed HTTP controller validation.
 	StageController Stage = "controller"
+	// StageCache identifies generated HTTP cache-boundary validation.
+	StageCache Stage = "cache"
 	// StageBootstrap identifies application-platform feature validation.
 	StageBootstrap Stage = "bootstrap"
 	// StageApplication identifies application marker and root validation.
@@ -124,6 +127,7 @@ type Model struct {
 	jobs         []compilerschedule.Job
 	events       []compilerevent.Topic
 	transactions []compilertransaction.Boundary
+	caches       []compilercache.Boundary
 	configTypes  []configuration.Type
 	controllers  []controller.Controller
 	targets      []Target
@@ -179,6 +183,12 @@ func (m Model) Events() []compilerevent.Topic {
 // route identity order.
 func (m Model) Transactions() []compilertransaction.Boundary {
 	return append([]compilertransaction.Boundary(nil), m.transactions...)
+}
+
+// Caches returns immutable generated HTTP cache boundaries in stable route
+// identity order.
+func (m Model) Caches() []compilercache.Boundary {
+	return append([]compilercache.Boundary(nil), m.caches...)
 }
 
 // Configurations returns validated typed configuration declarations in stable
@@ -289,7 +299,10 @@ func BuildWithOptions(
 		return model
 	}
 
-	model.controllers, model.transactions, model.diagnostics = buildHTTPMetadata(
+	model.controllers,
+		model.transactions,
+		model.caches,
+		model.diagnostics = buildHTTPMetadata(
 		program,
 		resolution,
 		providerCatalog,
@@ -396,7 +409,12 @@ func buildHTTPMetadata(
 	resolution resolve.Result,
 	providers provider.Catalog,
 	modules modulith.Model,
-) ([]controller.Controller, []compilertransaction.Boundary, []Diagnostic) {
+) (
+	[]controller.Controller,
+	[]compilertransaction.Boundary,
+	[]compilercache.Boundary,
+	[]Diagnostic,
+) {
 	controllerCatalog := controller.Build(
 		program,
 		resolution,
@@ -404,7 +422,7 @@ func buildHTTPMetadata(
 		modules,
 	)
 	if diagnostics := controllerCatalog.Diagnostics(); len(diagnostics) != 0 {
-		return nil, nil, controllerDiagnostics(diagnostics)
+		return nil, nil, nil, controllerDiagnostics(diagnostics)
 	}
 	controllers := controllerCatalog.Controllers()
 	transactionCatalog := compilertransaction.Build(
@@ -414,9 +432,20 @@ func buildHTTPMetadata(
 		controllers,
 	)
 	if diagnostics := transactionCatalog.Diagnostics(); len(diagnostics) != 0 {
-		return nil, nil, transactionDiagnostics(diagnostics)
+		return nil, nil, nil, transactionDiagnostics(diagnostics)
 	}
-	return controllers, transactionCatalog.Boundaries(), nil
+	cacheCatalog := compilercache.Build(
+		program,
+		resolution,
+		controllers,
+	)
+	if diagnostics := cacheCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return nil, nil, nil, cacheDiagnostics(diagnostics)
+	}
+	return controllers,
+		transactionCatalog.Boundaries(),
+		cacheCatalog.Boundaries(),
+		nil
 }
 
 func bootstrapApplications(targets []Target) []compilerbootstrap.Application {
@@ -1084,6 +1113,24 @@ func transactionDiagnostics(
 	for index, diagnostic := range diagnostics {
 		result[index] = Diagnostic{
 			Stage:            StageTransaction,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.RouteID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func cacheDiagnostics(
+	diagnostics []compilercache.Diagnostic,
+) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageCache,
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.RouteID,

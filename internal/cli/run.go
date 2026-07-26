@@ -907,6 +907,8 @@ func verificationSummary(diagnostics []application.Diagnostic) string {
 			label = "scheduled method"
 		case application.StageTransaction:
 			label = "transaction boundary"
+		case application.StageCache:
+			label = "cache boundary"
 		case application.StageEvent:
 			label = "event contract"
 		case application.StageModule:

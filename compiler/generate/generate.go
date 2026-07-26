@@ -319,6 +319,13 @@ func renderSource(
 	jobs := model.Jobs()
 	events := model.Events()
 	transactions := model.Transactions()
+	caches := model.Caches()
+	if len(caches) != 0 {
+		return nil, fmt.Errorf(
+			"cache boundary %s requires generated cache support",
+			caches[0].RouteID,
+		)
+	}
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
 	features.authorization = hasAuthorization(controllers)
 	features.scheduling = len(jobs) != 0
