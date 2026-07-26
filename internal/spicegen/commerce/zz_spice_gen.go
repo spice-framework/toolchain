@@ -15,6 +15,7 @@ import (
 	syscall "syscall"
 	time "time"
 
+	spicecache "github.com/StevenBuglione/spice/cache"
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	inventory "github.com/StevenBuglione/spice/examples/commerce/inventory"
 	orders "github.com/StevenBuglione/spice/examples/commerce/orders"
@@ -55,6 +56,8 @@ type ApplicationOptions struct {
 	ScheduleContext           context.Context
 	ScheduleWaiter            spiceschedule.Waiter
 	ScheduleObservers         []spiceschedule.Observer
+	CacheClock                func() time.Time
+	CacheObservers            []spicecache.Observer
 	Observers                 []spicelifecycle.Observer
 }
 
@@ -130,6 +133,24 @@ func ConfigurationSchema() (spiceconfig.Schema, error) {
 			Module:     "github.com/StevenBuglione/spice/examples/commerce/inventory",
 			Default:    "10",
 			HasDefault: true,
+		},
+		spiceconfig.Property{
+			Key:         "spice.cache.commerce.orders.by-id.capacity",
+			Kind:        spiceconfig.KindInteger,
+			Description: "Maximum entries for cache commerce.orders.by-id",
+			Module:      "github.com/StevenBuglione/spice/examples/commerce/orders",
+			Environment: "SPICE_CACHE_COMMERCE_ORDERS_BY_ID_CAPACITY",
+			Default:     "256",
+			HasDefault:  true,
+		},
+		spiceconfig.Property{
+			Key:         "spice.cache.commerce.orders.by-id.ttl",
+			Kind:        spiceconfig.KindDuration,
+			Description: "Entry lifetime for cache commerce.orders.by-id",
+			Module:      "github.com/StevenBuglione/spice/examples/commerce/orders",
+			Environment: "SPICE_CACHE_COMMERCE_ORDERS_BY_ID_TTL",
+			Default:     "5m",
+			HasDefault:  true,
 		},
 		spiceconfig.Property{
 			Key:         "spice.shutdown-timeout",
@@ -317,6 +338,32 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	_ = provider8
 	provider9 := orders.NewController(provider8)
 	_ = provider9
+	generatedCache0Capacity, err := configurationSnapshot.Integer("spice.cache.commerce.orders.by-id.capacity")
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode capacity for cache commerce.orders.by-id: %w", err))
+	}
+	if generatedCache0Capacity < 1 || uint64(generatedCache0Capacity) > uint64(^uint(0)>>1) {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode capacity for cache commerce.orders.by-id: value must fit a positive int"))
+	}
+	generatedCache0TTL, err := configurationSnapshot.Duration("spice.cache.commerce.orders.by-id.ttl")
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode TTL for cache commerce.orders.by-id: %w", err))
+	}
+	if generatedCache0TTL < 0 {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode TTL for cache commerce.orders.by-id: duration must not be negative"))
+	}
+	generatedCache0, err := spicecache.NewMemory[orders.GetOrderRequest, orders.OrderResponse](
+		spicecache.Definition{
+			ID:     "commerce.orders.by-id",
+			Module: "github.com/StevenBuglione/spice/examples/commerce/orders",
+		},
+		int(generatedCache0Capacity),
+		options.CacheClock,
+		options.CacheObservers...,
+	)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated cache commerce.orders.by-id: %w", err))
+	}
 	scheduleContext := options.ScheduleContext
 	if scheduleContext == nil {
 		scheduleContext = context.WithoutCancel(ctx)
@@ -371,7 +418,13 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		if present0 {
 			requestValue.ID = string(raw0)
 		}
-		responseValue, routeErr := provider9.Get(httpRequest.Context(), requestValue)
+		responseValue, cacheHit, routeErr := generatedCache0.Get(httpRequest.Context(), requestValue)
+		if routeErr == nil && !cacheHit {
+			responseValue, routeErr = provider9.Get(httpRequest.Context(), requestValue)
+			if routeErr == nil {
+				routeErr = generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)
+			}
+		}
 		if routeErr != nil {
 			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
 				return
