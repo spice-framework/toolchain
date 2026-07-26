@@ -22,6 +22,7 @@ import (
 
 func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	root, mainPath, original := writeLSPModule(t)
+	writeAnnotationReference(t, root)
 	server, err := New(Config{
 		NewService: func(string) (*compilerservice.Service, error) {
 			return compilerservice.New(compilerservice.Config{})
@@ -55,6 +56,8 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	initialize := client.waitForID("1")
 	if initialize.Error != nil ||
 		!strings.Contains(string(initialize.Result), "completionProvider") ||
+		!strings.Contains(string(initialize.Result), "definitionProvider") ||
+		!strings.Contains(string(initialize.Result), "documentLinkProvider") ||
 		!strings.Contains(string(initialize.Result), "semanticTokensProvider") {
 		t.Fatalf("initialize response = %+v", initialize)
 	}
@@ -155,6 +158,56 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	hover := client.waitForID("3")
 	if !strings.Contains(string(hover.Result), "`@Application`") {
 		t.Fatalf("hover result = %s", hover.Result)
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      30,
+		"method":  "textDocument/definition",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position": map[string]any{
+				"line":      applicationLine,
+				"character": applicationCharacter,
+			},
+		},
+	})
+	definitionResponse := client.waitForID("30")
+	var definitionLinks []protocolLocationLink
+	if err := json.Unmarshal(
+		definitionResponse.Result,
+		&definitionLinks,
+	); err != nil {
+		t.Fatalf("Unmarshal(definition links) error = %v", err)
+	}
+	if len(definitionLinks) != 1 ||
+		!strings.HasSuffix(
+			definitionLinks[0].TargetURI,
+			"/docs/annotations.md",
+		) ||
+		definitionLinks[0].OriginSelectionRange.Start.Line != applicationLine {
+		t.Fatalf("definition links = %+v", definitionLinks)
+	}
+
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      31,
+		"method":  "textDocument/documentLink",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+		},
+	})
+	documentLinkResponse := client.waitForID("31")
+	var documentLinks []protocolDocumentLink
+	if err := json.Unmarshal(
+		documentLinkResponse.Result,
+		&documentLinks,
+	); err != nil {
+		t.Fatalf("Unmarshal(document links) error = %v", err)
+	}
+	if len(documentLinks) == 0 ||
+		!strings.Contains(documentLinks[0].Target, "docs/annotations.md#") ||
+		!strings.Contains(documentLinks[0].Tooltip, "@Application") {
+		t.Fatalf("document links = %+v", documentLinks)
 	}
 
 	propertyLine, propertyCharacter := sourcePosition(
@@ -346,6 +399,22 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	client.closeInput()
 	if err := client.wait(); err != nil {
 		t.Fatalf("Run() error = %v", err)
+	}
+}
+
+func writeAnnotationReference(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, "docs", "annotations.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatalf("MkdirAll(annotation reference) error = %v", err)
+	}
+	content := "# Definitions\n\n" +
+		"| Annotation | Target |\n" +
+		"|---|---|\n" +
+		"| `@Application` | Function |\n" +
+		"| `@management.Enable` | Function |\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(annotation reference) error = %v", err)
 	}
 }
 

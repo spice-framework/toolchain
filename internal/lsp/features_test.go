@@ -62,6 +62,19 @@ func TestCompletionProducesValidGoCommentsAndTypedValues(t *testing.T) {
 		) {
 		t.Fatalf("raw annotation completions = %+v", rawItems)
 	}
+	bareItems := completionItems([]byte("@"), 1, metadata)
+	if got := labels(bareItems); !slices.Equal(got, []string{
+		"@Application",
+		"@management.Enable",
+		"@Module",
+	}) {
+		t.Fatalf("bare annotation completions = %v", got)
+	}
+	for _, item := range bareItems {
+		if !strings.HasPrefix(item.TextEdit.NewText, "// @") {
+			t.Fatalf("bare annotation edit = %+v", item.TextEdit)
+		}
+	}
 
 	management := []byte(`// @management.Enable(expose=["he"])`)
 	managementOffset := strings.Index(string(management), "he") + 2

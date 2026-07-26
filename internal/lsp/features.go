@@ -700,6 +700,9 @@ func (server *Server) featureSnapshot(
 		actions:        latest.CodeActions(),
 	}
 	if workspace.hasGood {
+		if len(view.definitions) == 0 {
+			view.definitions = workspace.lastGood.AnnotationDefinitions()
+		}
 		if len(view.modules) == 0 {
 			view.modules = workspace.lastGood.ModuleGraph().Modules
 		}

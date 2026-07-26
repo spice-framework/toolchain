@@ -295,8 +295,12 @@ func (server *Server) handleRequest(message rpcMessage) error {
 		return server.completion(message)
 	case "textDocument/hover":
 		return server.hover(message)
+	case "textDocument/definition":
+		return server.definition(message)
 	case "textDocument/codeAction":
 		return server.codeAction(message)
+	case "textDocument/documentLink":
+		return server.documentLinks(message)
 	case "textDocument/semanticTokens/full":
 		return server.semanticTokens(message)
 	default:
@@ -405,14 +409,25 @@ func initializeResult() map[string]any {
 			"completionProvider": map[string]any{
 				"triggerCharacters": []string{"@", ".", "(", ",", "\""},
 			},
-			"hoverProvider": true,
+			"hoverProvider":      true,
+			"definitionProvider": true,
 			"codeActionProvider": map[string]any{
 				"codeActionKinds": []string{"quickfix"},
 				"resolveProvider": false,
 			},
+			"documentLinkProvider": map[string]any{
+				"resolveProvider": false,
+			},
 			"semanticTokensProvider": map[string]any{
 				"legend": map[string]any{
-					"tokenTypes":     []string{"decorator"},
+					"tokenTypes": []string{
+						"decorator",
+						"parameter",
+						"string",
+						"number",
+						"keyword",
+						"operator",
+					},
 					"tokenModifiers": []string{},
 				},
 				"full": true,

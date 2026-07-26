@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -17,10 +18,38 @@ func TestAnnotationSemanticTokens(t *testing.T) {
 	got := annotationSemanticTokens(content)
 	want := []semanticToken{
 		{line: 2, start: 4, length: 18, kind: semanticDecoratorToken},
+		{line: 2, start: 22, length: 1, kind: semanticOperatorToken},
+		{line: 2, start: 23, length: 6, kind: semanticParameterToken},
+		{line: 2, start: 29, length: 1, kind: semanticOperatorToken},
+		{line: 2, start: 30, length: 1, kind: semanticOperatorToken},
+		{line: 2, start: 31, length: 8, kind: semanticStringToken},
+		{line: 2, start: 39, length: 1, kind: semanticOperatorToken},
+		{line: 2, start: 40, length: 1, kind: semanticOperatorToken},
 		{line: 4, start: 3, length: 12, kind: semanticDecoratorToken},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("annotationSemanticTokens() = %#v, want %#v", got, want)
+	}
+}
+
+func TestAnnotationSemanticTokensClassifyTypedArguments(t *testing.T) {
+	t.Parallel()
+	content := []byte(`// @fixture.Enable(enabled=true, count=-12, mode=fast)`)
+	got := annotationSemanticTokens(content)
+	kinds := make([]int, len(got))
+	for index, token := range got {
+		kinds[index] = token.kind
+	}
+	for _, required := range []int{
+		semanticDecoratorToken,
+		semanticParameterToken,
+		semanticKeywordToken,
+		semanticNumberToken,
+		semanticOperatorToken,
+	} {
+		if !slices.Contains(kinds, required) {
+			t.Fatalf("semantic token kinds = %v, missing %d", kinds, required)
+		}
 	}
 }
 
