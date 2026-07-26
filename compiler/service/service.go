@@ -28,6 +28,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
+	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	"github.com/StevenBuglione/spice/compiler/validate"
 )
 
@@ -49,8 +50,10 @@ type runningRequest struct {
 
 type serviceConfig struct {
 	loader               Loader
+	moduleVersions       ModuleVersionLoader
 	loadOptions          load.Options
 	registry             annotation.Registry
+	starterCatalog       compilerstarter.Catalog
 	bootstrapDefinitions []compilerbootstrap.Definition
 	providerEntrypoints  []provider.Entrypoint
 	cacheNamespace       string
@@ -67,6 +70,18 @@ func New(config Config) (*Service, error) {
 	}
 	if len(config.Registry.Definitions()) == 0 {
 		config.Registry = builtin.Registry()
+	}
+	hasStarters := len(config.StarterCatalog.Manifests()) != 0
+	if hasStarters {
+		registry, err := config.StarterCatalog.Registry(config.Registry)
+		if err != nil {
+			return nil, err
+		}
+		config.Registry = registry
+		config.BootstrapDefinitions = append(
+			slices.Clone(config.BootstrapDefinitions),
+			config.StarterCatalog.BootstrapDefinitions()...,
+		)
 	}
 	if config.MaxCacheEntries == 0 {
 		config.MaxCacheEntries = defaultCacheEntries
@@ -87,15 +102,18 @@ func New(config Config) (*Service, error) {
 		return nil, errors.New("compiler service overlay byte limit must be positive")
 	}
 	cacheExtensions := len(config.BootstrapDefinitions) == 0 &&
-		len(config.ProviderEntrypoints) == 0
+		len(config.ProviderEntrypoints) == 0 &&
+		!hasStarters
 	if config.CacheNamespace != "" {
 		cacheExtensions = true
 	}
 	return &Service{
 		config: serviceConfig{
 			loader:               config.Loader,
+			moduleVersions:       config.ModuleVersions,
 			loadOptions:          cloneLoadOptions(config.LoadOptions),
 			registry:             config.Registry,
+			starterCatalog:       config.StarterCatalog,
 			bootstrapDefinitions: cloneBootstrapDefinitions(config.BootstrapDefinitions),
 			providerEntrypoints:  slices.Clone(config.ProviderEntrypoints),
 			cacheNamespace:       config.CacheNamespace,
@@ -285,15 +303,35 @@ func (service *Service) analyze(
 		return result, nil
 	}
 
+	starterDiagnostics, err := service.starterDependencyDiagnostics(
+		ctx,
+		request,
+		resolution.Occurrences,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	if !starterDiagnostics.Empty() {
+		result.diagnostics = starterDiagnostics
+		result.actions = actionsFromDiagnostics(result.diagnostics)
+		return result, nil
+	}
+
 	buildOptions := application.BuildOptions{
 		BootstrapDefinitions: cloneBootstrapDefinitions(
 			service.config.bootstrapDefinitions,
 		),
 	}
-	if len(service.config.providerEntrypoints) != 0 {
+	providerEntrypoints := append(
+		slices.Clone(service.config.providerEntrypoints),
+		service.config.starterCatalog.ProviderEntrypoints(
+			resolution.Occurrences,
+		)...,
+	)
+	if len(providerEntrypoints) != 0 {
 		catalog := provider.BuildEntrypoints(
 			program,
-			service.config.providerEntrypoints,
+			providerEntrypoints,
 		)
 		if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
 			result.diagnostics = versionDiagnostics(
@@ -335,6 +373,7 @@ func (service *Service) analyze(
 		result.actions = actionsFromDiagnostics(result.diagnostics)
 		return result, nil
 	}
+	result.targetName = target.Name
 	generationTarget, generationDiagnostics := generate.DefaultTarget(
 		program,
 		target,
@@ -373,6 +412,45 @@ func (service *Service) analyze(
 	return result, nil
 }
 
+func (service *Service) starterDependencyDiagnostics(
+	ctx context.Context,
+	request normalizedRequest,
+	occurrences []resolve.Occurrence,
+) (diagnostic.Set, error) {
+	requirements := service.config.starterCatalog.ActiveDependencies(
+		occurrences,
+	)
+	if len(requirements) == 0 {
+		return diagnostic.NewSet(), nil
+	}
+	if service.config.moduleVersions == nil {
+		return diagnosticadapt.Failure(
+			"starter",
+			"dependency-inspection",
+			"selected starters require Go module version inspection",
+		), nil
+	}
+	moduleOptions := cloneLoadOptions(service.config.loadOptions)
+	moduleOptions.Dir = request.root
+	modules, err := service.config.moduleVersions(ctx, moduleOptions)
+	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return diagnostic.Set{}, contextErr
+		}
+		return diagnosticadapt.Failure(
+			"starter",
+			"dependency-inspection",
+			fmt.Sprintf(
+				"inspect selected starter dependencies: %v",
+				err,
+			),
+		), nil
+	}
+	dependencyDiagnostics := service.config.starterCatalog.
+		ValidateActiveModuleVersions(occurrences, modules)
+	return diagnosticadapt.StarterDependencies(dependencyDiagnostics), nil
+}
+
 func (service *Service) analysisLoadOptions(
 	request normalizedRequest,
 ) load.Options {
@@ -385,6 +463,10 @@ func (service *Service) analysisLoadOptions(
 	options.AuxiliaryPackages = append(
 		options.AuxiliaryPackages,
 		entrypointPackages(service.config.providerEntrypoints)...,
+	)
+	options.AuxiliaryPackages = append(
+		options.AuxiliaryPackages,
+		service.config.starterCatalog.EntryPointPackages()...,
 	)
 	options.AllowGeneratedMainBridge = true
 	return withAnalysisBuildTag(options)
@@ -574,7 +656,7 @@ func selectTarget(
 			names[index] = target.Name
 		}
 		return application.Target{}, fmt.Errorf(
-			"multiple @Application targets were found (%s); select one",
+			"multiple @Application targets were found (%s); select one with --target",
 			strings.Join(names, ", "),
 		)
 	}

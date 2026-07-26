@@ -18,12 +18,14 @@ import (
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/application"
+	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
+	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	"github.com/StevenBuglione/spice/compiler/validate"
 	"github.com/StevenBuglione/spice/internal/genfs"
@@ -657,63 +659,125 @@ func prepareGenerationContext(
 	options load.Options,
 	loader programLoader,
 ) (codegen.Plan, string, bool) {
+	service, err := newCompilerAnalysisService(options, loader)
+	if err != nil {
+		if writeErr := writef(stderr, "Spice generation failed: %v\n", err); writeErr != nil {
+			return codegen.Plan{}, "", false
+		}
+		return codegen.Plan{}, "", false
+	}
+	root := options.Dir
+	if root == "" {
+		root = "."
+	}
+	return prepareGenerationAnalysis(
+		ctx,
+		arguments,
+		stderr,
+		root,
+		service,
+		0,
+	)
+}
+
+func prepareGenerationAnalysis(
+	ctx context.Context,
+	arguments generationArguments,
+	stderr io.Writer,
+	root string,
+	service *compilerservice.Service,
+	sequence uint64,
+) (codegen.Plan, string, bool) {
 	patterns := arguments.patterns
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
-	program, resolution, metadata, ok := resolveValidatedCompilerPatternsContext(
+	result, err := service.Analyze(
 		ctx,
-		patterns,
-		stderr,
-		withAnalysisBuildTag(options),
-		loader,
-		"generation",
-		"Spice generation failed",
+		compilerservice.Request{
+			WorkspaceRoot: root,
+			Target:        arguments.target,
+			Patterns:      patterns,
+			Sequence:      sequence,
+		},
 	)
-	if !ok {
+	if err != nil {
+		if ctx.Err() != nil {
+			return codegen.Plan{}, "", false
+		}
+		if writeErr := writef(stderr, "Spice generation failed: %v\n", err); writeErr != nil {
+			return codegen.Plan{}, "", false
+		}
 		return codegen.Plan{}, "", false
 	}
-	model := application.BuildWithOptions(program, resolution, metadata.buildOptions)
-	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
 		if err := reportDiagnostics(
 			stderr,
 			diagnostics,
-			strings.Replace(verificationSummary(diagnostics), "verification", "generation", 1),
+			generationDiagnosticSummary(diagnostics),
 		); err != nil {
 			return codegen.Plan{}, "", false
 		}
 		return codegen.Plan{}, "", false
 	}
-	target, targetErr := selectApplicationTarget(model.Targets(), arguments.target)
-	if targetErr != nil {
-		if err := writef(stderr, "Spice generation failed: %v\n", targetErr); err != nil {
+	plan, found := result.GenerationPlan()
+	if !found {
+		if err := writef(
+			stderr,
+			"Spice generation failed: compiler analysis produced no generation plan.\n",
+		); err != nil {
 			return codegen.Plan{}, "", false
 		}
 		return codegen.Plan{}, "", false
 	}
-	generationTarget, diagnostics := codegen.DefaultTarget(program, target)
+	return plan, result.TargetName(), true
+}
+
+func newCompilerAnalysisService(
+	options load.Options,
+	loader programLoader,
+) (*compilerservice.Service, error) {
+	metadata, err := loadCompilerMetadata(options)
+	if err != nil {
+		return nil, err
+	}
+	return compilerservice.New(compilerservice.Config{
+		Loader:         compilerservice.Loader(loader),
+		ModuleVersions: loadModuleVersions,
+		LoadOptions:    options,
+		Registry:       builtin.Registry(),
+		StarterCatalog: metadata.starterCatalog,
+	})
+}
+
+func generationDiagnosticSummary(
+	diagnostics []diagnostic.Diagnostic,
+) string {
+	stage := "compiler"
 	if len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice generation failed: %d target error(s).", len(diagnostics)),
-		); err != nil {
-			return codegen.Plan{}, "", false
+		segments := strings.Split(diagnostics[0].Code, ".")
+		if len(segments) >= 3 {
+			stage = segments[1]
 		}
-		return codegen.Plan{}, "", false
 	}
-	plan, diagnostics := codegen.Render(program, model, target, generationTarget)
-	if len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice generation failed: %d render error(s).", len(diagnostics)),
-		); err != nil {
-			return codegen.Plan{}, "", false
-		}
-		return codegen.Plan{}, "", false
+	description := map[string]string{
+		"load":        "package loading",
+		"resolution":  "annotation resolution",
+		"validation":  "annotation validation",
+		"starter":     "starter dependency alignment",
+		"provider":    "provider catalog",
+		"application": "application model",
+		"modulith":    "module architecture",
+		"generation":  "generation",
+	}[stage]
+	if description == "" {
+		description = "compiler"
 	}
-	return plan, target.Name, true
+	return fmt.Sprintf(
+		"Spice generation failed: %d %s error(s).",
+		len(diagnostics),
+		description,
+	)
 }
 
 func checkGeneration(

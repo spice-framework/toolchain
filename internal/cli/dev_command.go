@@ -17,6 +17,7 @@ import (
 
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
+	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 	"github.com/StevenBuglione/spice/internal/devloop"
 	"github.com/StevenBuglione/spice/internal/genfs"
 )
@@ -79,6 +80,13 @@ func devCommandContext(
 	if root == "" {
 		root = "."
 	}
+	analysisService, err := newCompilerAnalysisService(options, loader)
+	if err != nil {
+		if writeErr := writef(stderr, "Spice dev failed: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
 	watcher, err := devloop.NewPollingWatcher(
 		ctx,
 		devloop.PollingConfig{
@@ -100,8 +108,8 @@ func devCommandContext(
 	sink := &developmentEventWriter{writer: stderr}
 	pipeline := &developmentPipeline{
 		generation: parsed.generation,
-		options:    options,
-		loader:     loader,
+		root:       root,
+		service:    analysisService,
 		builder:    builder,
 		sink:       sink,
 	}
@@ -323,8 +331,8 @@ func devOptionValue(
 
 type developmentPipeline struct {
 	generation generationArguments
-	options    load.Options
-	loader     programLoader
+	root       string
+	service    *compilerservice.Service
 	builder    applicationBuildExecutor
 	sink       devloop.EventSink
 }
@@ -334,12 +342,13 @@ func (pipeline *developmentPipeline) Prepare(
 	batch devloop.Batch,
 ) (devloop.Candidate, error) {
 	output := newBoundedOutput(maximumDevelopmentOutput)
-	plan, targetName, ok := prepareGenerationContext(
+	plan, targetName, ok := prepareGenerationAnalysis(
 		ctx,
 		pipeline.generation,
 		output,
-		pipeline.options,
-		pipeline.loader,
+		pipeline.root,
+		pipeline.service,
+		batch.Revision(),
 	)
 	if !ok {
 		if err := ctx.Err(); err != nil {

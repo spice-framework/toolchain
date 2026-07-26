@@ -14,6 +14,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
+	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 )
 
 const (
@@ -32,11 +33,20 @@ type Loader func(
 	...string,
 ) (*load.Program, error)
 
+// ModuleVersionLoader returns the selected Go module graph used to enforce
+// exact reviewed starter dependencies.
+type ModuleVersionLoader func(
+	context.Context,
+	load.Options,
+) ([]compilerstarter.ModuleVersion, error)
+
 // Config constructs one isolated service instance.
 type Config struct {
 	Loader               Loader
+	ModuleVersions       ModuleVersionLoader
 	LoadOptions          load.Options
 	Registry             annotation.Registry
+	StarterCatalog       compilerstarter.Catalog
 	BootstrapDefinitions []compilerbootstrap.Definition
 	ProviderEntrypoints  []provider.Entrypoint
 	CacheNamespace       string
@@ -203,6 +213,7 @@ type Result struct {
 	actions        []diagnostic.SuggestedFix
 	application    application.Model
 	plan           generate.Plan
+	targetName     string
 	hasPlan        bool
 }
 
@@ -260,6 +271,12 @@ func (result Result) ApplicationModel() application.Model {
 // GenerationReady reports whether a pure guarded generation plan is available.
 func (result Result) GenerationReady() bool {
 	return result.hasPlan
+}
+
+// TargetName returns the selected application's stable developer-facing name.
+// It is empty when analysis did not reach target selection.
+func (result Result) TargetName() string {
+	return result.targetName
 }
 
 // GenerationPlan returns the immutable pure plan when analysis succeeded.

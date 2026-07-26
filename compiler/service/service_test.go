@@ -13,7 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/load"
+	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
+	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
 func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
@@ -283,6 +286,170 @@ func TestServiceHonorsCallerCancellation(t *testing.T) {
 		Request{WorkspaceRoot: root},
 	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Analyze() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	content, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("ReadFile(main.go) error = %v", err)
+	}
+	content = bytes.Replace(
+		content,
+		[]byte("// @Application"),
+		[]byte("// @Application\n// @fixture.Enable"),
+		1,
+	)
+	if writeErr := os.WriteFile(mainPath, content, 0o600); writeErr != nil {
+		t.Fatalf("WriteFile(main.go) error = %v", writeErr)
+	}
+	starterPath := filepath.Join(root, "starter", "starter.go")
+	if mkdirErr := os.MkdirAll(filepath.Dir(starterPath), 0o750); mkdirErr != nil {
+		t.Fatalf("MkdirAll(starter) error = %v", mkdirErr)
+	}
+	if writeErr := os.WriteFile(
+		starterPath,
+		[]byte("package starter\n\ntype Client struct{}\n\nfunc New() Client { return Client{} }\n"),
+		0o600,
+	); writeErr != nil {
+		t.Fatalf("WriteFile(starter.go) error = %v", writeErr)
+	}
+	manifest := publicstarter.Must(publicstarter.Spec{
+		Schema:    publicstarter.Schema,
+		ID:        "example.com/servicefixture/starter",
+		Version:   "1.0.0",
+		Module:    "example.com/servicefixture",
+		SpiceAPI:  publicstarter.APIVersion,
+		MinimumGo: "1.26",
+		License:   "Apache-2.0",
+		Review:    "docs/dependency-review.md",
+		Activation: publicstarter.Activation{
+			Mode: publicstarter.ActivationExplicitAnnotation,
+			EntryPoints: []publicstarter.EntryPoint{{
+				Package: "example.com/servicefixture/starter",
+				Symbol:  "New",
+			}},
+		},
+		Capabilities: []string{"fixture.client"},
+		Dependencies: []publicstarter.Dependency{{
+			Module:  "example.com/reviewed",
+			Version: "v1.2.3",
+			License: "MIT",
+		}},
+		Annotations: []publicstarter.AnnotationSpec{{
+			Name:    "fixture.Enable",
+			Targets: []annotation.Target{annotation.TargetFunction},
+		}},
+		ApplicationFeatures: []publicstarter.FeatureSpec{{
+			Annotation: "fixture.Enable",
+			Capability: "fixture.client",
+			EntryPoints: []publicstarter.EntryPoint{{
+				Package: "example.com/servicefixture/starter",
+				Symbol:  "New",
+			}},
+		}},
+	})
+	catalog, err := compilerstarter.New(manifest)
+	if err != nil {
+		t.Fatalf("starter.New() error = %v", err)
+	}
+	var inspections atomic.Int64
+	service, err := New(Config{
+		StarterCatalog: catalog,
+		ModuleVersions: func(
+			_ context.Context,
+			options load.Options,
+		) ([]compilerstarter.ModuleVersion, error) {
+			inspections.Add(1)
+			if options.Dir != root {
+				t.Fatalf("module inspection directory = %q, want %q", options.Dir, root)
+			}
+			return []compilerstarter.ModuleVersion{{
+				Path:    "example.com/reviewed",
+				Version: "v1.2.3",
+			}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := service.Analyze(
+		context.Background(),
+		Request{WorkspaceRoot: root},
+	)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if !result.Diagnostics().Empty() || !result.GenerationReady() {
+		t.Fatalf(
+			"Analyze() diagnostics = %+v, ready = %t",
+			result.Diagnostics().Items(),
+			result.GenerationReady(),
+		)
+	}
+	if result.TargetName() != "Servicefixture" {
+		t.Fatalf("TargetName() = %q, want Servicefixture", result.TargetName())
+	}
+	if inspections.Load() != 1 {
+		t.Fatalf("module inspections = %d, want 1", inspections.Load())
+	}
+	foundDefinition := false
+	for _, definition := range result.AnnotationDefinitions() {
+		if definition.Name == "fixture.Enable" {
+			foundDefinition = true
+		}
+	}
+	if !foundDefinition {
+		t.Fatal("AnnotationDefinitions() omitted selected starter definition")
+	}
+	foundProvider := false
+	for _, provider := range result.ProviderGraph().Providers {
+		if provider.PackagePath == "example.com/servicefixture/starter" &&
+			provider.Name == "New" {
+			foundProvider = true
+		}
+	}
+	if !foundProvider {
+		t.Fatalf(
+			"ProviderGraph() omitted selected starter constructor: %+v",
+			result.ProviderGraph().Providers,
+		)
+	}
+
+	misaligned, err := New(Config{
+		StarterCatalog: catalog,
+		ModuleVersions: func(
+			context.Context,
+			load.Options,
+		) ([]compilerstarter.ModuleVersion, error) {
+			return []compilerstarter.ModuleVersion{{
+				Path:    "example.com/reviewed",
+				Version: "v1.2.4",
+			}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New(misaligned) error = %v", err)
+	}
+	failed, err := misaligned.Analyze(
+		context.Background(),
+		Request{WorkspaceRoot: root},
+	)
+	if err != nil {
+		t.Fatalf("Analyze(misaligned) error = %v", err)
+	}
+	items := failed.Diagnostics().Items()
+	if len(items) != 1 ||
+		items[0].Code != "spice.starter.version" ||
+		failed.GenerationReady() {
+		t.Fatalf(
+			"Analyze(misaligned) diagnostics = %+v, ready = %t",
+			items,
+			failed.GenerationReady(),
+		)
 	}
 }
 
