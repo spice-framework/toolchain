@@ -14,6 +14,7 @@ import (
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	publicstarter "github.com/StevenBuglione/spice/starter"
@@ -75,14 +76,23 @@ func TestCatalogComposesDeterministicCompilerMetadata(t *testing.T) {
 		!slices.Equal(catalog.EntryPoints("search.Enable"), wantEntryPoints) {
 		t.Fatalf("entrypoints = %#v", got.EntryPoints)
 	}
+	wantPackages := []string{
+		"example.com/acme/starter/cache",
+		"example.com/acme/starter/search",
+	}
+	if !slices.Equal(catalog.EntryPointPackages(), wantPackages) {
+		t.Fatalf("EntryPointPackages() = %v, want %v", catalog.EntryPointPackages(), wantPackages)
+	}
 
 	definitions[0].Options[0].AllowedStrings[0] = "changed"
 	definitions[0].EntryPoints[0].Symbol = "Changed"
 	entryPoints := catalog.EntryPoints("search.Enable")
+	entryPointPackages := catalog.EntryPointPackages()
 	if len(entryPoints) == 0 {
 		t.Fatal("EntryPoints() returned no contributed entrypoints")
 	}
 	entryPoints[0].Symbol = "ChangedAgain"
+	entryPointPackages[0] = "changed"
 	fresh := catalog.BootstrapDefinitions()[0]
 	freshEntryPoints := catalog.EntryPoints("search.Enable")
 	if len(freshEntryPoints) == 0 {
@@ -90,8 +100,70 @@ func TestCatalogComposesDeterministicCompilerMetadata(t *testing.T) {
 	}
 	if fresh.Options[0].AllowedStrings[0] == "changed" ||
 		fresh.EntryPoints[0].Symbol != "New" ||
-		freshEntryPoints[0].Symbol != "New" {
+		freshEntryPoints[0].Symbol != "New" ||
+		catalog.EntryPointPackages()[0] == "changed" {
 		t.Fatal("Catalog accessors returned mutable storage")
+	}
+}
+
+func TestCatalogSelectsExplicitProviderEntrypoints(t *testing.T) {
+	annotated := annotatedManifest(t, searchID, "1.2.0", "search.Enable", "search.client")
+	constructor := constructorManifest(t, "example.com/acme/starter/cache")
+	catalog := newCatalog(t, annotated, constructor)
+
+	constructorOnly := catalog.ProviderEntrypoints(nil)
+	if want := []provider.Entrypoint{{
+		PackagePath:   "example.com/acme/starter/cache",
+		Symbol:        "New",
+		SourceID:      "example.com/acme/starter/cache",
+		SourceVersion: "1.0.0",
+	}}; !slices.Equal(constructorOnly, want) {
+		t.Fatalf("ProviderEntrypoints(nil) = %#v, want %#v", constructorOnly, want)
+	}
+
+	application := resolve.Occurrence{
+		Annotation: annotation.Annotation{Name: "Application"},
+		SymbolID:   "application",
+	}
+	occurrence := resolve.Occurrence{
+		Annotation: annotation.Annotation{Name: "search.Enable"},
+		SymbolID:   "application",
+	}
+	selected := catalog.ProviderEntrypoints([]resolve.Occurrence{
+		occurrence,
+		application,
+		occurrence,
+	})
+	want := []provider.Entrypoint{
+		{
+			PackagePath:   "example.com/acme/starter/cache",
+			Symbol:        "New",
+			SourceID:      "example.com/acme/starter/cache",
+			SourceVersion: "1.0.0",
+		},
+		{
+			PackagePath:   searchID,
+			Symbol:        "New",
+			SourceID:      searchID,
+			SourceVersion: "1.2.0",
+		},
+		{
+			PackagePath:   searchID,
+			Symbol:        "NewAdmin",
+			SourceID:      searchID,
+			SourceVersion: "1.2.0",
+		},
+	}
+	if !slices.Equal(selected, want) {
+		t.Fatalf("ProviderEntrypoints() = %#v, want %#v", selected, want)
+	}
+	otherFunction := occurrence
+	otherFunction.SymbolID = "other"
+	if got := catalog.ProviderEntrypoints([]resolve.Occurrence{
+		application,
+		otherFunction,
+	}); !slices.Equal(got, constructorOnly) {
+		t.Fatalf("non-application annotation selected entrypoints: %#v", got)
 	}
 }
 
@@ -100,6 +172,12 @@ func TestCatalogRejectsAmbiguousOrIncompatibleComposition(t *testing.T) {
 	searchAlias := annotatedManifest(t, "example.com/other/starter/search", "1.0.0", "search.Enable", "other.search")
 	capabilityAlias := annotatedManifest(t, "example.com/other/starter/index", "1.0.0", "index.Enable", "search.client")
 	builtinCapability := annotatedManifest(t, "example.com/other/starter/management", "1.0.0", "other.Management", "management")
+	entryPointAliasSpec := constructorManifest(t, "example.com/other/starter/cache").Spec()
+	entryPointAliasSpec.Activation.EntryPoints = []publicstarter.EntryPoint{{
+		Package: searchID,
+		Symbol:  "New",
+	}}
+	entryPointAlias := mustManifest(t, entryPointAliasSpec)
 
 	tests := []struct {
 		name      string
@@ -113,6 +191,7 @@ func TestCatalogRejectsAmbiguousOrIncompatibleComposition(t *testing.T) {
 		{name: "duplicate annotation", manifests: []publicstarter.Manifest{search, searchAlias}, want: "annotation @search.Enable is contributed by both"},
 		{name: "duplicate capability", manifests: []publicstarter.Manifest{search, capabilityAlias}, want: `capability "search.client" is contributed by both`},
 		{name: "built-in capability", manifests: []publicstarter.Manifest{builtinCapability}, want: `capability "management" is contributed by both`},
+		{name: "duplicate entrypoint", manifests: []publicstarter.Manifest{search, entryPointAlias}, want: "entrypoint example.com/acme/starter/search.New is contributed by both"},
 		{name: "Spice API", manifests: []publicstarter.Manifest{search}, spiceAPI: "v2alpha1", want: "requires Spice API"},
 		{name: "Go version", manifests: []publicstarter.Manifest{search}, goVersion: "go1.25.9", want: "requires Go 1.26.0 or newer"},
 		{name: "zero manifest", manifests: []publicstarter.Manifest{{}}, want: "manifest schema"},

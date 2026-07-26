@@ -17,10 +17,14 @@ const starterSelectionApplication = `// Package app is the selected application 
 // @Module
 package app
 
-type Search struct{}
+import "example.com/cli-generation/searchstarter"
+
+type Search struct {
+	Client *searchstarter.Client
+}
 
 // @Bean
-func SearchProvider() Search {
+func SearchProvider(client *searchstarter.Client) Search {
 	panic("provider bodies must not execute during analysis")
 }
 
@@ -32,32 +36,35 @@ func Application(Search) {
 `
 
 func TestCommandsUseExplicitRepositoryStarterSelection(t *testing.T) {
-	root := generationCLIModule(t, starterSelectionApplication)
-	code, _, stderr := runModule(root, "verify", "./...")
+	root := starterSelectionCLIModule(t, starterSelectionApplication)
+	code, _, stderr := runModule(root, "verify", "./app")
 	if code != 1 || !strings.Contains(stderr, "unknown annotation @search.Enable") {
 		t.Fatalf("verify without selection: code=%d stderr=%q", code, stderr)
 	}
 
 	writeStarterSelection(t, root, "1.2.0", "New")
-	code, stdout, stderr := runModule(root, "verify", "./...")
+	code, stdout, stderr := runModule(root, "verify", "./app")
 	if code != 0 || !strings.Contains(stdout, "verification passed") || stderr != "" {
 		t.Fatalf("verify: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	code, stdout, stderr = runModule(root, "modules", "--format=json", "./...")
-	if code != 0 || !strings.Contains(stdout, "example.com/cli-generation/app") || stderr != "" {
+	code, stdout, stderr = runModule(root, "modules", "--format=json", "./app")
+	if code != 0 ||
+		!strings.Contains(stdout, "example.com/cli-generation/app") ||
+		strings.Contains(stdout, "searchstarter") ||
+		stderr != "" {
 		t.Fatalf("modules: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	code, stdout, stderr = runModule(
 		root,
 		"test",
 		"--module=example.com/cli-generation/app",
-		"./...",
+		"./app",
 	)
 	if code != 0 || !strings.Contains(stdout, "module tests passed") || stderr != "" {
 		t.Fatalf("test: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
-	code, stdout, stderr = runModule(root, "generate", "./...")
+	code, stdout, stderr = runModule(root, "generate", "./app")
 	if code != 0 || !strings.Contains(stdout, "generated target Application") || stderr != "" {
 		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -72,20 +79,96 @@ func TestCommandsUseExplicitRepositoryStarterSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(generated), "example.com/acme/starter/search") {
-		t.Fatal("selection emitted a starter constructor before generated selection is supported")
+	if !strings.Contains(string(generated), "searchstarter.New()") ||
+		!strings.Contains(string(generated), `searchstarter "example.com/cli-generation/searchstarter"`) {
+		t.Fatalf("selection did not emit the starter constructor:\n%s", generated)
 	}
-	code, stdout, stderr = runModule(root, "build", "./...")
+	code, stdout, stderr = runModule(root, "build", "./app")
 	if code != 0 || !strings.Contains(stdout, "build passed") || stderr != "" {
 		t.Fatalf("build: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
 	writeStarterSelection(t, root, "1.2.1", "New")
-	code, stdout, stderr = runModule(root, "generate", "--check", "./...")
+	code, stdout, stderr = runModule(root, "generate", "--check", "./app")
 	if code != 1 ||
 		stdout != "" ||
 		!strings.Contains(stderr, "generation is stale") {
 		t.Fatalf("changed selection: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestExplicitAnnotationStarterDoesNotActivateWithoutAnnotation(t *testing.T) {
+	root := starterSelectionCLIModule(t, generationApplicationSource)
+	writeStarterSelection(t, root, "1.2.0", "New")
+
+	code, stdout, stderr := runModule(root, "generate", "./app")
+	if code != 0 || !strings.Contains(stdout, "generated target Application") || stderr != "" {
+		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	generated, err := os.ReadFile(filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"application",
+		"zz_spice_gen.go",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(generated), "searchstarter.New") {
+		t.Fatalf("absent annotation activated starter constructor:\n%s", generated)
+	}
+}
+
+func TestExplicitConstructorStarterGeneratesProvider(t *testing.T) {
+	root := starterSelectionCLIModule(t, `package app
+
+import "example.com/cli-generation/searchstarter"
+
+type ApplicationService struct {
+	Client *searchstarter.Client
+}
+
+// @Bean
+func Service(client *searchstarter.Client) *ApplicationService {
+	return &ApplicationService{Client: client}
+}
+
+// @Application
+func Application(*ApplicationService) {}
+`)
+	writeConstructorStarterSelection(t, root)
+
+	code, stdout, stderr := runModule(root, "generate", "./app")
+	if code != 0 || !strings.Contains(stdout, "generated target Application") || stderr != "" {
+		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	generated, err := os.ReadFile(filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"application",
+		"zz_spice_gen.go",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), "searchstarter.New()") {
+		t.Fatalf("explicit constructor did not generate provider call:\n%s", generated)
+	}
+}
+
+func TestCommandsRejectMissingSelectedStarterEntrypoint(t *testing.T) {
+	root := starterSelectionCLIModule(t, starterSelectionApplication)
+	writeStarterSelection(t, root, "1.2.0", "Missing")
+
+	code, stdout, stderr := runModule(root, "verify", "./app")
+	if code != 1 ||
+		stdout != "" ||
+		!strings.Contains(stderr, "starter entrypoint error") ||
+		!strings.Contains(stderr, "searchstarter.Missing") ||
+		!strings.Contains(stderr, "is not a loaded package-level function") {
+		t.Fatalf("verify: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
@@ -162,6 +245,7 @@ func writeStarterSelection(
 ) {
 	t.Helper()
 	const starterID = "example.com/acme/starter/search"
+	const entryPointPackage = "example.com/cli-generation/searchstarter"
 	manifest, err := publicstarter.New(publicstarter.Spec{
 		Schema:       publicstarter.Schema,
 		ID:           starterID,
@@ -175,7 +259,7 @@ func writeStarterSelection(
 		Activation: publicstarter.Activation{
 			Mode: publicstarter.ActivationExplicitAnnotation,
 			EntryPoints: []publicstarter.EntryPoint{
-				{Package: starterID, Symbol: entryPoint},
+				{Package: entryPointPackage, Symbol: entryPoint},
 			},
 		},
 		Annotations: []publicstarter.AnnotationSpec{
@@ -197,7 +281,7 @@ func writeStarterSelection(
 				Annotation: "search.Enable",
 				Capability: "search.client",
 				EntryPoints: []publicstarter.EntryPoint{
-					{Package: starterID, Symbol: entryPoint},
+					{Package: entryPointPackage, Symbol: entryPoint},
 				},
 				Options: []publicstarter.OptionSpec{
 					{
@@ -216,6 +300,37 @@ func writeStarterSelection(
 	if err != nil {
 		t.Fatalf("starter.New() error = %v", err)
 	}
+	writeStarterCatalog(t, root, manifest)
+}
+
+func writeConstructorStarterSelection(t *testing.T, root string) {
+	t.Helper()
+	manifest, err := publicstarter.New(publicstarter.Spec{
+		Schema:       publicstarter.Schema,
+		ID:           "example.com/acme/starter/search",
+		Version:      "1.2.0",
+		Module:       "example.com/acme",
+		SpiceAPI:     publicstarter.APIVersion,
+		MinimumGo:    "1.26.0",
+		License:      "Apache-2.0",
+		Review:       "docs/dependency-review.md",
+		Capabilities: []string{"search.client"},
+		Activation: publicstarter.Activation{
+			Mode: publicstarter.ActivationExplicitConstructor,
+			EntryPoints: []publicstarter.EntryPoint{{
+				Package: "example.com/cli-generation/searchstarter",
+				Symbol:  "New",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("starter.New() error = %v", err)
+	}
+	writeStarterCatalog(t, root, manifest)
+}
+
+func writeStarterCatalog(t *testing.T, root string, manifest publicstarter.Manifest) {
+	t.Helper()
 	catalog, err := compilerstarter.NewWithCompatibility(
 		publicstarter.APIVersion,
 		"go1.26.5",
@@ -235,4 +350,28 @@ func writeStarterSelection(
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func starterSelectionCLIModule(t *testing.T, source string) string {
+	t.Helper()
+	root := generationCLIModule(t, source)
+	path := filepath.Join(root, "searchstarter", "search.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`// Package searchstarter is explicit compiler support.
+//
+// @Module
+package searchstarter
+
+type Client struct{}
+
+// @Bean
+func New() *Client {
+	panic("starter entrypoints must not execute during analysis")
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }

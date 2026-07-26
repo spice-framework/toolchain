@@ -20,6 +20,7 @@ import (
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
+	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
@@ -204,22 +205,13 @@ func prepareFocusedModuleTest(
 	options load.Options,
 	loader programLoader,
 ) (modulith.Model, bool) {
-	program, resolution, ok := resolvePatterns(
+	program, resolution, _, ok := resolveValidatedCompilerPatterns(
 		arguments.patterns,
 		stderr,
 		options,
 		loader,
 		"module test discovery",
-	)
-	if !ok {
-		return modulith.Model{}, false
-	}
-	_, ok = prepareValidatedCompilerMetadata(
-		resolution.Occurrences,
-		stderr,
-		options,
-		"module test discovery",
-		"Spice module test failed: %d annotation validation error(s).",
+		"Spice module test failed",
 	)
 	if !ok {
 		return modulith.Model{}, false
@@ -415,24 +407,15 @@ func modulesCommand(
 	if len(parsed.patterns) == 0 {
 		parsed.patterns = []string{"./..."}
 	}
-	program, resolution, ok := resolvePatterns(
+	program, resolution, _, ok := resolveValidatedCompilerPatterns(
 		parsed.patterns,
 		stderr,
 		options,
 		loader,
 		"module discovery",
+		"Spice module documentation failed",
 	)
 	if !ok {
-		return 1
-	}
-	_, metadataOK := prepareValidatedCompilerMetadata(
-		resolution.Occurrences,
-		stderr,
-		options,
-		"module documentation",
-		"Spice module documentation failed: %d annotation validation error(s).",
-	)
-	if !metadataOK {
 		return 1
 	}
 	model := modulith.Build(program, resolution)
@@ -657,22 +640,13 @@ func prepareGeneration(
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
-	program, resolution, ok := resolvePatterns(
+	program, resolution, metadata, ok := resolveValidatedCompilerPatterns(
 		patterns,
 		stderr,
 		withAnalysisBuildTag(options),
 		loader,
 		"generation",
-	)
-	if !ok {
-		return codegen.Plan{}, "", false
-	}
-	metadata, ok := prepareValidatedCompilerMetadata(
-		resolution.Occurrences,
-		stderr,
-		options,
-		"generation",
-		"Spice generation failed: %d annotation validation error(s).",
+		"Spice generation failed",
 	)
 	if !ok {
 		return codegen.Plan{}, "", false
@@ -887,17 +861,13 @@ func executeGoTest(
 }
 
 func verify(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
-	program, result, ok := resolvePatterns(patterns, stderr, options, loader, "verification")
-	if !ok {
-		return 1
-	}
-
-	metadata, ok := prepareValidatedCompilerMetadata(
-		result.Occurrences,
+	program, result, metadata, ok := resolveValidatedCompilerPatterns(
+		patterns,
 		stderr,
 		options,
+		loader,
 		"verification",
-		"Spice verification failed: %d annotation validation error(s).",
+		"Spice verification failed",
 	)
 	if !ok {
 		return 1
@@ -994,6 +964,62 @@ func resolvePatterns(patterns []string, stderr io.Writer, options load.Options, 
 	return program, result, true
 }
 
+func resolveValidatedCompilerPatterns(
+	patterns []string,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+	operation string,
+	failurePrefix string,
+) (*load.Program, resolve.Result, compilerMetadata, bool) {
+	metadata, ok := prepareCompilerMetadata(stderr, options, operation)
+	if !ok {
+		return nil, resolve.Result{}, compilerMetadata{}, false
+	}
+	program, result, ok := resolvePatterns(
+		patterns,
+		stderr,
+		metadata.loadOptions(options),
+		loader,
+		operation,
+	)
+	if !ok {
+		return program, result, compilerMetadata{}, false
+	}
+	diagnostics := validationDiagnostics(result.Occurrences, metadata.registry)
+	if len(diagnostics) != 0 {
+		if err := reportDiagnostics(
+			stderr,
+			diagnostics,
+			fmt.Sprintf("%s: %d annotation validation error(s).", failurePrefix, len(diagnostics)),
+		); err != nil {
+			return program, result, compilerMetadata{}, false
+		}
+		return program, result, compilerMetadata{}, false
+	}
+
+	entryPoints := metadata.starterCatalog.ProviderEntrypoints(result.Occurrences)
+	if len(entryPoints) == 0 {
+		return program, result, metadata, true
+	}
+	catalog := provider.BuildEntrypoints(program, entryPoints)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		if err := reportDiagnostics(
+			stderr,
+			diagnostics,
+			fmt.Sprintf("%s: %d starter entrypoint error(s).", failurePrefix, len(diagnostics)),
+		); err != nil {
+			return program, result, compilerMetadata{}, false
+		}
+		return program, result, compilerMetadata{}, false
+	}
+	metadata.buildOptions.ProviderCatalogs = append(
+		append([]provider.Catalog(nil), metadata.buildOptions.ProviderCatalogs...),
+		catalog,
+	)
+	return program, result, metadata, true
+}
+
 func withAnalysisBuildTag(options load.Options) load.Options {
 	result := options
 	result.BuildFlags = nil
@@ -1057,8 +1083,18 @@ func addTagValue(tags map[string]struct{}, value string) {
 }
 
 type compilerMetadata struct {
-	registry     annotation.Registry
-	buildOptions application.BuildOptions
+	registry       annotation.Registry
+	starterCatalog compilerstarter.Catalog
+	buildOptions   application.BuildOptions
+}
+
+func (metadata compilerMetadata) loadOptions(options load.Options) load.Options {
+	result := options
+	result.AuxiliaryPackages = append(
+		append([]string(nil), options.AuxiliaryPackages...),
+		metadata.starterCatalog.EntryPointPackages()...,
+	)
+	return result
 }
 
 func prepareCompilerMetadata(
@@ -1071,31 +1107,6 @@ func prepareCompilerMetadata(
 		return metadata, true
 	}
 	if writeErr := writef(stderr, "Spice %s failed: %v\n", operation, err); writeErr != nil {
-		return compilerMetadata{}, false
-	}
-	return compilerMetadata{}, false
-}
-
-func prepareValidatedCompilerMetadata(
-	occurrences []resolve.Occurrence,
-	stderr io.Writer,
-	options load.Options,
-	operation string,
-	summaryFormat string,
-) (compilerMetadata, bool) {
-	metadata, ok := prepareCompilerMetadata(stderr, options, operation)
-	if !ok {
-		return compilerMetadata{}, false
-	}
-	diagnostics := validationDiagnostics(occurrences, metadata.registry)
-	if len(diagnostics) == 0 {
-		return metadata, true
-	}
-	if err := reportDiagnostics(
-		stderr,
-		diagnostics,
-		fmt.Sprintf(summaryFormat, len(diagnostics)),
-	); err != nil {
 		return compilerMetadata{}, false
 	}
 	return compilerMetadata{}, false
@@ -1132,6 +1143,7 @@ func loadCompilerMetadata(options load.Options) (compilerMetadata, error) {
 		)
 	}
 	result.registry = registry
+	result.starterCatalog = catalog
 	result.buildOptions.BootstrapDefinitions = catalog.BootstrapDefinitions()
 	return result, nil
 }
@@ -1241,7 +1253,8 @@ Commands:
 
 Starter selection:
   Commit .spice/starters.json to explicitly compose compatible third-party
-  annotation manifests. Installed or imported modules are never auto-enabled.`)
+  annotations and constructor entrypoints. Installed or imported modules are
+  never auto-enabled.`)
 	return err
 }
 

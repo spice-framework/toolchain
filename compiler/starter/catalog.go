@@ -9,6 +9,8 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
+	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/StevenBuglione/spice/compiler/resolve"
 	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
@@ -19,6 +21,7 @@ type Catalog struct {
 	definitions          []annotation.Definition
 	bootstrapDefinitions []compilerbootstrap.Definition
 	entryPoints          map[string][]compilerbootstrap.EntryPoint
+	entryPointPackages   []string
 }
 
 // New validates manifests against the current Spice API and Go runtime.
@@ -50,6 +53,8 @@ func NewWithCompatibility(
 	manifestIDs := make(map[string]struct{}, len(normalized))
 	annotationSources := make(map[string]string)
 	capabilitySources := make(map[compilerbootstrap.Capability]string)
+	entryPointSources := make(map[string]string)
+	entryPointPackages := make(map[string]struct{})
 	for _, definition := range compilerbootstrap.Builtins() {
 		capabilitySources[definition.Capability] = "Spice built-in"
 	}
@@ -65,6 +70,20 @@ func NewWithCompatibility(
 			)
 		}
 		manifestIDs[spec.ID] = struct{}{}
+		for _, entryPoint := range spec.Activation.EntryPoints {
+			key := entryPoint.Package + "\x00" + entryPoint.Symbol
+			if source, duplicate := entryPointSources[key]; duplicate {
+				return Catalog{}, fmt.Errorf(
+					"compose starter catalog: entrypoint %s.%s is contributed by both %q and %q",
+					entryPoint.Package,
+					entryPoint.Symbol,
+					source,
+					spec.ID,
+				)
+			}
+			entryPointSources[key] = spec.ID
+			entryPointPackages[entryPoint.Package] = struct{}{}
+		}
 
 		for _, definition := range manifest.Definitions() {
 			if source, duplicate := annotationSources[definition.Name]; duplicate {
@@ -112,6 +131,10 @@ func NewWithCompatibility(
 		}
 		return left.Annotation < right.Annotation
 	})
+	for packagePath := range entryPointPackages {
+		result.entryPointPackages = append(result.entryPointPackages, packagePath)
+	}
+	sort.Strings(result.entryPointPackages)
 	return result, nil
 }
 
@@ -145,6 +168,86 @@ func (catalog Catalog) EntryPoints(annotationName string) []compilerbootstrap.En
 		[]compilerbootstrap.EntryPoint(nil),
 		catalog.entryPoints[annotationName]...,
 	)
+}
+
+// EntryPointPackages returns every exact constructor package required to
+// resolve this explicit catalog in one typed compiler program.
+func (catalog Catalog) EntryPointPackages() []string {
+	return append([]string(nil), catalog.entryPointPackages...)
+}
+
+// ProviderEntrypoints returns constructors activated by the resolved
+// application source. Explicit-constructor manifests activate all declared
+// constructors; explicit-annotation manifests activate only feature-mapped
+// constructors whose annotation occurs on an @Application marker. Repeated
+// occurrences never duplicate a provider.
+func (catalog Catalog) ProviderEntrypoints(
+	occurrences []resolve.Occurrence,
+) []provider.Entrypoint {
+	applicationSymbols := make(map[string]struct{})
+	for _, occurrence := range occurrences {
+		if occurrence.Annotation.Name == "Application" && occurrence.SymbolID != "" {
+			applicationSymbols[occurrence.SymbolID] = struct{}{}
+		}
+	}
+	annotations := make(map[string]struct{}, len(occurrences))
+	for _, occurrence := range occurrences {
+		if _, application := applicationSymbols[occurrence.SymbolID]; application {
+			annotations[occurrence.Annotation.Name] = struct{}{}
+		}
+	}
+	var result []provider.Entrypoint
+	for _, manifest := range catalog.manifests {
+		spec := manifest.Spec()
+		selected := selectedEntryPoints(spec, annotations)
+		for _, entryPoint := range selected {
+			result = append(result, provider.Entrypoint{
+				PackagePath:   entryPoint.Package,
+				Symbol:        entryPoint.Symbol,
+				SourceID:      spec.ID,
+				SourceVersion: spec.Version,
+			})
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].PackagePath != result[j].PackagePath {
+			return result[i].PackagePath < result[j].PackagePath
+		}
+		if result[i].Symbol != result[j].Symbol {
+			return result[i].Symbol < result[j].Symbol
+		}
+		return result[i].SourceID < result[j].SourceID
+	})
+	return result
+}
+
+func selectedEntryPoints(
+	spec publicstarter.Spec,
+	annotations map[string]struct{},
+) []publicstarter.EntryPoint {
+	if spec.Activation.Mode == publicstarter.ActivationExplicitConstructor {
+		return append([]publicstarter.EntryPoint(nil), spec.Activation.EntryPoints...)
+	}
+	selected := make(map[string]publicstarter.EntryPoint)
+	for _, feature := range spec.ApplicationFeatures {
+		if _, enabled := annotations[feature.Annotation]; !enabled {
+			continue
+		}
+		for _, entryPoint := range feature.EntryPoints {
+			selected[entryPoint.Package+"\x00"+entryPoint.Symbol] = entryPoint
+		}
+	}
+	result := make([]publicstarter.EntryPoint, 0, len(selected))
+	for _, entryPoint := range selected {
+		result = append(result, entryPoint)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Package != result[j].Package {
+			return result[i].Package < result[j].Package
+		}
+		return result[i].Symbol < result[j].Symbol
+	})
+	return result
 }
 
 func bootstrapDefinition(
