@@ -79,8 +79,8 @@ func NewWithCompatibility(
 			result.definitions = append(result.definitions, definition)
 		}
 
-		entryPoints := bootstrapEntryPoints(spec.Activation.EntryPoints)
 		for _, feature := range spec.ApplicationFeatures {
+			entryPoints := bootstrapEntryPoints(feature.EntryPoints)
 			capability := compilerbootstrap.Capability(feature.Capability)
 			if source, duplicate := capabilitySources[capability]; duplicate {
 				return Catalog{}, fmt.Errorf(

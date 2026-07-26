@@ -196,6 +196,9 @@ func writeStarterSelection(
 			{
 				Annotation: "search.Enable",
 				Capability: "search.client",
+				EntryPoints: []publicstarter.EntryPoint{
+					{Package: starterID, Symbol: entryPoint},
+				},
 				Options: []publicstarter.OptionSpec{
 					{
 						Name:          "indexes",

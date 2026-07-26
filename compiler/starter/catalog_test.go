@@ -147,6 +147,50 @@ func TestCatalogRegistryRejectsBuiltInCollision(t *testing.T) {
 	}
 }
 
+func TestCatalogMapsExactFeatureEntryPointSubsets(t *testing.T) {
+	spec := annotatedManifest(
+		t,
+		searchID,
+		"1.2.0",
+		"search.Enable",
+		"search.client",
+	).Spec()
+	spec.ApplicationFeatures[0].EntryPoints = []publicstarter.EntryPoint{
+		{Package: searchID, Symbol: "New"},
+	}
+	spec.Capabilities = append(spec.Capabilities, "search.admin")
+	spec.Annotations = append(spec.Annotations, publicstarter.AnnotationSpec{
+		Name:    "search.Admin",
+		Targets: []annotation.Target{annotation.TargetFunction},
+	})
+	spec.ApplicationFeatures = append(
+		spec.ApplicationFeatures,
+		publicstarter.FeatureSpec{
+			Annotation:  "search.Admin",
+			Capability:  "search.admin",
+			EntryPoints: []publicstarter.EntryPoint{{Package: searchID, Symbol: "NewAdmin"}},
+		},
+	)
+
+	definitions := newCatalog(t, mustManifest(t, spec)).BootstrapDefinitions()
+	if len(definitions) != 2 {
+		t.Fatalf("BootstrapDefinitions() count = %d", len(definitions))
+	}
+	got := map[string][]compilerbootstrap.EntryPoint{
+		definitions[0].Annotation: definitions[0].EntryPoints,
+		definitions[1].Annotation: definitions[1].EntryPoints,
+	}
+	if !slices.Equal(
+		got["search.Enable"],
+		[]compilerbootstrap.EntryPoint{{Package: searchID, Symbol: "New"}},
+	) || !slices.Equal(
+		got["search.Admin"],
+		[]compilerbootstrap.EntryPoint{{Package: searchID, Symbol: "NewAdmin"}},
+	) {
+		t.Fatalf("feature entrypoints = %#v", got)
+	}
+}
+
 func TestBootstrapExtensionDefinitionsFailClosed(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -280,6 +324,7 @@ func Application(Search) {
 
 	entryPointSpec := manifest.Spec()
 	entryPointSpec.Activation.EntryPoints[0].Symbol = "NewAlias"
+	entryPointSpec.ApplicationFeatures[0].EntryPoints[0].Symbol = "NewAlias"
 	entryPointModel := buildModel(t, program, resolution, newCatalog(t, mustManifest(t, entryPointSpec)))
 	entryPointPlan := renderPlan(t, program, entryPointModel, target)
 	if firstPlan.Manifest().InputSHA256 == entryPointPlan.Manifest().InputSHA256 {
@@ -331,6 +376,10 @@ func annotatedManifest(
 			{
 				Annotation: annotationName,
 				Capability: capability,
+				EntryPoints: []publicstarter.EntryPoint{
+					{Package: id, Symbol: "NewAdmin"},
+					{Package: id, Symbol: "New"},
+				},
 				Options: []publicstarter.OptionSpec{
 					{
 						Name:           "indexes",
