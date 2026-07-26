@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	publicstarter "github.com/StevenBuglione/spice/starter"
 )
@@ -114,6 +116,80 @@ func TestCatalogAcceptsExactVersionReplacementIdentity(t *testing.T) {
 	}})
 	if len(diagnostics) != 0 {
 		t.Fatalf("ValidateModuleVersions() diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestCatalogSelectsDependenciesFromActiveStarters(t *testing.T) {
+	constructorSpec := constructorManifest(
+		t,
+		"example.com/acme/starter/cache",
+	).Spec()
+	constructorSpec.Dependencies = []publicstarter.Dependency{{
+		Module:  "example.com/cache-client",
+		Version: "v1.0.0",
+		License: "MIT",
+	}}
+	annotationSpec := annotatedManifest(
+		t,
+		searchID,
+		"1.2.0",
+		"search.Enable",
+		"search.client",
+	).Spec()
+	annotationSpec.Dependencies = []publicstarter.Dependency{{
+		Module:  "example.com/search-client",
+		Version: "v2.0.0",
+		License: "Apache-2.0",
+	}}
+	catalog := newCatalog(
+		t,
+		mustManifest(t, annotationSpec),
+		mustManifest(t, constructorSpec),
+	)
+	constructorOnly := []compilerstarter.DependencyRequirement{{
+		SourceID: "example.com/acme/starter/cache",
+		Module:   "example.com/cache-client",
+		Version:  "v1.0.0",
+		License:  "MIT",
+	}}
+	if got := catalog.ActiveDependencies(nil); !slices.Equal(
+		got,
+		constructorOnly,
+	) {
+		t.Fatalf("ActiveDependencies(nil) = %#v, want %#v", got, constructorOnly)
+	}
+
+	application := resolve.Occurrence{
+		Annotation: annotation.Annotation{Name: "Application"},
+		SymbolID:   "application",
+	}
+	feature := resolve.Occurrence{
+		Annotation: annotation.Annotation{Name: "search.Enable"},
+		SymbolID:   "application",
+	}
+	active := catalog.ActiveDependencies([]resolve.Occurrence{
+		feature,
+		application,
+	})
+	wantActive := []compilerstarter.DependencyRequirement{
+		constructorOnly[0],
+		{
+			SourceID: searchID,
+			Module:   "example.com/search-client",
+			Version:  "v2.0.0",
+			License:  "Apache-2.0",
+		},
+	}
+	if !slices.Equal(active, wantActive) {
+		t.Fatalf("ActiveDependencies() = %#v, want %#v", active, wantActive)
+	}
+
+	feature.SymbolID = "other-function"
+	if got := catalog.ActiveDependencies([]resolve.Occurrence{
+		application,
+		feature,
+	}); !slices.Equal(got, constructorOnly) {
+		t.Fatalf("misplaced annotation selected dependencies: %#v", got)
 	}
 }
 

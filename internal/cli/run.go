@@ -998,6 +998,40 @@ func resolveValidatedCompilerPatterns(
 		return program, result, compilerMetadata{}, false
 	}
 
+	requirements := metadata.starterCatalog.ActiveDependencies(
+		result.Occurrences,
+	)
+	if len(requirements) != 0 {
+		modules, err := loadModuleVersions(context.Background(), options)
+		if err != nil {
+			if writeErr := writef(
+				stderr,
+				"%s: inspect selected starter dependencies: %v\n",
+				failurePrefix,
+				err,
+			); writeErr != nil {
+				return program, result, compilerMetadata{}, false
+			}
+			return program, result, compilerMetadata{}, false
+		}
+		dependencyDiagnostics := metadata.starterCatalog.
+			ValidateActiveModuleVersions(result.Occurrences, modules)
+		if len(dependencyDiagnostics) != 0 {
+			if err := reportDiagnostics(
+				stderr,
+				dependencyDiagnostics,
+				fmt.Sprintf(
+					"%s: %d starter dependency alignment error(s).",
+					failurePrefix,
+					len(dependencyDiagnostics),
+				),
+			); err != nil {
+				return program, result, compilerMetadata{}, false
+			}
+			return program, result, compilerMetadata{}, false
+		}
+	}
+
 	entryPoints := metadata.starterCatalog.ProviderEntrypoints(result.Occurrences)
 	if len(entryPoints) == 0 {
 		return program, result, metadata, true

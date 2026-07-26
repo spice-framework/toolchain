@@ -99,7 +99,17 @@ func TestCommandsUseExplicitRepositoryStarterSelection(t *testing.T) {
 
 func TestExplicitAnnotationStarterDoesNotActivateWithoutAnnotation(t *testing.T) {
 	root := starterSelectionCLIModule(t, generationApplicationSource)
-	writeStarterSelection(t, root, "1.2.0", "New")
+	writeStarterSelectionWithDependencies(
+		t,
+		root,
+		"1.2.0",
+		"New",
+		[]publicstarter.Dependency{{
+			Module:  "example.com/inactive-client",
+			Version: "v1.0.0",
+			License: "MIT",
+		}},
+	)
 
 	code, stdout, stderr := runModule(root, "generate", "./app")
 	if code != 0 || !strings.Contains(stdout, "generated target Application") || stderr != "" {
@@ -155,6 +165,97 @@ func Application(*ApplicationService) {}
 	}
 	if !strings.Contains(string(generated), "searchstarter.New()") {
 		t.Fatalf("explicit constructor did not generate provider call:\n%s", generated)
+	}
+}
+
+func TestCommandsValidateActiveStarterDependencies(t *testing.T) {
+	const source = `package app
+
+import "example.com/cli-generation/searchstarter"
+
+// @Application
+func Application(*searchstarter.Client) {}
+`
+	tests := []struct {
+		name       string
+		dependency publicstarter.Dependency
+		wantCode   int
+		wantOutput string
+	}{
+		{
+			name: "exact version",
+			dependency: publicstarter.Dependency{
+				Module:  "golang.org/x/tools",
+				Version: "v0.48.0",
+				License: "BSD-3-Clause",
+			},
+			wantOutput: "verification passed",
+		},
+		{
+			name: "missing module",
+			dependency: publicstarter.Dependency{
+				Module:  "example.com/missing-client",
+				Version: "v1.2.3",
+				License: "MIT",
+			},
+			wantCode:   1,
+			wantOutput: "absent from the application build list",
+		},
+		{
+			name: "version mismatch",
+			dependency: publicstarter.Dependency{
+				Module:  "golang.org/x/tools",
+				Version: "v0.47.0",
+				License: "BSD-3-Clause",
+			},
+			wantCode:   1,
+			wantOutput: "application resolves v0.48.0",
+		},
+		{
+			name: "unreviewed replacement",
+			dependency: publicstarter.Dependency{
+				Module:  "github.com/StevenBuglione/spice",
+				Version: "v0.0.0",
+				License: "Apache-2.0",
+			},
+			wantCode:   1,
+			wantOutput: "application replaces it with",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := starterSelectionCLIModule(t, source)
+			writeConstructorStarterSelectionWithDependencies(
+				t,
+				root,
+				[]publicstarter.Dependency{test.dependency},
+			)
+
+			code, stdout, stderr := runModule(root, "verify", "./app")
+			if code != test.wantCode {
+				t.Fatalf(
+					"verify: code=%d, want %d; stdout=%q stderr=%q",
+					code,
+					test.wantCode,
+					stdout,
+					stderr,
+				)
+			}
+			if test.wantCode == 0 {
+				if !strings.Contains(stdout, test.wantOutput) || stderr != "" {
+					t.Fatalf("verify: stdout=%q stderr=%q", stdout, stderr)
+				}
+				return
+			}
+			if stdout != "" ||
+				!strings.Contains(
+					stderr,
+					"starter dependency alignment error",
+				) ||
+				!strings.Contains(stderr, test.wantOutput) {
+				t.Fatalf("verify: stdout=%q stderr=%q", stdout, stderr)
+			}
+		})
 	}
 }
 
@@ -244,6 +345,23 @@ func writeStarterSelection(
 	entryPoint string,
 ) {
 	t.Helper()
+	writeStarterSelectionWithDependencies(
+		t,
+		root,
+		version,
+		entryPoint,
+		nil,
+	)
+}
+
+func writeStarterSelectionWithDependencies(
+	t *testing.T,
+	root string,
+	version string,
+	entryPoint string,
+	dependencies []publicstarter.Dependency,
+) {
+	t.Helper()
 	const starterID = "example.com/cli-generation/starter/search"
 	const entryPointPackage = "example.com/cli-generation/searchstarter"
 	manifest, err := publicstarter.New(publicstarter.Spec{
@@ -256,6 +374,7 @@ func writeStarterSelection(
 		License:      "Apache-2.0",
 		Review:       "docs/dependency-review.md",
 		Capabilities: []string{"search.client"},
+		Dependencies: dependencies,
 		Activation: publicstarter.Activation{
 			Mode: publicstarter.ActivationExplicitAnnotation,
 			EntryPoints: []publicstarter.EntryPoint{
@@ -305,6 +424,15 @@ func writeStarterSelection(
 
 func writeConstructorStarterSelection(t *testing.T, root string) {
 	t.Helper()
+	writeConstructorStarterSelectionWithDependencies(t, root, nil)
+}
+
+func writeConstructorStarterSelectionWithDependencies(
+	t *testing.T,
+	root string,
+	dependencies []publicstarter.Dependency,
+) {
+	t.Helper()
 	manifest, err := publicstarter.New(publicstarter.Spec{
 		Schema:       publicstarter.Schema,
 		ID:           "example.com/cli-generation/starter/search",
@@ -315,6 +443,7 @@ func writeConstructorStarterSelection(t *testing.T, root string) {
 		License:      "Apache-2.0",
 		Review:       "docs/dependency-review.md",
 		Capabilities: []string{"search.client"},
+		Dependencies: dependencies,
 		Activation: publicstarter.Activation{
 			Mode: publicstarter.ActivationExplicitConstructor,
 			EntryPoints: []publicstarter.EntryPoint{{

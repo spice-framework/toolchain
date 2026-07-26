@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/StevenBuglione/spice/compiler/resolve"
 )
 
 // DependencyRequirement identifies one exact reviewed module version required
@@ -42,9 +44,36 @@ func (diagnostic DependencyDiagnostic) Error() string {
 // Dependencies returns every reviewed dependency requirement in deterministic
 // module and starter order.
 func (catalog Catalog) Dependencies() []DependencyRequirement {
+	return catalog.dependencies(nil)
+}
+
+// ActiveDependencies returns reviewed requirements only for manifests
+// activated by the supplied application annotations.
+func (catalog Catalog) ActiveDependencies(
+	occurrences []resolve.Occurrence,
+) []DependencyRequirement {
+	annotations := applicationAnnotations(occurrences)
+	active := make(map[string]struct{})
+	for _, manifest := range catalog.manifests {
+		spec := manifest.Spec()
+		if len(selectedEntryPoints(spec, annotations)) != 0 {
+			active[spec.ID] = struct{}{}
+		}
+	}
+	return catalog.dependencies(active)
+}
+
+func (catalog Catalog) dependencies(
+	active map[string]struct{},
+) []DependencyRequirement {
 	var result []DependencyRequirement
 	for _, manifest := range catalog.manifests {
 		spec := manifest.Spec()
+		if active != nil {
+			if _, selected := active[spec.ID]; !selected {
+				continue
+			}
+		}
 		for _, dependency := range spec.Dependencies {
 			result = append(result, DependencyRequirement{
 				SourceID: spec.ID,
@@ -68,7 +97,22 @@ func (catalog Catalog) Dependencies() []DependencyRequirement {
 func (catalog Catalog) ValidateModuleVersions(
 	modules []ModuleVersion,
 ) []DependencyDiagnostic {
-	requirements := catalog.Dependencies()
+	return validateModuleVersions(catalog.Dependencies(), modules)
+}
+
+// ValidateActiveModuleVersions validates reviewed dependencies only for
+// starters activated by the supplied application annotations.
+func (catalog Catalog) ValidateActiveModuleVersions(
+	occurrences []resolve.Occurrence,
+	modules []ModuleVersion,
+) []DependencyDiagnostic {
+	return validateModuleVersions(catalog.ActiveDependencies(occurrences), modules)
+}
+
+func validateModuleVersions(
+	requirements []DependencyRequirement,
+	modules []ModuleVersion,
+) []DependencyDiagnostic {
 	if len(requirements) == 0 {
 		return nil
 	}

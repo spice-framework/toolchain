@@ -240,18 +240,7 @@ func (catalog Catalog) EntryPointPackages() []string {
 func (catalog Catalog) ProviderEntrypoints(
 	occurrences []resolve.Occurrence,
 ) []provider.Entrypoint {
-	applicationSymbols := make(map[string]struct{})
-	for _, occurrence := range occurrences {
-		if occurrence.Annotation.Name == "Application" && occurrence.SymbolID != "" {
-			applicationSymbols[occurrence.SymbolID] = struct{}{}
-		}
-	}
-	annotations := make(map[string]struct{}, len(occurrences))
-	for _, occurrence := range occurrences {
-		if _, application := applicationSymbols[occurrence.SymbolID]; application {
-			annotations[occurrence.Annotation.Name] = struct{}{}
-		}
-	}
+	annotations := applicationAnnotations(occurrences)
 	var result []provider.Entrypoint
 	for _, manifest := range catalog.manifests {
 		spec := manifest.Spec()
@@ -275,6 +264,24 @@ func (catalog Catalog) ProviderEntrypoints(
 		return result[i].SourceID < result[j].SourceID
 	})
 	return result
+}
+
+func applicationAnnotations(
+	occurrences []resolve.Occurrence,
+) map[string]struct{} {
+	applicationSymbols := make(map[string]struct{})
+	for _, occurrence := range occurrences {
+		if occurrence.Annotation.Name == "Application" && occurrence.SymbolID != "" {
+			applicationSymbols[occurrence.SymbolID] = struct{}{}
+		}
+	}
+	annotations := make(map[string]struct{}, len(occurrences))
+	for _, occurrence := range occurrences {
+		if _, application := applicationSymbols[occurrence.SymbolID]; application {
+			annotations[occurrence.Annotation.Name] = struct{}{}
+		}
+	}
+	return annotations
 }
 
 func selectedEntryPoints(
