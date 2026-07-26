@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/compiler/application"
+	compilerasync "github.com/StevenBuglione/spice/compiler/async"
 	compilercache "github.com/StevenBuglione/spice/compiler/cache"
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
@@ -44,6 +45,7 @@ const (
 	AnalysisBuildTag = "spice_generate"
 
 	generatedFilename = "zz_spice_gen.go"
+	asyncPath         = "github.com/StevenBuglione/spice/async"
 	configPath        = "github.com/StevenBuglione/spice/config"
 	cachePath         = "github.com/StevenBuglione/spice/cache"
 	dataPath          = "github.com/StevenBuglione/spice/data"
@@ -56,6 +58,7 @@ const (
 	webPath           = "github.com/StevenBuglione/spice/web"
 
 	shutdownConfigurationKey = "spice.shutdown-timeout"
+	asyncConcurrencyKey      = "spice.async.max-concurrency"
 )
 
 var targetIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -319,12 +322,14 @@ func renderSource(
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
 	jobs := model.Jobs()
+	asyncTasks := model.AsyncTasks()
 	events := model.Events()
 	transactions := model.Transactions()
 	caches := model.Caches()
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
 	features.authorization = hasAuthorization(controllers)
 	features.scheduling = len(jobs) != 0
+	features.asynchronous = len(asyncTasks) != 0
 	features.transactions = len(transactions) != 0
 	features.events = len(events) != 0
 	features.caching = len(caches) != 0
@@ -332,6 +337,7 @@ func renderSource(
 		providers,
 		configTypes,
 		controllers,
+		asyncTasks,
 		events,
 		caches,
 		features,
@@ -356,13 +362,17 @@ func renderSource(
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
 	source.WriteString("\tshutdownTimeout time.Duration\n")
+	if features.asynchronous {
+		source.WriteString("\tasyncExecutor *spiceasync.Executor\n")
+		writeAsyncApplicationFields(&source, asyncTasks, aliases)
+	}
 	if features.hasMux {
 		source.WriteString("\tmux *http.ServeMux\n")
 		source.WriteString("\thandler http.Handler\n")
 	}
 	source.WriteString("}\n\n")
 	writeApplicationOptions(&source, features)
-	writeConfigurationAPI(&source, configTypes, caches)
+	writeConfigurationAPI(&source, configTypes, caches, features.asynchronous)
 	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
 	source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
 	source.WriteString("}\n\n")
@@ -393,6 +403,14 @@ func renderSource(
 	); providerErr != nil {
 		return nil, providerErr
 	}
+	writeAsyncSetup(
+		&source,
+		asyncTasks,
+		providerVariables,
+		providerModules,
+		applicationTarget.PackagePath,
+		aliases,
+	)
 	cacheRuntimes := writeCacheSetup(
 		&source,
 		caches,
@@ -445,6 +463,7 @@ func renderSource(
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
 	writeLifecycleMethods(&source)
+	writeAsyncApplicationMethods(&source, asyncTasks, aliases)
 	if features.hasMux {
 		writeHandlerMethod(&source)
 	}
@@ -1298,6 +1317,10 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 		source.WriteString("\tScheduleWaiter spiceschedule.Waiter\n")
 		source.WriteString("\tScheduleObservers []spiceschedule.Observer\n")
 	}
+	if features.asynchronous {
+		source.WriteString("\tAsyncContext context.Context\n")
+		source.WriteString("\tAsyncObservers []spiceasync.Observer\n")
+	}
 	if features.events {
 		source.WriteString("\tEventObservers []spiceevent.Observer\n")
 	}
@@ -1313,6 +1336,7 @@ func writeConfigurationAPI(
 	source *bytes.Buffer,
 	configTypes []configuration.Type,
 	caches []compilercache.Boundary,
+	asynchronous bool,
 ) {
 	source.WriteString("func ConfigurationSchema() (spiceconfig.Schema, error) {\n")
 	source.WriteString("\treturn spiceconfig.NewSchema(\n")
@@ -1342,6 +1366,20 @@ func writeConfigurationAPI(
 	}
 	for _, boundary := range caches {
 		writeCacheConfigurationProperties(source, boundary)
+	}
+	if asynchronous {
+		source.WriteString("\t\tspiceconfig.Property{\n")
+		fmt.Fprintf(
+			source,
+			"\t\t\tKey: %s,\n",
+			strconv.Quote(asyncConcurrencyKey),
+		)
+		source.WriteString("\t\t\tKind: spiceconfig.KindInteger,\n")
+		source.WriteString("\t\t\tDescription: \"Maximum concurrent generated asynchronous tasks\",\n")
+		source.WriteString("\t\t\tEnvironment: \"SPICE_ASYNC_MAX_CONCURRENCY\",\n")
+		source.WriteString("\t\t\tDefault: \"16\",\n")
+		source.WriteString("\t\t\tHasDefault: true,\n")
+		source.WriteString("\t\t},\n")
 	}
 	source.WriteString("\t\tspiceconfig.Property{\n")
 	fmt.Fprintf(source, "\t\t\tKey: %s,\n", strconv.Quote(shutdownConfigurationKey))
@@ -1651,6 +1689,222 @@ func writeProviderCall(
 	fmt.Fprintf(source, "\t_ = %s\n", variable)
 }
 
+func writeAsyncApplicationFields(
+	source *bytes.Buffer,
+	tasks []compilerasync.Task,
+	aliases map[string]string,
+) {
+	for _, task := range tasks {
+		fmt.Fprintf(
+			source,
+			"\t%s func(%s) error\n",
+			asyncFieldName(task),
+			strings.Join(asyncParameterTypes(task, aliases), ", "),
+		)
+	}
+}
+
+func writeAsyncSetup(
+	source *bytes.Buffer,
+	tasks []compilerasync.Task,
+	providerVariables map[string]string,
+	providerModules map[string]string,
+	applicationModule string,
+	aliases map[string]string,
+) {
+	if len(tasks) == 0 {
+		return
+	}
+	source.WriteString("\tasyncConcurrency, err := configurationSnapshot.Integer(")
+	source.WriteString(strconv.Quote(asyncConcurrencyKey))
+	source.WriteString(")\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"decode generated async concurrency: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tif asyncConcurrency < 1 || uint64(asyncConcurrency) > uint64(^uint(0)>>1) {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"decode generated async concurrency: value must fit a positive int\"))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tasyncContext := options.AsyncContext\n")
+	source.WriteString("\tif asyncContext == nil {\n")
+	source.WriteString("\t\tasyncContext = context.WithoutCancel(ctx)\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tgeneratedAsyncExecutor, err := spiceasync.NewExecutor(\n")
+	source.WriteString("\t\tasyncContext,\n")
+	source.WriteString("\t\tint(asyncConcurrency),\n")
+	source.WriteString("\t\toptions.AsyncObservers...,\n")
+	source.WriteString("\t)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"construct generated async executor: %w\", err))\n")
+	source.WriteString("\t}\n")
+	fmt.Fprintf(
+		source,
+		"\tif err := application.coordinator.RegisterModuleCleanup(%s, \"spice.async\", generatedAsyncExecutor.Shutdown); err != nil {\n",
+		strconv.Quote(applicationModule),
+	)
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"register generated async cleanup: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tapplication.asyncExecutor = generatedAsyncExecutor\n")
+	for _, task := range tasks {
+		writeAsyncSubmitClosure(
+			source,
+			task,
+			providerVariables[task.ProviderID],
+			asyncTaskModule(task, providerModules),
+			aliases,
+		)
+	}
+}
+
+func writeAsyncSubmitClosure(
+	source *bytes.Buffer,
+	task compilerasync.Task,
+	providerVariable string,
+	module string,
+	aliases map[string]string,
+) {
+	field := asyncFieldName(task)
+	declarations := asyncParameterDeclarations(task, aliases)
+	arguments := asyncArgumentNames(task)
+	fmt.Fprintf(
+		source,
+		"\tapplication.%s = func(%s) error {\n",
+		field,
+		strings.Join(declarations, ", "),
+	)
+	source.WriteString("\t\treturn generatedAsyncExecutor.Submit(\n")
+	source.WriteString("\t\t\tadmission,\n")
+	source.WriteString("\t\t\tspiceasync.Definition{\n")
+	fmt.Fprintf(source, "\t\t\t\tID: %s,\n", strconv.Quote(task.MethodID))
+	fmt.Fprintf(source, "\t\t\t\tModule: %s,\n", strconv.Quote(module))
+	source.WriteString("\t\t\t},\n")
+	source.WriteString("\t\t\tfunc(taskContext context.Context) error {\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\t\treturn %s.%s(taskContext%s)\n",
+		providerVariable,
+		task.Method.Name,
+		asyncInvocationArguments(arguments),
+	)
+	source.WriteString("\t\t\t},\n")
+	source.WriteString("\t\t)\n")
+	source.WriteString("\t}\n")
+}
+
+func writeAsyncApplicationMethods(
+	source *bytes.Buffer,
+	tasks []compilerasync.Task,
+	aliases map[string]string,
+) {
+	for _, task := range tasks {
+		declarations := asyncParameterDeclarations(task, aliases)
+		arguments := asyncArgumentNames(task)
+		fmt.Fprintf(
+			source,
+			"func (application *Application) %s(%s) error {\n",
+			task.SubmitMethod,
+			strings.Join(declarations, ", "),
+		)
+		fmt.Fprintf(
+			source,
+			"\tif application == nil || application.%s == nil {\n",
+			asyncFieldName(task),
+		)
+		fmt.Fprintf(
+			source,
+			"\t\treturn fmt.Errorf(%s)\n",
+			strconv.Quote(
+				"submit asynchronous task "+task.MethodID+
+					": application is nil",
+			),
+		)
+		source.WriteString("\t}\n")
+		source.WriteString("\tif state := application.State(); state != spicelifecycle.StateReady {\n")
+		fmt.Fprintf(
+			source,
+			"\t\treturn fmt.Errorf(%s, state)\n",
+			strconv.Quote(
+				"submit asynchronous task "+task.MethodID+
+					": application state %s is not ready",
+			),
+		)
+		source.WriteString("\t}\n")
+		fmt.Fprintf(
+			source,
+			"\treturn application.%s(%s)\n",
+			asyncFieldName(task),
+			strings.Join(arguments, ", "),
+		)
+		source.WriteString("}\n\n")
+	}
+	if len(tasks) == 0 {
+		return
+	}
+	source.WriteString("func (application *Application) AsyncSnapshot() spiceasync.Snapshot {\n")
+	source.WriteString("\tif application == nil || application.asyncExecutor == nil {\n")
+	source.WriteString("\t\treturn spiceasync.Snapshot{Closed: true}\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\treturn application.asyncExecutor.Snapshot()\n")
+	source.WriteString("}\n\n")
+}
+
+func asyncParameterTypes(
+	task compilerasync.Task,
+	aliases map[string]string,
+) []string {
+	result := []string{"context.Context"}
+	for _, parameter := range task.Parameters() {
+		result = append(result, renderedType(parameter.Type, aliases))
+	}
+	return result
+}
+
+func asyncParameterDeclarations(
+	task compilerasync.Task,
+	aliases map[string]string,
+) []string {
+	result := []string{"admission context.Context"}
+	for _, parameter := range task.Parameters() {
+		result = append(
+			result,
+			fmt.Sprintf(
+				"argument%d %s",
+				parameter.Index,
+				renderedType(parameter.Type, aliases),
+			),
+		)
+	}
+	return result
+}
+
+func asyncArgumentNames(task compilerasync.Task) []string {
+	result := []string{"admission"}
+	for _, parameter := range task.Parameters() {
+		result = append(result, "argument"+strconv.Itoa(parameter.Index))
+	}
+	return result
+}
+
+func asyncInvocationArguments(arguments []string) string {
+	if len(arguments) < 2 {
+		return ""
+	}
+	return ", " + strings.Join(arguments[1:], ", ")
+}
+
+func asyncFieldName(task compilerasync.Task) string {
+	return "submit" + strings.TrimPrefix(task.SubmitMethod, "Submit")
+}
+
+func asyncTaskModule(
+	task compilerasync.Task,
+	providerModules map[string]string,
+) string {
+	if module := providerModules[task.ProviderID]; module != "" {
+		return module
+	}
+	return task.Method.PackagePath
+}
+
 func writeHooks(
 	source *bytes.Buffer,
 	model application.Model,
@@ -1837,6 +2091,7 @@ func importAliases(
 	providers []provider.Provider,
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
+	asyncTasks []compilerasync.Task,
 	events []compilerevent.Topic,
 	caches []compilercache.Boundary,
 	features commandFeatures,
@@ -1869,6 +2124,9 @@ func importAliases(
 	}
 	if features.scheduling {
 		aliases[schedulePath] = "spiceschedule"
+	}
+	if features.asynchronous {
+		aliases[asyncPath] = "spiceasync"
 	}
 	if features.transactions {
 		aliases["database/sql"] = "sql"
@@ -1903,6 +2161,7 @@ func importAliases(
 		"slog":                      {},
 		"sql":                       {},
 		"spiceconfig":               {},
+		"spiceasync":                {},
 		"spicecache":                {},
 		"spicedata":                 {},
 		"spiceevent":                {},
@@ -1919,6 +2178,7 @@ func importAliases(
 		providers,
 		configTypes,
 		controllers,
+		asyncTasks,
 		events,
 		caches,
 		aliases,
@@ -1947,6 +2207,7 @@ func importNames(
 	providers []provider.Provider,
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
+	asyncTasks []compilerasync.Task,
 	events []compilerevent.Topic,
 	caches []compilercache.Boundary,
 	aliases map[string]string,
@@ -1974,6 +2235,11 @@ func importNames(
 			}
 		}
 	}
+	for _, task := range asyncTasks {
+		for _, parameter := range task.Parameters() {
+			addTypeImportName(names, aliases, parameter.Type)
+		}
+	}
 	for _, topic := range events {
 		addTypeImportName(names, aliases, topic.Payload)
 	}
@@ -1985,15 +2251,43 @@ func importNames(
 }
 
 func addTypeImportName(names, aliases map[string]string, value types.Type) {
-	var object *types.TypeName
 	switch typed := value.(type) {
 	case *types.Named:
-		object = typed.Obj()
+		addTypeObjectImportName(names, aliases, typed.Obj())
+		addTypeArgumentImportNames(names, aliases, typed.TypeArgs())
 	case *types.Alias:
-		object = typed.Obj()
-	default:
+		addTypeObjectImportName(names, aliases, typed.Obj())
+		addTypeArgumentImportNames(names, aliases, typed.TypeArgs())
+	case *types.Pointer:
+		addTypeImportName(names, aliases, typed.Elem())
+	case *types.Slice:
+		addTypeImportName(names, aliases, typed.Elem())
+	case *types.Array:
+		addTypeImportName(names, aliases, typed.Elem())
+	case *types.Map:
+		addTypeImportName(names, aliases, typed.Key())
+		addTypeImportName(names, aliases, typed.Elem())
+	case *types.Chan:
+		addTypeImportName(names, aliases, typed.Elem())
+	}
+}
+
+func addTypeArgumentImportNames(
+	names, aliases map[string]string,
+	arguments *types.TypeList,
+) {
+	if arguments == nil {
 		return
 	}
+	for argument := range arguments.Types() {
+		addTypeImportName(names, aliases, argument)
+	}
+}
+
+func addTypeObjectImportName(
+	names, aliases map[string]string,
+	object *types.TypeName,
+) {
 	if object == nil || object.Pkg() == nil {
 		return
 	}
@@ -2199,6 +2493,10 @@ func reservedConfigurationDiagnostics(
 	reservedEnvironments := map[string]struct{}{
 		"SPICE_SHUTDOWN_TIMEOUT": {},
 	}
+	if len(model.AsyncTasks()) != 0 {
+		reservedKeys[asyncConcurrencyKey] = struct{}{}
+		reservedEnvironments["SPICE_ASYNC_MAX_CONCURRENCY"] = struct{}{}
+	}
 	for _, boundary := range model.Caches() {
 		reservedKeys[cacheCapacityKey(boundary.CacheName)] = struct{}{}
 		reservedKeys[cacheTTLKey(boundary.CacheName)] = struct{}{}
@@ -2255,6 +2553,19 @@ type modelHashScheduleJob struct {
 	InitialDelay    int64  `json:"initial_delay"`
 	Delay           int64  `json:"delay"`
 	ContinueOnError bool   `json:"continue_on_error"`
+}
+
+type modelHashAsyncParameter struct {
+	Index int    `json:"index"`
+	Type  string `json:"type"`
+}
+
+type modelHashAsyncTask struct {
+	ID           string                    `json:"id"`
+	Provider     string                    `json:"provider"`
+	Module       string                    `json:"module"`
+	SubmitMethod string                    `json:"submit_method"`
+	Parameters   []modelHashAsyncParameter `json:"parameters"`
 }
 
 type modelHashEventListener struct {
@@ -2420,6 +2731,7 @@ type modelHashInput struct {
 	Edges          []modelHashEdge             `json:"edges"`
 	Components     []modelHashComponent        `json:"components"`
 	Jobs           []modelHashScheduleJob      `json:"jobs"`
+	AsyncTasks     []modelHashAsyncTask        `json:"async_tasks,omitempty"`
 	Events         []modelHashEventTopic       `json:"events,omitempty"`
 	Caches         []modelHashCache            `json:"caches,omitempty"`
 	Roots          []modelHashRoot             `json:"roots"`
@@ -2547,6 +2859,10 @@ func modelHash(
 		value.Components = append(value.Components, item)
 	}
 	value.Jobs = modelHashScheduleJobs(model.Jobs(), providerModules)
+	value.AsyncTasks = modelHashAsyncTasks(
+		model.AsyncTasks(),
+		providerModules,
+	)
 	value.Events = modelHashEvents(model.Events())
 	value.Caches = modelHashCaches(model.Caches())
 	addModelHashModules(&value, model, applicationTarget)
@@ -2703,6 +3019,32 @@ func modelHashScheduleJobs(
 			Delay:           int64(job.Delay),
 			ContinueOnError: job.ContinueOnError,
 		}
+	}
+	return result
+}
+
+func modelHashAsyncTasks(
+	tasks []compilerasync.Task,
+	providerModules map[string]string,
+) []modelHashAsyncTask {
+	result := make([]modelHashAsyncTask, len(tasks))
+	for index, task := range tasks {
+		item := modelHashAsyncTask{
+			ID:           task.MethodID,
+			Provider:     task.ProviderID,
+			Module:       asyncTaskModule(task, providerModules),
+			SubmitMethod: task.SubmitMethod,
+		}
+		for _, parameter := range task.Parameters() {
+			item.Parameters = append(
+				item.Parameters,
+				modelHashAsyncParameter{
+					Index: parameter.Index,
+					Type:  parameter.TypeID,
+				},
+			)
+		}
+		result[index] = item
 	}
 	return result
 }

@@ -280,6 +280,88 @@ func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
 	runGoTest(t, root, "./internal/spicegen/scheduled")
 }
 
+func TestRenderGeneratesBoundedTypedAsyncSubmission(t *testing.T) {
+	root := asyncGenerationFixture(t)
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	first, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	second, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render(second) diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	if !bytes.Equal(
+		first.Files()[0].Content(),
+		second.Files()[0].Content(),
+	) || !bytes.Equal(
+		first.ManifestContent(),
+		second.ManifestContent(),
+	) {
+		t.Fatal("identical asynchronous metadata changed generated output")
+	}
+	source := string(first.Files()[0].Content())
+	for _, expected := range []string{
+		`Key:         "spice.async.max-concurrency"`,
+		`Environment: "SPICE_ASYNC_MAX_CONCURRENCY"`,
+		"AsyncContext",
+		"AsyncObservers",
+		"generatedAsyncExecutor, err := spiceasync.NewExecutor(",
+		`"spice.async"`,
+		"func (application *Application) SubmitWorkerDeliver(",
+		"provider0.Deliver(taskContext, argument1, argument2)",
+		"func (application *Application) AsyncSnapshot() spiceasync.Snapshot",
+		`Module: "example.com/asynchronous/tasks"`,
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf(
+				"generated asynchronous source missing %q:\n%s",
+				expected,
+				source,
+			)
+		}
+	}
+	assertOrdered(
+		t,
+		source,
+		"tasks.NewWorker()",
+		"spiceasync.NewExecutor(",
+		"RegisterModuleCleanup(",
+	)
+
+	writePlan(t, root, first)
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/asynchronous/zz_spice_async_test.go",
+		generatedAsyncTest,
+	)
+	runGoTest(t, root, "./internal/spicegen/asynchronous")
+}
+
 func TestRenderGeneratesTransactionalHTTPBoundaries(t *testing.T) {
 	root := transactionGenerationFixture(t)
 	program, model, applicationTarget := buildApplication(t, root, "./...")
@@ -826,6 +908,49 @@ func Reserved(Settings) {}
 	}
 }
 
+func TestRenderRejectsFrameworkOwnedAsyncConfiguration(t *testing.T) {
+	root := writeModule(t, "example.com/reservedasync", map[string]string{
+		"app/application.go": `package app
+
+import "context"
+
+// @Configuration(prefix="spice.async")
+type Settings struct {
+	MaxConcurrency int ` + "`spice:\"max-concurrency,default=1\"`" + `
+}
+
+type Worker struct{}
+
+// @Bean
+func NewWorker() Worker { return Worker{} }
+
+// @async.Execute
+func (Worker) Run(context.Context) error { return nil }
+
+// @Application
+func Reserved(Settings, Worker) {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	_, diagnostics = Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "reserved-configuration" ||
+		!strings.Contains(
+			diagnostics[0].Message,
+			`"spice.async.max-concurrency"`,
+		) ||
+		diagnostics[0].Position.Filename == "" {
+		t.Fatalf("Render() diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestRenderRejectsInvalidInputs(t *testing.T) {
 	root := writeModule(t, "example.com/inputs", map[string]string{
 		"app/application.go": `package app
@@ -1257,6 +1382,180 @@ func TestGeneratedFixedDelayScheduler(t *testing.T) {
 		results[0].Panicked {
 		t.Fatalf("results = %#v", results)
 	}
+}
+`
+
+const generatedAsyncTest = `package spicegen
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"example.com/asynchronous/contract"
+	"example.com/asynchronous/tasks"
+	spiceasync "github.com/StevenBuglione/spice/async"
+	spiceconfig "github.com/StevenBuglione/spice/config"
+)
+
+func TestGeneratedBoundedTypedAsyncSubmission(t *testing.T) {
+	tasks.Reset()
+	source := asyncSource(t, "1")
+	invalid, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Sources: []spiceconfig.Source{source},
+			AsyncObservers: []spiceasync.Observer{nil},
+		},
+	)
+	if invalid != nil ||
+		err == nil ||
+		!strings.Contains(err.Error(), "observer 0 is nil") {
+		t.Fatalf("nil observer construction = %#v, %v", invalid, err)
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	invalid, err = NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Sources: []spiceconfig.Source{source},
+			AsyncContext: cancelled,
+		},
+	)
+	if invalid != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled context construction = %#v, %v", invalid, err)
+	}
+
+	invalidSource := asyncSource(t, "0")
+	invalid, err = NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Sources: []spiceconfig.Source{invalidSource},
+		},
+	)
+	if invalid != nil ||
+		err == nil ||
+		!strings.Contains(err.Error(), "positive int") {
+		t.Fatalf("invalid concurrency construction = %#v, %v", invalid, err)
+	}
+
+	results := make(chan spiceasync.Result, 1)
+	application, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Sources: []spiceconfig.Source{source},
+			AsyncObservers: []spiceasync.Observer{
+				func(_ context.Context, result spiceasync.Result) {
+					results <- result
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewApplicationWithOptions() error = %v", err)
+	}
+	if err := application.SubmitWorkerDeliver(
+		context.Background(),
+		[]contract.Message{{ID: "early"}},
+		1,
+	); err == nil || !strings.Contains(err.Error(), "not ready") {
+		t.Fatalf("submission before Start() error = %v", err)
+	}
+	if err := application.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := application.SubmitWorkerDeliver(
+		context.Background(),
+		[]contract.Message{{ID: "accepted"}},
+		7,
+	); err != nil {
+		t.Fatalf("SubmitWorkerDeliver() error = %v", err)
+	}
+	select {
+	case <-tasks.Started():
+	case <-time.After(time.Second):
+		t.Fatal("generated asynchronous method did not start")
+	}
+	admission, cancelAdmission := context.WithCancel(context.Background())
+	cancelAdmission()
+	if err := application.SubmitWorkerDeliver(
+		admission,
+		[]contract.Message{{ID: "rejected"}},
+		9,
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("backpressured canceled submission error = %v", err)
+	}
+	tasks.Release()
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	result := <-results
+	if result.Definition.ID == "" ||
+		result.Definition.Module != "example.com/asynchronous/tasks" ||
+		result.Err != nil ||
+		result.Panicked {
+		t.Fatalf("async result = %#v", result)
+	}
+	if snapshot := application.AsyncSnapshot(); snapshot != (spiceasync.Snapshot{
+		Submitted: 1,
+		Completed: 1,
+		Closed: true,
+	}) {
+		t.Fatalf("AsyncSnapshot() = %#v", snapshot)
+	}
+	if got := tasks.Deliveries(); len(got) != 1 ||
+		got[0] != "accepted:7" {
+		t.Fatalf("deliveries = %v", got)
+	}
+	if err := (*Application)(nil).SubmitWorkerDeliver(
+		context.Background(),
+		[]contract.Message{{}},
+		0,
+	); err == nil {
+		t.Fatal("nil application submission error = nil")
+	}
+	if snapshot := (*Application)(nil).AsyncSnapshot(); !snapshot.Closed {
+		t.Fatalf("nil AsyncSnapshot() = %#v", snapshot)
+	}
+
+	tasks.Reset()
+	failing, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{Sources: []spiceconfig.Source{source}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := failing.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := failing.SubmitWorkerDeliver(
+		context.Background(),
+		[]contract.Message{{ID: "fail"}},
+		3,
+	); err != nil {
+		t.Fatal(err)
+	}
+	<-tasks.Started()
+	tasks.Release()
+	if err := failing.Stop(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "delivery failed") {
+		t.Fatalf("failing Stop() error = %v", err)
+	}
+}
+
+func asyncSource(t *testing.T, concurrency string) spiceconfig.Source {
+	t.Helper()
+	source, err := spiceconfig.NewMapSource("test", map[string]string{
+		"spice.async.max-concurrency": concurrency,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
 }
 `
 
@@ -2149,6 +2448,113 @@ import "example.com/scheduled/jobs"
 
 // @Application
 func Scheduled(*jobs.Worker) {
+	panic("application marker bodies must not execute")
+}
+`,
+	})
+}
+
+func asyncGenerationFixture(t *testing.T) string {
+	t.Helper()
+	return writeModule(t, "example.com/asynchronous", map[string]string{
+		"contract/message.go": `package contract
+
+type Message struct {
+	ID string
+}
+`,
+		"tasks/tasks.go": `// Package tasks owns asynchronous work.
+//
+// @Module
+package tasks
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"sync"
+
+	"example.com/asynchronous/contract"
+)
+
+type Worker struct{}
+
+var state = struct {
+	sync.Mutex
+	started chan struct{}
+	release chan struct{}
+	deliveries []string
+}{
+	started: make(chan struct{}),
+	release: make(chan struct{}),
+}
+
+func Reset() {
+	state.Lock()
+	defer state.Unlock()
+	state.started = make(chan struct{})
+	state.release = make(chan struct{})
+	state.deliveries = nil
+}
+
+func Started() <-chan struct{} {
+	state.Lock()
+	defer state.Unlock()
+	return state.started
+}
+
+func Release() {
+	state.Lock()
+	release := state.release
+	state.Unlock()
+	close(release)
+}
+
+func Deliveries() []string {
+	state.Lock()
+	defer state.Unlock()
+	return append([]string(nil), state.deliveries...)
+}
+
+// @Bean
+func NewWorker() *Worker {
+	return &Worker{}
+}
+
+// @async.Execute
+func (*Worker) Deliver(
+	ctx context.Context,
+	messages []contract.Message,
+	priority int,
+) error {
+	state.Lock()
+	started := state.started
+	release := state.release
+	state.Unlock()
+	close(started)
+	select {
+	case <-release:
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+	if messages[0].ID == "fail" {
+		return errors.New("delivery failed")
+	}
+	state.Lock()
+	state.deliveries = append(
+		state.deliveries,
+		messages[0].ID+":"+strconv.Itoa(priority),
+	)
+	state.Unlock()
+	return nil
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/asynchronous/tasks"
+
+// @Application
+func Asynchronous(*tasks.Worker) {
 	panic("application marker bodies must not execute")
 }
 `,

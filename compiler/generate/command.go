@@ -42,6 +42,7 @@ type commandFeatures struct {
 	hasMux          bool
 	authorization   bool
 	scheduling      bool
+	asynchronous    bool
 	transactions    bool
 	events          bool
 	caching         bool
