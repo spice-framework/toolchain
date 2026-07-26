@@ -276,6 +276,80 @@ func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
 	runGoTest(t, root, "./internal/spicegen/scheduled")
 }
 
+func TestRenderGeneratesTransactionalHTTPBoundaries(t *testing.T) {
+	root := transactionGenerationFixture(t)
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	first, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	second, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render(second) diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	if !bytes.Equal(
+		generatedGoContent(t, first),
+		generatedGoContent(t, second),
+	) || !bytes.Equal(
+		first.ManifestContent(),
+		second.ManifestContent(),
+	) {
+		t.Fatal("identical transaction metadata changed generated output")
+	}
+	source := string(generatedGoContent(t, first))
+	for _, expected := range []string{
+		`sql "database/sql"`,
+		`spicedata "github.com/StevenBuglione/spice/data"`,
+		".Within(httpRequest.Context(), spicedata.Definition{",
+		`Module:    "example.com/transactional/api"`,
+		"Isolation: sql.LevelSerializable",
+		"ReadOnly:  true",
+		"func(transactionContext context.Context, executor spicedata.Executor) error",
+		".Commit(transactionContext, executor, requestValue)",
+		".Rollback(transactionContext, executor, requestValue)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf(
+				"generated transaction source missing %q:\n%s",
+				expected,
+				source,
+			)
+		}
+	}
+
+	writePlan(t, root, first)
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/transactional/zz_spice_transaction_test.go",
+		generatedTransactionTest,
+	)
+	runGoTest(t, root, "./internal/spicegen/transactional")
+}
+
 func TestRenderNormalizesBootstrapAnnotationListOrder(t *testing.T) {
 	t.Parallel()
 	firstRoot := commandOrderFixture(t, `["metrics", "health"]`)
@@ -1182,6 +1256,90 @@ func TestGeneratedFixedDelayScheduler(t *testing.T) {
 }
 `
 
+const generatedTransactionTest = `package spicegen
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+
+	"example.com/transactional/api"
+)
+
+func TestGeneratedTransactionalRoutes(t *testing.T) {
+	application, err := NewApplication(context.Background())
+	if err != nil {
+		t.Fatalf("NewApplication() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if stopErr := application.Stop(context.Background()); stopErr != nil {
+			t.Errorf("Stop() error = %v", stopErr)
+		}
+	})
+
+	api.Reset()
+	commitRequest := httptest.NewRequest(http.MethodPost, "/commit", nil)
+	commitRequest.Header.Set("Accept", "application/json")
+	commitResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(commitResponse, commitRequest)
+	if commitResponse.Code != http.StatusOK ||
+		!strings.Contains(commitResponse.Body.String(), "committed") ||
+		!slices.Equal(
+			api.Operations(),
+			[]string{"begin:6:false", "exec:commit", "commit"},
+		) {
+		t.Fatalf(
+			"commit response=%d %q operations=%v",
+			commitResponse.Code,
+			commitResponse.Body.String(),
+			api.Operations(),
+		)
+	}
+
+	api.Reset()
+	rollbackRequest := httptest.NewRequest(http.MethodPost, "/rollback", nil)
+	rollbackRequest.Header.Set("Accept", "application/json")
+	rollbackResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(rollbackResponse, rollbackRequest)
+	if rollbackResponse.Code != http.StatusInternalServerError ||
+		!slices.Equal(
+			api.Operations(),
+			[]string{"begin:0:true", "exec:rollback", "rollback"},
+		) {
+		t.Fatalf(
+			"rollback response=%d %q operations=%v",
+			rollbackResponse.Code,
+			rollbackResponse.Body.String(),
+			api.Operations(),
+		)
+	}
+
+	api.Reset()
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelledRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/commit",
+		nil,
+	).WithContext(cancelledContext)
+	cancelledRequest.Header.Set("Accept", "application/json")
+	cancelledResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(cancelledResponse, cancelledRequest)
+	if cancelledResponse.Code == http.StatusOK ||
+		slices.Contains(api.Operations(), "commit") {
+		t.Fatalf(
+			"cancelled response=%d %q operations=%v",
+			cancelledResponse.Code,
+			cancelledResponse.Body.String(),
+			api.Operations(),
+		)
+	}
+}
+`
+
 const generatedHTTPTest = `package spicegen
 
 import (
@@ -1729,6 +1887,17 @@ func filePaths(files []File) []string {
 	return result
 }
 
+func generatedGoContent(t *testing.T, plan Plan) []byte {
+	t.Helper()
+	for _, file := range plan.Files() {
+		if strings.HasSuffix(file.Path, "/"+generatedFilename) {
+			return file.Content()
+		}
+	}
+	t.Fatalf("generated plan does not contain %s", generatedFilename)
+	return nil
+}
+
 func generationFixture(t *testing.T) string {
 	t.Helper()
 	return writeModule(t, "example.com/shop", map[string]string{
@@ -1903,6 +2072,195 @@ import "example.com/scheduled/jobs"
 
 // @Application
 func Scheduled(*jobs.Worker) {
+	panic("application marker bodies must not execute")
+}
+`,
+	})
+}
+
+func transactionGenerationFixture(t *testing.T) string {
+	t.Helper()
+	return writeModule(t, "example.com/transactional", map[string]string{
+		"api/api.go": `// Package api owns transactional HTTP delivery.
+//
+// @Module
+package api
+
+import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"net/http"
+	"strconv"
+	"sync"
+
+	"github.com/StevenBuglione/spice/data"
+	"github.com/StevenBuglione/spice/lifecycle"
+)
+
+var ErrRollback = errors.New("rollback requested")
+
+var fixtureState = struct {
+	sync.Mutex
+	operations []string
+}{}
+
+func Reset() {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	fixtureState.operations = nil
+}
+
+func Operations() []string {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	return append([]string(nil), fixtureState.operations...)
+}
+
+func record(operation string) {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	fixtureState.operations = append(fixtureState.operations, operation)
+}
+
+type connector struct{}
+
+func (connector) Connect(ctx context.Context) (driver.Conn, error) {
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
+	return &connection{}, nil
+}
+
+func (connector) Driver() driver.Driver {
+	return databaseDriver{}
+}
+
+type databaseDriver struct{}
+
+func (databaseDriver) Open(string) (driver.Conn, error) {
+	return &connection{}, nil
+}
+
+type connection struct{}
+
+func (*connection) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (*connection) Close() error {
+	return nil
+}
+
+func (connection *connection) Begin() (driver.Tx, error) {
+	return connection.BeginTx(context.Background(), driver.TxOptions{})
+}
+
+func (*connection) BeginTx(
+	ctx context.Context,
+	options driver.TxOptions,
+) (driver.Tx, error) {
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
+	record(
+		"begin:" +
+			strconv.Itoa(int(options.Isolation)) +
+			":" +
+			strconv.FormatBool(options.ReadOnly),
+	)
+	return transaction{}, nil
+}
+
+func (*connection) ExecContext(
+	ctx context.Context,
+	statement string,
+	_ []driver.NamedValue,
+) (driver.Result, error) {
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
+	record("exec:" + statement)
+	return driver.ResultNoRows, nil
+}
+
+type transaction struct{}
+
+func (transaction) Commit() error {
+	record("commit")
+	return nil
+}
+
+func (transaction) Rollback() error {
+	record("rollback")
+	return nil
+}
+
+// @Bean
+func Mux() *http.ServeMux {
+	return http.NewServeMux()
+}
+
+// @Bean
+func Database() (*sql.DB, lifecycle.Cleanup) {
+	database := sql.OpenDB(connector{})
+	return database, func(context.Context) error {
+		return database.Close()
+	}
+}
+
+// @Bean
+func Transactions(database *sql.DB) (*data.Manager, error) {
+	return data.NewManager(database)
+}
+
+type Request struct{}
+
+type Response struct {
+	Status string ` + "`json:\"status\"`" + `
+}
+
+// @Controller
+type API struct{}
+
+// @Bean
+func NewAPI() *API {
+	return &API{}
+}
+
+// @Post("/commit")
+// @data.Transactional(isolation="serializable")
+func (*API) Commit(
+	ctx context.Context,
+	executor data.Executor,
+	_ Request,
+) (Response, error) {
+	if _, err := executor.ExecContext(ctx, "commit"); err != nil {
+		return Response{}, err
+	}
+	return Response{Status: "committed"}, nil
+}
+
+// @Post("/rollback")
+// @data.Transactional(readOnly=true)
+func (*API) Rollback(
+	ctx context.Context,
+	executor data.Executor,
+	_ Request,
+) (Response, error) {
+	if _, err := executor.ExecContext(ctx, "rollback"); err != nil {
+		return Response{}, err
+	}
+	return Response{}, ErrRollback
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/transactional/api"
+
+// @Application
+func Transactional(*api.API) {
 	panic("application marker bodies must not execute")
 }
 `,

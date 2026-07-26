@@ -5,6 +5,7 @@ package generate
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
+	compilertransaction "github.com/StevenBuglione/spice/compiler/transaction"
 	runtimeconfig "github.com/StevenBuglione/spice/config"
 )
 
@@ -41,6 +43,7 @@ const (
 
 	generatedFilename = "zz_spice_gen.go"
 	configPath        = "github.com/StevenBuglione/spice/config"
+	dataPath          = "github.com/StevenBuglione/spice/data"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
 	managementPath    = "github.com/StevenBuglione/spice/management"
 	observabilityPath = "github.com/StevenBuglione/spice/observability"
@@ -312,9 +315,11 @@ func renderSource(
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
 	jobs := model.Jobs()
+	transactions := model.Transactions()
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
 	features.authorization = hasAuthorization(controllers)
 	features.scheduling = len(jobs) != 0
+	features.transactions = len(transactions) != 0
 	aliases := importAliases(providers, configTypes, controllers, features)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
@@ -385,13 +390,16 @@ func renderSource(
 			&source,
 			controllers,
 		)
-		writeControllerRoutes(
+		if routeErr := writeControllerRoutes(
 			&source,
 			controllers,
+			transactions,
 			providerVariables,
 			aliases,
 			authorizationMiddleware,
-		)
+		); routeErr != nil {
+			return nil, routeErr
+		}
 	}
 	writeHooks(
 		&source,
@@ -452,10 +460,15 @@ func writeProviders(
 func writeControllerRoutes(
 	source *bytes.Buffer,
 	controllers []controller.Controller,
+	transactions []compilertransaction.Boundary,
 	providerVariables map[string]string,
 	aliases map[string]string,
 	authorizationMiddleware map[string]string,
-) {
+) error {
+	transactionIndex := make(map[string]compilertransaction.Boundary, len(transactions))
+	for _, boundary := range transactions {
+		transactionIndex[boundary.RouteID] = boundary
+	}
 	routeIndex := 0
 	for _, item := range controllers {
 		receiver := providerVariables[item.ProviderID]
@@ -467,6 +480,12 @@ func writeControllerRoutes(
 			}
 			observation := writeRouteObservation(source, route, pattern, routeIndex)
 			if route.Raw {
+				if _, transactional := transactionIndex[route.SymbolID]; transactional {
+					return fmt.Errorf(
+						"raw route %s cannot own a transaction boundary",
+						route.SymbolID,
+					)
+				}
 				fmt.Fprintf(
 					source,
 					"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(%s.%s), %s, %s...); routeErr != nil {\n",
@@ -480,9 +499,25 @@ func writeControllerRoutes(
 				routeIndex++
 				continue
 			}
+			boundary, transactional := transactionIndex[route.SymbolID]
+			if route.ExecutorParameter != transactional {
+				return fmt.Errorf(
+					"typed route %s transaction metadata does not match its explicit executor parameter",
+					route.SymbolID,
+				)
+			}
+			if transactional &&
+				providerVariables[boundary.ManagerProviderID] == "" {
+				return fmt.Errorf(
+					"transaction boundary %s has no manager provider variable",
+					route.SymbolID,
+				)
+			}
 			writeTypedRoute(
 				source,
 				route,
+				transactionIndex,
+				providerVariables,
 				receiver,
 				pattern,
 				observation,
@@ -492,6 +527,7 @@ func writeControllerRoutes(
 			routeIndex++
 		}
 	}
+	return nil
 }
 
 func hasAuthorization(controllers []controller.Controller) bool {
@@ -659,6 +695,8 @@ func writeRouteObservation(
 func writeTypedRoute(
 	source *bytes.Buffer,
 	route controller.Route,
+	transactions map[string]compilertransaction.Boundary,
+	providerVariables map[string]string,
 	receiver string,
 	pattern string,
 	observation string,
@@ -694,14 +732,25 @@ func writeTypedRoute(
 		source.WriteString("\t\t\treturn\n")
 		source.WriteString("\t\t}\n")
 	}
-	if route.NoContent {
+	boundary, transactional := transactions[route.SymbolID]
+	switch {
+	case transactional:
+		writeTransactionalRouteCall(
+			source,
+			route,
+			boundary,
+			providerVariables[boundary.ManagerProviderID],
+			receiver,
+			aliases,
+		)
+	case route.NoContent:
 		fmt.Fprintf(
 			source,
 			"\t\t_, routeErr := %s.%s(httpRequest.Context(), requestValue)\n",
 			receiver,
 			route.Name,
 		)
-	} else {
+	default:
 		fmt.Fprintf(
 			source,
 			"\t\tresponseValue, routeErr := %s.%s(httpRequest.Context(), requestValue)\n",
@@ -727,6 +776,79 @@ func writeTypedRoute(
 		middleware,
 	)
 	writeRouteRegistrationError(source, pattern)
+}
+
+func writeTransactionalRouteCall(
+	source *bytes.Buffer,
+	route controller.Route,
+	boundary compilertransaction.Boundary,
+	manager string,
+	receiver string,
+	aliases map[string]string,
+) {
+	if !route.NoContent {
+		fmt.Fprintf(
+			source,
+			"\t\tvar responseValue %s\n",
+			renderedType(route.Response, aliases),
+		)
+	}
+	fmt.Fprintf(
+		source,
+		"\t\trouteErr := %s.Within(httpRequest.Context(), spicedata.Definition{\n",
+		manager,
+	)
+	fmt.Fprintf(source, "\t\t\tID: %s,\n", strconv.Quote(boundary.RouteID))
+	fmt.Fprintf(source, "\t\t\tModule: %s,\n", strconv.Quote(boundary.Module))
+	fmt.Fprintf(
+		source,
+		"\t\t\tIsolation: %s,\n",
+		isolationLevelName(boundary.Isolation),
+	)
+	if boundary.ReadOnly {
+		source.WriteString("\t\t\tReadOnly: true,\n")
+	}
+	source.WriteString("\t\t}, func(transactionContext context.Context, executor spicedata.Executor) error {\n")
+	if route.NoContent {
+		fmt.Fprintf(
+			source,
+			"\t\t\t_, transactionErr := %s.%s(transactionContext, executor, requestValue)\n",
+			receiver,
+			route.Name,
+		)
+	} else {
+		fmt.Fprintf(
+			source,
+			"\t\t\tvar transactionErr error\n\t\t\tresponseValue, transactionErr = %s.%s(transactionContext, executor, requestValue)\n",
+			receiver,
+			route.Name,
+		)
+	}
+	source.WriteString("\t\t\treturn transactionErr\n")
+	source.WriteString("\t\t})\n")
+}
+
+func isolationLevelName(level sql.IsolationLevel) string {
+	switch level {
+	case sql.LevelDefault:
+		return "sql.LevelDefault"
+	case sql.LevelReadUncommitted:
+		return "sql.LevelReadUncommitted"
+	case sql.LevelReadCommitted:
+		return "sql.LevelReadCommitted"
+	case sql.LevelWriteCommitted:
+		return "sql.LevelWriteCommitted"
+	case sql.LevelRepeatableRead:
+		return "sql.LevelRepeatableRead"
+	case sql.LevelSnapshot:
+		return "sql.LevelSnapshot"
+	case sql.LevelSerializable:
+		return "sql.LevelSerializable"
+	case sql.LevelLinearizable:
+		return "sql.LevelLinearizable"
+	default:
+		return strconv.Itoa(int(level))
+	}
 }
 
 func writeRouteRegistrationError(source *bytes.Buffer, pattern string) {
@@ -1388,6 +1510,10 @@ func importAliases(
 	if features.scheduling {
 		aliases[schedulePath] = "spiceschedule"
 	}
+	if features.transactions {
+		aliases["database/sql"] = "sql"
+		aliases[dataPath] = "spicedata"
+	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
@@ -1409,7 +1535,9 @@ func importAliases(
 		"os":                        {},
 		"signal":                    {},
 		"slog":                      {},
+		"sql":                       {},
 		"spiceconfig":               {},
+		"spicedata":                 {},
 		"spicelifecycle":            {},
 		"spicemanagement":           {},
 		"spiceobservability":        {},
@@ -1712,112 +1840,134 @@ type modelHashScheduleJob struct {
 	ContinueOnError bool   `json:"continue_on_error"`
 }
 
+type modelHashDependency struct {
+	Index int    `json:"index"`
+	Type  string `json:"type"`
+}
+
+type modelHashProvider struct {
+	ID            string                `json:"id"`
+	Source        provider.Source       `json:"source"`
+	SourceID      string                `json:"source_id,omitempty"`
+	SourceVersion string                `json:"source_version,omitempty"`
+	Module        string                `json:"module,omitempty"`
+	Output        string                `json:"output"`
+	Cleanup       bool                  `json:"cleanup"`
+	Error         bool                  `json:"error"`
+	Inputs        []modelHashDependency `json:"inputs"`
+}
+
+type modelHashEdge struct {
+	Consumer  string `json:"consumer"`
+	Parameter int    `json:"parameter"`
+	Provider  string `json:"provider"`
+}
+
+type modelHashComponent struct {
+	Provider string `json:"provider"`
+	Start    string `json:"start"`
+	Stop     string `json:"stop,omitempty"`
+}
+
+type modelHashRoot struct {
+	Index    int    `json:"index"`
+	Type     string `json:"type"`
+	Provider string `json:"provider"`
+}
+
+type modelHashConfigurationField struct {
+	Index       int                `json:"index"`
+	Name        string             `json:"name"`
+	Type        string             `json:"type"`
+	Key         string             `json:"key"`
+	Kind        runtimeconfig.Kind `json:"kind"`
+	Module      string             `json:"module,omitempty"`
+	Environment string             `json:"environment,omitempty"`
+	Default     string             `json:"default,omitempty"`
+	HasDefault  bool               `json:"has_default,omitempty"`
+	Required    bool               `json:"required,omitempty"`
+	Secret      bool               `json:"secret,omitempty"`
+}
+
+type modelHashConfiguration struct {
+	ID     string                        `json:"id"`
+	Type   string                        `json:"type"`
+	Prefix string                        `json:"prefix,omitempty"`
+	Module string                        `json:"module,omitempty"`
+	Fields []modelHashConfigurationField `json:"fields"`
+}
+
+type modelHashBinding struct {
+	Index    int                   `json:"index"`
+	Field    string                `json:"field"`
+	Name     string                `json:"name,omitempty"`
+	Location controller.Location   `json:"location"`
+	Required bool                  `json:"required"`
+	Kind     controller.ScalarKind `json:"kind,omitempty"`
+	Type     string                `json:"type"`
+}
+
+type modelHashAuthorization struct {
+	PolicyID      string   `json:"policy_id"`
+	Module        string   `json:"module"`
+	Authenticated bool     `json:"authenticated,omitempty"`
+	AnyRoles      []string `json:"any_roles,omitempty"`
+	AllRoles      []string `json:"all_roles,omitempty"`
+	AllScopes     []string `json:"all_scopes,omitempty"`
+}
+
+type modelHashRoute struct {
+	ID                string                  `json:"id"`
+	Method            string                  `json:"method"`
+	Path              string                  `json:"path"`
+	Provider          string                  `json:"provider"`
+	Request           string                  `json:"request,omitempty"`
+	Response          string                  `json:"response,omitempty"`
+	Validator         string                  `json:"validator,omitempty"`
+	Raw               bool                    `json:"raw,omitempty"`
+	NoContent         bool                    `json:"no_content,omitempty"`
+	ExecutorParameter bool                    `json:"executor_parameter,omitempty"`
+	Bindings          []modelHashBinding      `json:"bindings"`
+	Authorization     *modelHashAuthorization `json:"authorization,omitempty"`
+}
+
+type modelHashController struct {
+	ID       string           `json:"id"`
+	Module   string           `json:"module,omitempty"`
+	Provider string           `json:"provider"`
+	Prefix   string           `json:"prefix,omitempty"`
+	Routes   []modelHashRoute `json:"routes"`
+}
+
+type modelHashTransaction struct {
+	Route     string             `json:"route"`
+	Manager   string             `json:"manager"`
+	Module    string             `json:"module"`
+	Isolation sql.IsolationLevel `json:"isolation"`
+	ReadOnly  bool               `json:"read_only,omitempty"`
+}
+
+type modelHashInput struct {
+	Schema         int                         `json:"schema"`
+	Target         TargetSummary               `json:"target"`
+	Symbol         string                      `json:"symbol"`
+	Providers      []modelHashProvider         `json:"providers"`
+	Configurations []modelHashConfiguration    `json:"configurations"`
+	Controllers    []modelHashController       `json:"controllers"`
+	Transactions   []modelHashTransaction      `json:"transactions,omitempty"`
+	Edges          []modelHashEdge             `json:"edges"`
+	Components     []modelHashComponent        `json:"components"`
+	Jobs           []modelHashScheduleJob      `json:"jobs"`
+	Roots          []modelHashRoot             `json:"roots"`
+	Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
+}
+
 func modelHash(
 	model application.Model,
 	applicationTarget application.Target,
 	target Target,
 ) (string, error) {
-	type inputDependency struct {
-		Index int    `json:"index"`
-		Type  string `json:"type"`
-	}
-	type inputProvider struct {
-		ID            string            `json:"id"`
-		Source        provider.Source   `json:"source"`
-		SourceID      string            `json:"source_id,omitempty"`
-		SourceVersion string            `json:"source_version,omitempty"`
-		Module        string            `json:"module,omitempty"`
-		Output        string            `json:"output"`
-		Cleanup       bool              `json:"cleanup"`
-		Error         bool              `json:"error"`
-		Inputs        []inputDependency `json:"inputs"`
-	}
-	type inputEdge struct {
-		Consumer  string `json:"consumer"`
-		Parameter int    `json:"parameter"`
-		Provider  string `json:"provider"`
-	}
-	type inputComponent struct {
-		Provider string `json:"provider"`
-		Start    string `json:"start"`
-		Stop     string `json:"stop,omitempty"`
-	}
-	type inputRoot struct {
-		Index    int    `json:"index"`
-		Type     string `json:"type"`
-		Provider string `json:"provider"`
-	}
-	type inputConfigurationField struct {
-		Index       int                `json:"index"`
-		Name        string             `json:"name"`
-		Type        string             `json:"type"`
-		Key         string             `json:"key"`
-		Kind        runtimeconfig.Kind `json:"kind"`
-		Module      string             `json:"module,omitempty"`
-		Environment string             `json:"environment,omitempty"`
-		Default     string             `json:"default,omitempty"`
-		HasDefault  bool               `json:"has_default,omitempty"`
-		Required    bool               `json:"required,omitempty"`
-		Secret      bool               `json:"secret,omitempty"`
-	}
-	type inputConfiguration struct {
-		ID     string                    `json:"id"`
-		Type   string                    `json:"type"`
-		Prefix string                    `json:"prefix,omitempty"`
-		Module string                    `json:"module,omitempty"`
-		Fields []inputConfigurationField `json:"fields"`
-	}
-	type inputBinding struct {
-		Index    int                   `json:"index"`
-		Field    string                `json:"field"`
-		Name     string                `json:"name,omitempty"`
-		Location controller.Location   `json:"location"`
-		Required bool                  `json:"required"`
-		Kind     controller.ScalarKind `json:"kind,omitempty"`
-		Type     string                `json:"type"`
-	}
-	type inputAuthorization struct {
-		PolicyID      string   `json:"policy_id"`
-		Module        string   `json:"module"`
-		Authenticated bool     `json:"authenticated,omitempty"`
-		AnyRoles      []string `json:"any_roles,omitempty"`
-		AllRoles      []string `json:"all_roles,omitempty"`
-		AllScopes     []string `json:"all_scopes,omitempty"`
-	}
-	type inputRoute struct {
-		ID            string              `json:"id"`
-		Method        string              `json:"method"`
-		Path          string              `json:"path"`
-		Provider      string              `json:"provider"`
-		Request       string              `json:"request,omitempty"`
-		Response      string              `json:"response,omitempty"`
-		Validator     string              `json:"validator,omitempty"`
-		Raw           bool                `json:"raw,omitempty"`
-		NoContent     bool                `json:"no_content,omitempty"`
-		Bindings      []inputBinding      `json:"bindings"`
-		Authorization *inputAuthorization `json:"authorization,omitempty"`
-	}
-	type inputController struct {
-		ID       string       `json:"id"`
-		Module   string       `json:"module,omitempty"`
-		Provider string       `json:"provider"`
-		Prefix   string       `json:"prefix,omitempty"`
-		Routes   []inputRoute `json:"routes"`
-	}
-	type input struct {
-		Schema         int                         `json:"schema"`
-		Target         TargetSummary               `json:"target"`
-		Symbol         string                      `json:"symbol"`
-		Providers      []inputProvider             `json:"providers"`
-		Configurations []inputConfiguration        `json:"configurations"`
-		Controllers    []inputController           `json:"controllers"`
-		Edges          []inputEdge                 `json:"edges"`
-		Components     []inputComponent            `json:"components"`
-		Jobs           []modelHashScheduleJob      `json:"jobs"`
-		Roots          []inputRoot                 `json:"roots"`
-		Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
-	}
-	value := input{
+	value := modelHashInput{
 		Schema:    SchemaVersion,
 		Target:    summarizeTarget(target),
 		Symbol:    applicationTarget.SymbolID,
@@ -1826,11 +1976,11 @@ func modelHash(
 	providers := model.Providers()
 	providerModules := providerModuleIDs(model, providers)
 	for _, item := range providers {
-		inputs := make([]inputDependency, len(item.Dependencies))
+		inputs := make([]modelHashDependency, len(item.Dependencies))
 		for index, dependency := range item.Dependencies {
-			inputs[index] = inputDependency{Index: dependency.Index, Type: dependency.TypeID}
+			inputs[index] = modelHashDependency{Index: dependency.Index, Type: dependency.TypeID}
 		}
-		value.Providers = append(value.Providers, inputProvider{
+		value.Providers = append(value.Providers, modelHashProvider{
 			ID:            item.SymbolID,
 			Source:        item.Source,
 			SourceID:      item.SourceID,
@@ -1843,14 +1993,14 @@ func modelHash(
 		})
 	}
 	for _, configType := range model.Configurations() {
-		item := inputConfiguration{
+		item := modelHashConfiguration{
 			ID:     configType.SymbolID,
 			Type:   configType.TypeID,
 			Prefix: configType.Prefix,
 			Module: configType.Module,
 		}
 		for _, field := range configType.Fields() {
-			item.Fields = append(item.Fields, inputConfigurationField{
+			item.Fields = append(item.Fields, modelHashConfigurationField{
 				Index:       field.Index,
 				Name:        field.Name,
 				Type:        field.TypeID,
@@ -1867,26 +2017,27 @@ func modelHash(
 		value.Configurations = append(value.Configurations, item)
 	}
 	for _, item := range model.Controllers() {
-		inputItem := inputController{
+		inputItem := modelHashController{
 			ID:       item.SymbolID,
 			Module:   item.Module,
 			Provider: item.ProviderID,
 			Prefix:   item.Prefix,
 		}
 		for _, route := range item.Routes() {
-			routeInput := inputRoute{
-				ID:        route.SymbolID,
-				Method:    route.HTTPMethod,
-				Path:      route.Path,
-				Provider:  route.ProviderID,
-				Request:   route.RequestTypeID,
-				Response:  route.ResponseTypeID,
-				Validator: route.ValidatorID,
-				Raw:       route.Raw,
-				NoContent: route.NoContent,
+			routeInput := modelHashRoute{
+				ID:                route.SymbolID,
+				Method:            route.HTTPMethod,
+				Path:              route.Path,
+				Provider:          route.ProviderID,
+				Request:           route.RequestTypeID,
+				Response:          route.ResponseTypeID,
+				Validator:         route.ValidatorID,
+				Raw:               route.Raw,
+				NoContent:         route.NoContent,
+				ExecutorParameter: route.ExecutorParameter,
 			}
 			if authorization, protected := route.Authorization(); protected {
-				routeInput.Authorization = &inputAuthorization{
+				routeInput.Authorization = &modelHashAuthorization{
 					PolicyID:      authorization.PolicyID,
 					Module:        authorization.Module,
 					Authenticated: authorization.Authenticated,
@@ -1896,7 +2047,7 @@ func modelHash(
 				}
 			}
 			for _, binding := range route.Bindings() {
-				routeInput.Bindings = append(routeInput.Bindings, inputBinding{
+				routeInput.Bindings = append(routeInput.Bindings, modelHashBinding{
 					Index:    binding.Index,
 					Field:    binding.Field,
 					Name:     binding.Name,
@@ -1910,15 +2061,16 @@ func modelHash(
 		}
 		value.Controllers = append(value.Controllers, inputItem)
 	}
+	value.Transactions = modelHashTransactions(model.Transactions())
 	for _, edge := range model.Edges() {
-		value.Edges = append(value.Edges, inputEdge{
+		value.Edges = append(value.Edges, modelHashEdge{
 			Consumer:  edge.ConsumerID,
 			Parameter: edge.ParameterIndex,
 			Provider:  edge.DependencyID,
 		})
 	}
 	for _, component := range model.Components() {
-		item := inputComponent{
+		item := modelHashComponent{
 			Provider: component.Provider.SymbolID,
 			Start:    component.Start.MethodID,
 		}
@@ -1929,7 +2081,7 @@ func modelHash(
 	}
 	value.Jobs = modelHashScheduleJobs(model.Jobs(), providerModules)
 	for _, root := range applicationTarget.Roots() {
-		value.Roots = append(value.Roots, inputRoot{
+		value.Roots = append(value.Roots, modelHashRoot{
 			Index:    root.Index,
 			Type:     root.TypeID,
 			Provider: root.ProviderID,
@@ -1940,6 +2092,22 @@ func modelHash(
 		return "", err
 	}
 	return contentHash(encoded), nil
+}
+
+func modelHashTransactions(
+	boundaries []compilertransaction.Boundary,
+) []modelHashTransaction {
+	result := make([]modelHashTransaction, len(boundaries))
+	for index, boundary := range boundaries {
+		result[index] = modelHashTransaction{
+			Route:     boundary.RouteID,
+			Manager:   boundary.ManagerProviderID,
+			Module:    boundary.Module,
+			Isolation: boundary.Isolation,
+			ReadOnly:  boundary.ReadOnly,
+		}
+	}
+	return result
 }
 
 func modelHashScheduleJobs(

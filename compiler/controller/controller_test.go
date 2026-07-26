@@ -131,6 +131,44 @@ func (*Users) Raw(http.ResponseWriter, *http.Request) {}
 	}
 }
 
+func TestBuildRecognizesExplicitTransactionExecutorParameter(t *testing.T) {
+	source := `package api
+
+import (
+	"context"
+
+	"github.com/StevenBuglione/spice/data"
+)
+
+type Request struct{}
+type Response struct{}
+
+// @Controller
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Post("/")
+func (*API) Execute(
+	context.Context,
+	data.Executor,
+	Request,
+) (Response, error) {
+	return Response{}, nil
+}
+`
+	catalog := buildCatalog(t, source)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	route := catalog.Controllers()[0].Routes()[0]
+	if !route.ExecutorParameter ||
+		route.RequestTypeID != "example.com/webapp/api.Request" {
+		t.Fatalf("route = %#v", route)
+	}
+}
+
 func TestBuildReportsInvalidControllerAndRouteContracts(t *testing.T) {
 	tests := []struct {
 		name string

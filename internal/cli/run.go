@@ -905,6 +905,8 @@ func verificationSummary(diagnostics []application.Diagnostic) string {
 			label = "lifecycle hook"
 		case application.StageSchedule:
 			label = "scheduled method"
+		case application.StageTransaction:
+			label = "transaction boundary"
 		case application.StageModule:
 			label = "module architecture"
 		case application.StageConfiguration:

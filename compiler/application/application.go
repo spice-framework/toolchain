@@ -20,6 +20,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
+	compilertransaction "github.com/StevenBuglione/spice/compiler/transaction"
 )
 
 const acceptedMarkerSignature = "func(applicationRoots...)"
@@ -38,6 +39,8 @@ const (
 	StageLifecycle Stage = "lifecycle"
 	// StageSchedule identifies scheduled-method validation.
 	StageSchedule Stage = "schedule"
+	// StageTransaction identifies generated transaction-boundary validation.
+	StageTransaction Stage = "transaction"
 	// StageModule identifies application-module architecture validation.
 	StageModule Stage = "module"
 	// StageConfiguration identifies typed configuration validation.
@@ -112,15 +115,16 @@ func (d Diagnostic) Error() string {
 // Model is the immutable-by-convention application IR assembled from one
 // loaded Program and one resolved annotation result.
 type Model struct {
-	providers   []provider.Provider
-	edges       []graph.Edge
-	components  []lifecycle.Component
-	jobs        []compilerschedule.Job
-	configTypes []configuration.Type
-	controllers []controller.Controller
-	targets     []Target
-	moduleModel modulith.Model
-	diagnostics []Diagnostic
+	providers    []provider.Provider
+	edges        []graph.Edge
+	components   []lifecycle.Component
+	jobs         []compilerschedule.Job
+	transactions []compilertransaction.Boundary
+	configTypes  []configuration.Type
+	controllers  []controller.Controller
+	targets      []Target
+	moduleModel  modulith.Model
+	diagnostics  []Diagnostic
 }
 
 // BuildOptions supplies explicitly composed compiler extensions. The caller
@@ -160,6 +164,12 @@ func (m Model) Components() []lifecycle.Component {
 // identity order.
 func (m Model) Jobs() []compilerschedule.Job {
 	return append([]compilerschedule.Job(nil), m.jobs...)
+}
+
+// Transactions returns immutable generated transaction boundaries in stable
+// route identity order.
+func (m Model) Transactions() []compilertransaction.Boundary {
+	return append([]compilertransaction.Boundary(nil), m.transactions...)
 }
 
 // Configurations returns validated typed configuration declarations in stable
@@ -276,12 +286,15 @@ func BuildWithOptions(
 		return model
 	}
 
-	controllerCatalog := controller.Build(program, resolution, providerCatalog, model.moduleModel)
-	if diagnostics := controllerCatalog.Diagnostics(); len(diagnostics) != 0 {
-		model.diagnostics = controllerDiagnostics(diagnostics)
+	model.controllers, model.transactions, model.diagnostics = buildHTTPMetadata(
+		program,
+		resolution,
+		providerCatalog,
+		model.moduleModel,
+	)
+	if len(model.diagnostics) != 0 {
 		return model
 	}
-	model.controllers = controllerCatalog.Controllers()
 
 	lifecycleCatalog := lifecycle.Build(program, resolution, providerCatalog)
 	if diagnostics := lifecycleCatalog.Diagnostics(); len(diagnostics) != 0 {
@@ -329,6 +342,34 @@ func BuildWithOptions(
 		model.edges,
 	)
 	return model
+}
+
+func buildHTTPMetadata(
+	program *load.Program,
+	resolution resolve.Result,
+	providers provider.Catalog,
+	modules modulith.Model,
+) ([]controller.Controller, []compilertransaction.Boundary, []Diagnostic) {
+	controllerCatalog := controller.Build(
+		program,
+		resolution,
+		providers,
+		modules,
+	)
+	if diagnostics := controllerCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return nil, nil, controllerDiagnostics(diagnostics)
+	}
+	controllers := controllerCatalog.Controllers()
+	transactionCatalog := compilertransaction.Build(
+		program,
+		resolution,
+		providers,
+		controllers,
+	)
+	if diagnostics := transactionCatalog.Diagnostics(); len(diagnostics) != 0 {
+		return nil, nil, transactionDiagnostics(diagnostics)
+	}
+	return controllers, transactionCatalog.Boundaries(), nil
 }
 
 func bootstrapApplications(targets []Target) []compilerbootstrap.Application {
@@ -841,6 +882,24 @@ func scheduleDiagnostics(
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.MethodID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func transactionDiagnostics(
+	diagnostics []compilertransaction.Diagnostic,
+) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageTransaction,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.RouteID,
 			Kind:             diagnostic.Kind,
 			Message:          diagnostic.Message,
 		}

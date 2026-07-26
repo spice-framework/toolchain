@@ -40,6 +40,7 @@ type commandFeatures struct {
 	hasMux        bool
 	authorization bool
 	scheduling    bool
+	transactions  bool
 }
 
 func commandFeaturesFor(

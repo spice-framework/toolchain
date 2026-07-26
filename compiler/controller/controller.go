@@ -91,25 +91,26 @@ func (authorization Authorization) AllScopes() []string {
 
 // Route is one validated controller method and HTTP pattern.
 type Route struct {
-	Symbol           load.Symbol
-	SymbolID         string
-	Name             string
-	HTTPMethod       string
-	Path             string
-	Module           string
-	ProviderID       string
-	Receiver         types.Type
-	Request          types.Type
-	RequestTypeID    string
-	Response         types.Type
-	ResponseTypeID   string
-	Raw              bool
-	NoContent        bool
-	ValidatorID      string
-	Position         token.Position
-	PhysicalPosition token.Position
-	bindings         []Binding
-	authorization    *Authorization
+	Symbol            load.Symbol
+	SymbolID          string
+	Name              string
+	HTTPMethod        string
+	Path              string
+	Module            string
+	ProviderID        string
+	Receiver          types.Type
+	Request           types.Type
+	RequestTypeID     string
+	Response          types.Type
+	ResponseTypeID    string
+	Raw               bool
+	NoContent         bool
+	ExecutorParameter bool
+	ValidatorID       string
+	Position          token.Position
+	PhysicalPosition  token.Position
+	bindings          []Binding
+	authorization     *Authorization
 }
 
 // Bindings returns request fields in declaration order.
@@ -653,13 +654,22 @@ func typedRoute(
 	fileSet *token.FileSet,
 	objectSymbols map[types.Object]load.Symbol,
 ) *Diagnostic {
-	if signature.Params().Len() != 2 || signature.Results().Len() != 2 ||
+	requestIndex, executorParameter := typedRouteParameters(signature)
+	if requestIndex < 0 || signature.Results().Len() != 2 ||
 		!namedType(signature.Params().At(0).Type(), "context", "Context") ||
 		!types.Identical(signature.Results().At(1).Type(), types.Universe.Lookup("error").Type()) {
-		diagnostic := symbolDiagnostic(occurrence, symbol, "typed-signature", fmt.Sprintf("typed route %s must have signature func(context.Context, RequestDTO) (Response, error)", symbolLabel(symbol)))
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			"typed-signature",
+			fmt.Sprintf(
+				"typed route %s must have signature func(context.Context, RequestDTO) (Response, error) or func(context.Context, data.Executor, RequestDTO) (Response, error)",
+				symbolLabel(symbol),
+			),
+		)
 		return &diagnostic
 	}
-	requestType := signature.Params().At(1).Type()
+	requestType := signature.Params().At(requestIndex).Type()
 	requestNamed, ok := types.Unalias(requestType).(*types.Named)
 	if !ok || !token.IsExported(requestNamed.Obj().Name()) {
 		diagnostic := symbolDiagnostic(occurrence, symbol, "request-type", fmt.Sprintf("typed route %s request must be an exported named struct value", symbolLabel(symbol)))
@@ -686,6 +696,7 @@ func typedRoute(
 	route.Response = signature.Results().At(0).Type()
 	route.ResponseTypeID = provider.TypeID(route.Response)
 	route.NoContent = namedType(route.Response, "github.com/StevenBuglione/spice/web", "NoContent")
+	route.ExecutorParameter = executorParameter
 	validatorID, validatorProblem := requestValidator(requestNamed, objectSymbols)
 	if validatorProblem != nil {
 		diagnostic := symbolDiagnostic(occurrence, symbol, validatorProblem.kind, fmt.Sprintf("typed route %s: %s", symbolLabel(symbol), validatorProblem.message))
@@ -698,6 +709,25 @@ func typedRoute(
 	route.ValidatorID = validatorID
 	route.bindings = bindings
 	return nil
+}
+
+func typedRouteParameters(signature *types.Signature) (int, bool) {
+	if signature == nil {
+		return -1, false
+	}
+	switch signature.Params().Len() {
+	case 2:
+		return 1, false
+	case 3:
+		if namedType(
+			signature.Params().At(1).Type(),
+			"github.com/StevenBuglione/spice/data",
+			"Executor",
+		) {
+			return 2, true
+		}
+	}
+	return -1, false
 }
 
 func requestValidator(

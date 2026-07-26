@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"slices"
@@ -705,6 +706,77 @@ func TestBuildRejectsResolutionDiagnosticsAndNilProgram(t *testing.T) {
 	}
 }
 
+func TestBuildCarriesTransactionalRoutesInApplicationIR(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/transactions\n\ngo 1.26.0\n\n" +
+			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
+			"replace github.com/StevenBuglione/spice => " +
+			filepath.ToSlash(applicationRepositoryRoot(t)) + "\n",
+		"app/application.go": `package app
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/StevenBuglione/spice/data"
+)
+
+type Request struct{}
+type Response struct{}
+
+// @Bean
+func Database() *sql.DB {
+	panic("provider bodies must not execute during analysis")
+}
+
+// @Bean
+func Transactions(database *sql.DB) (*data.Manager, error) {
+	panic("provider bodies must not execute during analysis")
+}
+
+// @Controller
+type API struct{}
+
+// @Bean
+func NewAPI() *API {
+	panic("provider bodies must not execute during analysis")
+}
+
+// @Post("/orders")
+// @data.Transactional(isolation="serializable", readOnly=true)
+func (*API) Place(
+	context.Context,
+	data.Executor,
+	Request,
+) (Response, error) {
+	panic("transactional route bodies must not execute during analysis")
+}
+
+// @Application
+func Application(*API) {
+	panic("application marker bodies must not execute during analysis")
+}
+`,
+	})
+	program, resolution := loadAndResolve(t, root, "./app")
+	model := Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	boundaries := model.Transactions()
+	if len(boundaries) != 1 ||
+		boundaries[0].RouteName != "Place" ||
+		boundaries[0].Isolation != sql.LevelSerializable ||
+		!boundaries[0].ReadOnly ||
+		boundaries[0].ManagerProviderID == "" {
+		t.Fatalf("Transactions() = %#v", boundaries)
+	}
+	boundaries[0].Module = "changed"
+	if model.Transactions()[0].Module == "changed" {
+		t.Fatal("Transactions() exposed application IR storage")
+	}
+}
+
 func TestModelAccessorsReturnDefensiveCopies(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/copies\n\ngo 1.26.0\n",
@@ -793,6 +865,15 @@ func writeModule(t *testing.T, files map[string]string) string {
 		if err := os.WriteFile(full, []byte(files[path]), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	return root
+}
+
+func applicationRepositoryRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
 	}
 	return root
 }
