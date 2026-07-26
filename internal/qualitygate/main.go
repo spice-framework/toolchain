@@ -22,17 +22,21 @@ import (
 )
 
 const (
-	requiredGoVersion   = "go1.26.5"
-	requiredRustVersion = "1.93.0"
-	minimumCoverage     = 85.0
-	modulePath          = "github.com/StevenBuglione/spice"
+	requiredGoVersion              = "go1.26.5"
+	requiredRustVersion            = "1.93.0"
+	requiredGradleVersion          = "9.6.1"
+	requiredGradleDistributionHash = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+	requiredGradleWrapperHash      = "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7"
+	minimumCoverage                = 85.0
+	modulePath                     = "github.com/StevenBuglione/spice"
 )
 
 var output = log.New(os.Stdout, "", 0)
 
 var (
-	runExternal     = command
-	captureExternal = capture
+	runExternal        = command
+	captureExternal    = capture
+	checkGoLandWrapper = validateGoLandWrapper
 )
 
 func main() {
@@ -40,7 +44,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: fmt, fuzz, lint, security, smoke, test, vet, offline, zed, or verify")
+	mode := flag.String("mode", "verify", "verification mode: fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, or verify")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -67,6 +71,8 @@ func run(ctx context.Context, mode string) error {
 		return format(ctx, root, true)
 	case "fuzz":
 		return fuzz(ctx, root)
+	case "goland":
+		return goland(ctx, root)
 	case "lint":
 		return lint(ctx, root)
 	case "security":
@@ -99,6 +105,7 @@ func verify(ctx context.Context, root string) error {
 		{"go vet", func() error { return runExternal(ctx, root, nil, "go", "vet", "./...") }},
 		{"lint and nil safety", func() error { return lint(ctx, root) }},
 		{"security", func() error { return security(ctx, root) }},
+		{"GoLand plugin", func() error { return goland(ctx, root) }},
 		{"Zed extension", func() error { return zed(ctx, root) }},
 		{"tests", func() error { return test(ctx, root) }},
 		{"fuzz smoke tests", func() error { return fuzz(ctx, root) }},
@@ -114,6 +121,122 @@ func verify(ctx context.Context, root string) error {
 	}
 	output.Println("==> all verification passed")
 	return nil
+}
+
+func goland(ctx context.Context, root string) error {
+	golandRoot := filepath.Join(root, "editors", "goland")
+	if err := checkGoLandWrapper(golandRoot); err != nil {
+		return err
+	}
+	executable := filepath.Join(golandRoot, "gradlew")
+	if runtime.GOOS == "windows" {
+		executable += ".bat"
+	}
+	arguments := []string{"--no-daemon", "--console=plain"}
+	localPath, err := localGoLandPath()
+	if err != nil {
+		return err
+	}
+	if localPath != "" {
+		arguments = append(arguments, "-PgolandPath="+localPath)
+	}
+	arguments = append(
+		arguments,
+		"test",
+		"buildPlugin",
+		"verifyPluginProjectConfiguration",
+		"verifyPluginStructure",
+		"verifyPlugin",
+	)
+	return runExternal(ctx, golandRoot, nil, executable, arguments...)
+}
+
+func validateGoLandWrapper(golandRoot string) error {
+	properties, err := readRootFile(
+		golandRoot,
+		filepath.Join("gradle", "wrapper", "gradle-wrapper.properties"),
+	)
+	if err != nil {
+		return fmt.Errorf("read GoLand Gradle wrapper properties: %w", err)
+	}
+	for _, expected := range []string{
+		"distributionUrl=https\\://services.gradle.org/distributions/gradle-" +
+			requiredGradleVersion + "-bin.zip",
+		"distributionSha256Sum=" + requiredGradleDistributionHash,
+	} {
+		if !strings.Contains(string(properties), expected) {
+			return fmt.Errorf(
+				"GoLand Gradle wrapper properties do not contain %q",
+				expected,
+			)
+		}
+	}
+	wrapper, err := readRootFile(
+		golandRoot,
+		filepath.Join("gradle", "wrapper", "gradle-wrapper.jar"),
+	)
+	if err != nil {
+		return fmt.Errorf("read GoLand Gradle wrapper JAR: %w", err)
+	}
+	hash := fmt.Sprintf("%x", sha256.Sum256(wrapper))
+	if hash != requiredGradleWrapperHash {
+		return fmt.Errorf(
+			"GoLand Gradle wrapper JAR checksum is %s, require %s",
+			hash,
+			requiredGradleWrapperHash,
+		)
+	}
+	for _, script := range []string{"gradlew", "gradlew.bat"} {
+		if _, err := readRootFile(golandRoot, script); err != nil {
+			return fmt.Errorf("read GoLand %s script: %w", script, err)
+		}
+	}
+	return nil
+}
+
+func localGoLandPath() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("SPICE_GOLAND_HOME")); configured != "" {
+		// #nosec G703 -- the verifier intentionally performs a read-only stat
+		// on the user-selected IDE installation; it never reads a child path.
+		info, err := os.Stat(configured)
+		if err != nil {
+			return "", fmt.Errorf("inspect SPICE_GOLAND_HOME %q: %w", configured, err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("SPICE_GOLAND_HOME %q is not a directory", configured)
+		}
+		return filepath.Clean(configured), nil
+	}
+	var candidate string
+	switch runtime.GOOS {
+	case "windows":
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			candidate = filepath.Join(localAppData, "Programs", "GoLand")
+		}
+	case "darwin":
+		candidate = filepath.Join(
+			string(filepath.Separator),
+			"Applications",
+			"GoLand.app",
+			"Contents",
+		)
+	}
+	if candidate == "" {
+		return "", nil
+	}
+	// #nosec G703 -- this read-only stat targets one fixed GoLand location
+	// below the current user's platform-owned application directory.
+	info, err := os.Stat(candidate)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect local GoLand path %q: %w", candidate, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("local GoLand path %q is not a directory", candidate)
+	}
+	return filepath.Clean(candidate), nil
 }
 
 func repositoryRoot() (string, error) {
@@ -644,7 +767,7 @@ func capture(
 func validateExecutable(executable string) error {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(executable)), ".exe")
 	switch name {
-	case "cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "nilaway", "rustc", "spice":
+	case "cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice":
 		return nil
 	default:
 		return fmt.Errorf("executable %q is not an approved quality tool", executable)

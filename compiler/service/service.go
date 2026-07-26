@@ -250,6 +250,14 @@ func (service *Service) analyze(
 			service.config.bootstrapDefinitions,
 		),
 	}
+	if preflight := rawAnnotationDiagnostics(
+		request.root,
+		request.overlay,
+	); !preflight.Empty() {
+		result.diagnostics = preflight
+		result.actions = actionsFromDiagnostics(result.diagnostics)
+		return result, nil
+	}
 	options := service.analysisLoadOptions(request)
 	program, loadErr := service.config.loader(
 		ctx,

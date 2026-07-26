@@ -196,6 +196,101 @@ func TestServiceOffersVersionedRawAnnotationCommentFix(t *testing.T) {
 	}
 }
 
+func TestServiceReportsEveryRawAnnotationAsSourceDiagnostic(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	original, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("ReadFile(main.go) error = %v", err)
+	}
+	raw := bytes.Replace(
+		original,
+		[]byte("// @Application"),
+		[]byte(`@Application
+@management.Enable(expose=["health"])
+@observability.Logging`),
+		1,
+	)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := service.Analyze(
+		context.Background(),
+		Request{
+			WorkspaceRoot: root,
+			Overlay: map[string]Document{
+				mainPath: {Version: 12, Content: raw},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	items := result.Diagnostics().Items()
+	if len(items) != 3 {
+		t.Fatalf("Diagnostics() = %+v, want three source diagnostics", items)
+	}
+	for index, item := range items {
+		if item.Code != "spice.source.annotation-comment" ||
+			item.Location.Path != filepath.ToSlash(mainPath) ||
+			len(item.Fixes) != 1 ||
+			len(item.Fixes[0].Edits) != 1 {
+			t.Fatalf("Diagnostics()[%d] = %+v", index, item)
+		}
+		edit := item.Fixes[0].Edits[0]
+		if edit.NewText != "// " ||
+			edit.DocumentVersion == nil ||
+			*edit.DocumentVersion != 12 ||
+			edit.Location.Range.Start != edit.Location.Range.End {
+			t.Fatalf("Diagnostics()[%d] edit = %+v", index, edit)
+		}
+	}
+	if len(result.CodeActions()) != 3 {
+		t.Fatalf("CodeActions() = %+v, want three fixes", result.CodeActions())
+	}
+}
+
+func TestServiceDoesNotTreatRawStringContentAsAnnotationSource(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	original, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("ReadFile(main.go) error = %v", err)
+	}
+	withRawString := bytes.Replace(
+		original,
+		[]byte("// @Application"),
+		[]byte("const example = `\n@Application\n`\n\n// @Application"),
+		1,
+	)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := service.Analyze(
+		context.Background(),
+		Request{
+			WorkspaceRoot: root,
+			Overlay: map[string]Document{
+				mainPath: {Version: 13, Content: withRawString},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if !result.Diagnostics().Empty() || !result.GenerationReady() {
+		t.Fatalf(
+			"Analyze(raw string) diagnostics = %+v, ready = %t",
+			result.Diagnostics().Items(),
+			result.GenerationReady(),
+		)
+	}
+}
+
 func TestServiceCacheIsBoundedAndResultsAreDefensive(t *testing.T) {
 	t.Parallel()
 	root := writeServiceModule(t)

@@ -277,8 +277,12 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	)
 	client.change(mainURI, 3, raw)
 	third := client.waitForDiagnostics(mainURI, 3)
-	if len(third.Diagnostics) == 0 ||
-		!strings.HasPrefix(third.Diagnostics[0].Code, "spice.load.") {
+	if len(third.Diagnostics) != 1 ||
+		third.Diagnostics[0].Code != "spice.source.annotation-comment" ||
+		!strings.Contains(
+			third.Diagnostics[0].Message,
+			"must remain valid Go comments",
+		) {
 		t.Fatalf("version 3 diagnostics = %+v", third.Diagnostics)
 	}
 	rawLine, _ := sourcePosition(raw, "@Application")

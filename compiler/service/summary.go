@@ -248,7 +248,7 @@ func overlaySafeFixes(
 			continue
 		}
 		items[index] = items[index].WithFixes(diagnostic.SuggestedFix{
-			Title: "Convert to a valid Spice annotation comment",
+			Title: annotationCommentFixTitle,
 			Edits: []diagnostic.TextEdit{edit},
 		})
 	}

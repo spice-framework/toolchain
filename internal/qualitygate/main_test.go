@@ -22,6 +22,7 @@ func TestVerifyOrchestration(t *testing.T) {
 	writeTestFile(t, root, "vendor/modules.txt", "# test vendor tree\n")
 
 	originalRun, originalCapture := runExternal, captureExternal
+	originalWrapperCheck := checkGoLandWrapper
 	var calls []string
 	runExternal = func(
 		_ context.Context,
@@ -64,9 +65,11 @@ func TestVerifyOrchestration(t *testing.T) {
 			return "", nil
 		}
 	}
+	checkGoLandWrapper = func(string) error { return nil }
 	t.Cleanup(func() {
 		runExternal = originalRun
 		captureExternal = originalCapture
+		checkGoLandWrapper = originalWrapperCheck
 	})
 
 	if err := verify(context.Background(), root); err != nil {
@@ -74,6 +77,10 @@ func TestVerifyOrchestration(t *testing.T) {
 	}
 	if err := format(context.Background(), root, true); err != nil {
 		t.Fatalf("format(write=true) error = %v", err)
+	}
+	gradleWrapper := "gradlew"
+	if runtime.GOOS == "windows" {
+		gradleWrapper += ".bat"
 	}
 	for _, expected := range []string{
 		"go vet ./...",
@@ -83,6 +90,8 @@ func TestVerifyOrchestration(t *testing.T) {
 		"-coverprofile=",
 		"-mod=vendor -count=1",
 		"cargo build --locked --release --target wasm32-wasip2",
+		gradleWrapper + " --no-daemon --console=plain",
+		"verifyPluginStructure verifyPlugin",
 		"verify ./...",
 	} {
 		if !containsCall(calls, expected) {
@@ -102,6 +111,11 @@ func TestRepositoryAndFilesystemHelpers(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "module "+modulePath) {
 		t.Fatalf("go.mod = %q", data)
+	}
+	if wrapperErr := validateGoLandWrapper(
+		filepath.Join(root, "editors", "goland"),
+	); wrapperErr != nil {
+		t.Fatalf("validateGoLandWrapper() error = %v", wrapperErr)
 	}
 
 	tree := t.TempDir()
@@ -142,7 +156,7 @@ func TestCoverageAndExecutableHelpers(t *testing.T) {
 	if _, coverageErr := totalCoverage("no total"); coverageErr == nil {
 		t.Fatal("totalCoverage() error = nil")
 	}
-	for _, executable := range []string{"cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "nilaway", "rustc", "spice"} {
+	for _, executable := range []string{"cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice"} {
 		if executableErr := validateExecutable(executable); executableErr != nil {
 			t.Fatalf("validateExecutable(%q) error = %v", executable, executableErr)
 		}
@@ -171,6 +185,17 @@ func TestEnvironmentAndCleanupHelpers(t *testing.T) {
 	}
 	if got := environmentKey("Spice_Test"); got != want {
 		t.Fatalf("environmentKey() = %q, want %q", got, want)
+	}
+
+	golandHome := t.TempDir()
+	t.Setenv("SPICE_GOLAND_HOME", golandHome)
+	resolved, err := localGoLandPath()
+	if err != nil || resolved != filepath.Clean(golandHome) {
+		t.Fatalf("localGoLandPath() = %q, %v", resolved, err)
+	}
+	t.Setenv("SPICE_GOLAND_HOME", filepath.Join(golandHome, "missing"))
+	if _, err := localGoLandPath(); err == nil {
+		t.Fatal("localGoLandPath() error = nil for missing configured path")
 	}
 
 	path := filepath.Join(t.TempDir(), "temporary")
@@ -267,7 +292,7 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"fmt", "fuzz", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify"} {
+	for _, mode := range []string{"fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}
