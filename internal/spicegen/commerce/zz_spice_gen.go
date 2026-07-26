@@ -5,8 +5,14 @@ package spicegen
 
 import (
 	context "context"
+	flag "flag"
 	fmt "fmt"
+	io "io"
+	slog "log/slog"
 	http "net/http"
+	os "os"
+	signal "os/signal"
+	syscall "syscall"
 	time "time"
 
 	spiceconfig "github.com/StevenBuglione/spice/config"
@@ -20,10 +26,18 @@ import (
 
 const TargetID = "commerce"
 
+const (
+	ExitSuccess = 0
+	ExitFailure = 1
+	ExitUsage   = 2
+)
+
 type Application struct {
-	coordinator *spicelifecycle.Coordinator
-	hooks       []spicelifecycle.Hook
-	handler     http.Handler
+	coordinator     *spicelifecycle.Coordinator
+	hooks           []spicelifecycle.Hook
+	shutdownTimeout time.Duration
+	mux             *http.ServeMux
+	handler         http.Handler
 }
 
 type ApplicationOptions struct {
@@ -110,6 +124,13 @@ func ConfigurationSchema() (spiceconfig.Schema, error) {
 			Default:    "10",
 			HasDefault: true,
 		},
+		spiceconfig.Property{
+			Key:         "spice.shutdown-timeout",
+			Kind:        spiceconfig.KindDuration,
+			Environment: "SPICE_SHUTDOWN_TIMEOUT",
+			Default:     "10s",
+			HasDefault:  true,
+		},
 	)
 }
 
@@ -122,7 +143,8 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, fmt.Errorf("construct application commerce: context is nil")
 	}
 	application := &Application{coordinator: spicelifecycle.NewCoordinator()}
-	observers := options.Observers
+	observers := append([]spicelifecycle.Observer(nil), options.Observers...)
+	httpObservers := append([]spiceweb.HTTPObserver(nil), options.HTTPObservers...)
 	for index, observer := range observers {
 		if err := application.coordinator.RegisterObserver(observer); err != nil {
 			return nil, fmt.Errorf("register lifecycle observer %d: %w", index, err)
@@ -144,7 +166,13 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	if err != nil {
 		return nil, fmt.Errorf("resolve configuration for application commerce: %w", err)
 	}
-	_ = configurationSnapshot
+	application.shutdownTimeout, err = configurationSnapshot.Duration("spice.shutdown-timeout")
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode shutdown timeout for application commerce: %w", err))
+	}
+	if application.shutdownTimeout <= 0 {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("decode shutdown timeout for application commerce: duration must be positive"))
+	}
 	provider0 := platform.Mux()
 	_ = provider0
 	provider1 := orders.Settings{}
@@ -267,8 +295,9 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	provider9 := orders.NewController(provider8)
 	_ = provider9
 	routeMux := provider0
+	application.mux = routeMux
 	application.handler = routeMux
-	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|3:Get", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "GET", Pattern: "/orders/{id}"}, options.HTTPObservers...)
+	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|3:Get", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "GET", Pattern: "/orders/{id}"}, httpObservers...)
 	if routeObservationErr0 != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /orders/{id} observation: %w", routeObservationErr0))
 	}
@@ -309,7 +338,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	}), routeObservation0, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /orders/{id}: %w", routeErr))
 	}
-	routeObservation1, routeObservationErr1 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|5:Place", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "POST", Pattern: "/orders"}, options.HTTPObservers...)
+	routeObservation1, routeObservationErr1 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|5:Place", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "POST", Pattern: "/orders"}, httpObservers...)
 	if routeObservationErr1 != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /orders observation: %w", routeObservationErr1))
 	}
@@ -384,6 +413,13 @@ func (application *Application) Stop(ctx context.Context) error {
 	return application.coordinator.Stop(ctx)
 }
 
+func (application *Application) ShutdownTimeout() time.Duration {
+	if application == nil {
+		return 0
+	}
+	return application.shutdownTimeout
+}
+
 func (application *Application) RegisterObserver(observer spicelifecycle.Observer) error {
 	if application == nil || application.coordinator == nil {
 		return fmt.Errorf("register lifecycle observer: application is nil")
@@ -403,4 +439,138 @@ func (application *Application) Handler() http.Handler {
 		return nil
 	}
 	return application.handler
+}
+
+type ShutdownContextFactory func(time.Duration) (context.Context, context.CancelFunc)
+
+type CommandOptions struct {
+	Context         context.Context
+	Arguments       []string
+	Stdout          io.Writer
+	Stderr          io.Writer
+	Logger          *slog.Logger
+	ShutdownTimeout time.Duration
+	ShutdownContext ShutdownContextFactory
+	Application     ApplicationOptions
+}
+
+func Main(arguments []string) int {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	environment, err := spiceconfig.OSEnvironment("SPICE_")
+	if err != nil {
+		logger.Error("Spice command configuration failed", slog.Any("error", err))
+		return ExitFailure
+	}
+	runContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	return RunCommand(CommandOptions{
+		Context:   runContext,
+		Arguments: arguments,
+		Stdout:    os.Stdout,
+		Stderr:    os.Stderr,
+		Logger:    logger,
+		Application: ApplicationOptions{
+			Sources: []spiceconfig.Source{environment},
+		},
+	})
+}
+
+func RunCommand(options CommandOptions) int {
+	stdout := options.Stdout
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	stderr := options.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(stderr, nil))
+	}
+	ctx := options.Context
+	if ctx == nil {
+		return commandFailure(context.Background(), logger, "Spice command context is nil", nil)
+	}
+	if options.ShutdownTimeout < 0 {
+		return commandFailure(ctx, logger, "Spice shutdown timeout is invalid", nil)
+	}
+
+	flags := flag.NewFlagSet(TargetID, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	check := flags.Bool("check", false, "construct the generated application and exit")
+	if err := flags.Parse(options.Arguments); err != nil {
+		logger.ErrorContext(ctx, "Spice command arguments are invalid", slog.Any("error", err))
+		return ExitUsage
+	}
+	if flags.NArg() != 0 {
+		if _, err := fmt.Fprintf(stderr, "%s does not accept positional arguments\n", TargetID); err != nil {
+			logger.ErrorContext(ctx, "Spice command usage output failed", slog.Any("error", err))
+		}
+		return ExitUsage
+	}
+
+	applicationOptions := options.Application
+	logger.InfoContext(ctx, "Spice application constructing", slog.String("application", TargetID))
+	application, err := NewApplicationWithOptions(ctx, applicationOptions)
+	if err != nil {
+		return commandFailure(ctx, logger, "Spice application construction failed", err)
+	}
+
+	shutdownTimeout := application.shutdownTimeout
+	if options.ShutdownTimeout > 0 {
+		shutdownTimeout = options.ShutdownTimeout
+	}
+	shutdownContext := options.ShutdownContext
+	if shutdownContext == nil {
+		shutdownContext = func(timeout time.Duration) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(context.Background(), timeout)
+		}
+	}
+	shutdown := func() (context.Context, context.CancelFunc) {
+		return shutdownContext(shutdownTimeout)
+	}
+
+	if *check {
+		if err := stopCheckedApplication(application, shutdown); err != nil {
+			return commandFailure(ctx, logger, "Spice application check cleanup failed", err)
+		}
+		if _, err := fmt.Fprintf(stdout, "Spice %s ready.\n", TargetID); err != nil {
+			return commandFailure(ctx, logger, "Spice readiness output failed", err)
+		}
+		return ExitSuccess
+	}
+
+	logger.InfoContext(ctx, "Spice application starting", slog.String("application", TargetID))
+	if err := application.Run(ctx, shutdown); err != nil {
+		return commandFailure(ctx, logger, "Spice application run failed", err)
+	}
+	logger.InfoContext(context.Background(), "Spice application stopped", slog.String("application", TargetID))
+	return ExitSuccess
+}
+
+func stopCheckedApplication(
+	application *Application,
+	shutdown spicelifecycle.ContextFactory,
+) error {
+	shutdownContext, cancel := shutdown()
+	if shutdownContext == nil || cancel == nil {
+		return fmt.Errorf("check application: shutdown context factory returned a nil context or cancel function")
+	}
+	defer cancel()
+	return application.Stop(shutdownContext)
+}
+
+func commandFailure(
+	ctx context.Context,
+	logger *slog.Logger,
+	message string,
+	err error,
+) int {
+	if err == nil {
+		logger.ErrorContext(ctx, message)
+	} else {
+		logger.ErrorContext(ctx, message, slog.Any("error", err))
+	}
+	return ExitFailure
 }

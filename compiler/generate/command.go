@@ -1,0 +1,338 @@
+package generate
+
+import (
+	"bytes"
+	"fmt"
+	"slices"
+	"strconv"
+
+	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/compiler/application"
+	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
+	"github.com/StevenBuglione/spice/compiler/provider"
+)
+
+type modelHashBootstrapOption struct {
+	Name  string           `json:"name"`
+	Value annotation.Value `json:"value"`
+}
+
+type modelHashBootstrapFeature struct {
+	Annotation   string                     `json:"annotation"`
+	Capability   string                     `json:"capability"`
+	Options      []modelHashBootstrapOption `json:"options"`
+	Requirements []string                   `json:"requirements"`
+}
+
+type commandFeatures struct {
+	endpoints  []compilerbootstrap.Endpoint
+	management bool
+	logging    bool
+	metrics    bool
+	hasMux     bool
+}
+
+func commandFeaturesFor(
+	target application.Target,
+	hasControllers bool,
+) commandFeatures {
+	metadata := target.Bootstrap()
+	management, managementEnabled := metadata.Management()
+	endpoints := management.Endpoints()
+	return commandFeatures{
+		endpoints:  endpoints,
+		management: managementEnabled,
+		logging:    metadata.Enabled(compilerbootstrap.CapabilityLogging),
+		metrics:    slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
+		hasMux:     hasControllers || managementEnabled,
+	}
+}
+
+func bootstrapHashInput(target application.Target) []modelHashBootstrapFeature {
+	var result []modelHashBootstrapFeature
+	for _, feature := range target.Bootstrap().Features() {
+		item := modelHashBootstrapFeature{
+			Annotation: feature.Annotation,
+			Capability: string(feature.Capability),
+		}
+		for _, option := range feature.Options() {
+			item.Options = append(item.Options, modelHashBootstrapOption{
+				Name:  option.Name,
+				Value: option.Value(),
+			})
+		}
+		for _, requirement := range feature.Requirements() {
+			item.Requirements = append(item.Requirements, string(requirement))
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func writeGeneratedConstants(source *bytes.Buffer, targetID string) {
+	fmt.Fprintf(source, "const TargetID = %s\n\n", strconv.Quote(targetID))
+	source.WriteString(`const (
+	ExitSuccess = 0
+	ExitFailure = 1
+	ExitUsage = 2
+)
+
+`)
+}
+
+func writeBootstrapObservers(source *bytes.Buffer, features commandFeatures) {
+	source.WriteString("\tobservers := append([]spicelifecycle.Observer(nil), options.Observers...)\n")
+	if features.hasMux {
+		source.WriteString("\thttpObservers := append([]spiceweb.HTTPObserver(nil), options.HTTPObservers...)\n")
+	}
+	if features.metrics {
+		source.WriteString("\tmanagementMetrics := spicemanagement.NewHTTPMetrics()\n")
+		source.WriteString("\thttpObservers = append([]spiceweb.HTTPObserver{managementMetrics}, httpObservers...)\n")
+	}
+	if !features.logging {
+		return
+	}
+	source.WriteString("\tlogger := options.Logger\n")
+	source.WriteString("\tif logger == nil {\n")
+	source.WriteString("\t\tlogger = slog.New(slog.NewJSONHandler(os.Stderr, nil))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tlifecycleLogs, err := spiceobservability.NewSlogLifecycleObserver(logger)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure lifecycle logging: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tobservers = append([]spicelifecycle.Observer{lifecycleLogs}, observers...)\n")
+	if features.hasMux {
+		source.WriteString("\thttpLogs, err := spiceobservability.NewSlogHTTPObserver(logger)\n")
+		source.WriteString("\tif err != nil {\n")
+		source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure HTTP logging: %w\", err))\n")
+		source.WriteString("\t}\n")
+		if features.metrics {
+			source.WriteString("\thttpObservers = append(httpObservers[:1], append([]spiceweb.HTTPObserver{httpLogs}, httpObservers[1:]...)...)\n")
+		} else {
+			source.WriteString("\thttpObservers = append([]spiceweb.HTTPObserver{httpLogs}, httpObservers...)\n")
+		}
+	}
+}
+
+func writeRouteMux(
+	source *bytes.Buffer,
+	providers []provider.Provider,
+	providerVariables map[string]string,
+) {
+	muxVariable := ""
+	for _, item := range providers {
+		if pointerNamedType(item.Output, "net/http", "ServeMux") {
+			muxVariable = providerVariables[item.SymbolID]
+			break
+		}
+	}
+	if muxVariable == "" {
+		source.WriteString("\trouteMux := http.NewServeMux()\n")
+	} else {
+		fmt.Fprintf(source, "\trouteMux := %s\n", muxVariable)
+	}
+	source.WriteString("\tapplication.mux = routeMux\n")
+	source.WriteString("\tapplication.handler = routeMux\n")
+}
+
+func writeManagementSetup(
+	source *bytes.Buffer,
+	target application.Target,
+	features commandFeatures,
+) {
+	if !features.management {
+		return
+	}
+	fmt.Fprintf(
+		source,
+		"\tmanagementChecks, err := spicemanagement.LifecycleChecks(TargetID, %s, application.State)\n",
+		strconv.Quote(target.PackagePath),
+	)
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management lifecycle checks: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tmanagementManager, err := spicemanagement.New(managementChecks...)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management checks: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tmanagementHandler, err := spicemanagement.NewHandler(spicemanagement.HandlerOptions{\n")
+	source.WriteString("\t\tManager: managementManager,\n")
+	source.WriteString("\t\tInfo: map[string]string{\n")
+	source.WriteString("\t\t\t\"application\": TargetID,\n")
+	fmt.Fprintf(source, "\t\t\t\"module\": %s,\n", strconv.Quote(target.PackagePath))
+	source.WriteString("\t\t\t\"framework\": \"Spice\",\n")
+	source.WriteString("\t\t},\n")
+	if features.metrics {
+		source.WriteString("\t\tMetrics: managementMetrics,\n")
+	}
+	source.WriteString("\t\tExpose: []spicemanagement.Endpoint{\n")
+	for _, endpoint := range features.endpoints {
+		fmt.Fprintf(source, "\t\t\t%s,\n", managementEndpointName(endpoint))
+	}
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t})\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management handler: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tif err := spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler); err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"register management routes: %w\", err))\n")
+	source.WriteString("\t}\n")
+}
+
+func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
+	switch endpoint {
+	case compilerbootstrap.EndpointHealth:
+		return "spicemanagement.EndpointHealth"
+	case compilerbootstrap.EndpointLiveness:
+		return "spicemanagement.EndpointLiveness"
+	case compilerbootstrap.EndpointReadiness:
+		return "spicemanagement.EndpointReadiness"
+	case compilerbootstrap.EndpointInfo:
+		return "spicemanagement.EndpointInfo"
+	case compilerbootstrap.EndpointMetrics:
+		return "spicemanagement.EndpointMetrics"
+	}
+	return strconv.Quote(string(endpoint))
+}
+
+func writeCommandAPI(source *bytes.Buffer, features commandFeatures) {
+	source.WriteString(`
+type ShutdownContextFactory func(time.Duration) (context.Context, context.CancelFunc)
+
+type CommandOptions struct {
+	Context context.Context
+	Arguments []string
+	Stdout io.Writer
+	Stderr io.Writer
+	Logger *slog.Logger
+	ShutdownTimeout time.Duration
+	ShutdownContext ShutdownContextFactory
+	Application ApplicationOptions
+}
+
+func Main(arguments []string) int {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	environment, err := spiceconfig.OSEnvironment("SPICE_")
+	if err != nil {
+		logger.Error("Spice command configuration failed", slog.Any("error", err))
+		return ExitFailure
+	}
+	runContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	return RunCommand(CommandOptions{
+		Context: runContext,
+		Arguments: arguments,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+		Logger: logger,
+		Application: ApplicationOptions{
+			Sources: []spiceconfig.Source{environment},
+		},
+	})
+}
+
+func RunCommand(options CommandOptions) int {
+	stdout := options.Stdout
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	stderr := options.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(stderr, nil))
+	}
+	ctx := options.Context
+	if ctx == nil {
+		return commandFailure(context.Background(), logger, "Spice command context is nil", nil)
+	}
+	if options.ShutdownTimeout < 0 {
+		return commandFailure(ctx, logger, "Spice shutdown timeout is invalid", nil)
+	}
+
+	flags := flag.NewFlagSet(TargetID, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	check := flags.Bool("check", false, "construct the generated application and exit")
+	if err := flags.Parse(options.Arguments); err != nil {
+		logger.ErrorContext(ctx, "Spice command arguments are invalid", slog.Any("error", err))
+		return ExitUsage
+	}
+	if flags.NArg() != 0 {
+		if _, err := fmt.Fprintf(stderr, "%s does not accept positional arguments\n", TargetID); err != nil {
+			logger.ErrorContext(ctx, "Spice command usage output failed", slog.Any("error", err))
+		}
+		return ExitUsage
+	}
+
+	applicationOptions := options.Application
+`)
+	if features.logging {
+		source.WriteString("\tapplicationOptions.Logger = logger\n")
+	}
+	source.WriteString(`	logger.InfoContext(ctx, "Spice application constructing", slog.String("application", TargetID))
+	application, err := NewApplicationWithOptions(ctx, applicationOptions)
+	if err != nil {
+		return commandFailure(ctx, logger, "Spice application construction failed", err)
+	}
+
+	shutdownTimeout := application.shutdownTimeout
+	if options.ShutdownTimeout > 0 {
+		shutdownTimeout = options.ShutdownTimeout
+	}
+	shutdownContext := options.ShutdownContext
+	if shutdownContext == nil {
+		shutdownContext = func(timeout time.Duration) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(context.Background(), timeout)
+		}
+	}
+	shutdown := func() (context.Context, context.CancelFunc) {
+		return shutdownContext(shutdownTimeout)
+	}
+
+	if *check {
+		if err := stopCheckedApplication(application, shutdown); err != nil {
+			return commandFailure(ctx, logger, "Spice application check cleanup failed", err)
+		}
+		if _, err := fmt.Fprintf(stdout, "Spice %s ready.\n", TargetID); err != nil {
+			return commandFailure(ctx, logger, "Spice readiness output failed", err)
+		}
+		return ExitSuccess
+	}
+
+	logger.InfoContext(ctx, "Spice application starting", slog.String("application", TargetID))
+	if err := application.Run(ctx, shutdown); err != nil {
+		return commandFailure(ctx, logger, "Spice application run failed", err)
+	}
+	logger.InfoContext(context.Background(), "Spice application stopped", slog.String("application", TargetID))
+	return ExitSuccess
+}
+
+func stopCheckedApplication(
+	application *Application,
+	shutdown spicelifecycle.ContextFactory,
+) error {
+	shutdownContext, cancel := shutdown()
+	if shutdownContext == nil || cancel == nil {
+		return fmt.Errorf("check application: shutdown context factory returned a nil context or cancel function")
+	}
+	defer cancel()
+	return application.Stop(shutdownContext)
+}
+
+func commandFailure(
+	ctx context.Context,
+	logger *slog.Logger,
+	message string,
+	err error,
+) int {
+	if err == nil {
+		logger.ErrorContext(ctx, message)
+	} else {
+		logger.ErrorContext(ctx, message, slog.Any("error", err))
+	}
+	return ExitFailure
+}
+`)
+}

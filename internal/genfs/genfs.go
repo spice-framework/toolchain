@@ -870,33 +870,91 @@ func cloneStatus(status Status) Status {
 }
 
 func appendDiff(builder *strings.Builder, filePath string, current, expected []byte, limit int) int {
+	currentLines := nonNilLines(splitLines(current))
+	expectedLines := nonNilLines(splitLines(expected))
+	prefix := commonPrefix(currentLines, expectedLines)
+	suffix := commonSuffixAfter(currentLines, expectedLines, prefix)
+	const contextLines = 3
+	start := max(0, prefix-contextLines)
+	currentChangedEnd := len(currentLines) - suffix
+	expectedChangedEnd := len(expectedLines) - suffix
+	currentEnd := min(len(currentLines), currentChangedEnd+contextLines)
+	expectedEnd := min(len(expectedLines), expectedChangedEnd+contextLines)
+
 	builder.WriteString("--- a/")
 	builder.WriteString(filePath)
 	builder.WriteByte('\n')
 	builder.WriteString("+++ b/")
 	builder.WriteString(filePath)
 	builder.WriteByte('\n')
-	builder.WriteString("@@\n")
+	fmt.Fprintf(
+		builder,
+		"@@ -%d,%d +%d,%d @@\n",
+		start+1,
+		currentEnd-start,
+		start+1,
+		expectedEnd-start,
+	)
 	written := 3
-	for _, line := range splitLines(current) {
-		if written >= limit {
+	for index := start; index < prefix; index++ {
+		if !appendDiffLine(builder, ' ', currentLines[index], &written, limit) {
 			return written
 		}
-		builder.WriteByte('-')
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-		written++
 	}
-	for _, line := range splitLines(expected) {
-		if written >= limit {
+	for index := prefix; index < currentChangedEnd; index++ {
+		if !appendDiffLine(builder, '-', currentLines[index], &written, limit) {
 			return written
 		}
-		builder.WriteByte('+')
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-		written++
+	}
+	for index := prefix; index < expectedChangedEnd; index++ {
+		if !appendDiffLine(builder, '+', expectedLines[index], &written, limit) {
+			return written
+		}
+	}
+	contextEnd := min(currentEnd-currentChangedEnd, expectedEnd-expectedChangedEnd)
+	for offset := range contextEnd {
+		line := currentLines[currentChangedEnd+offset]
+		if !appendDiffLine(builder, ' ', line, &written, limit) {
+			return written
+		}
 	}
 	return written
+}
+
+func appendDiffLine(
+	builder *strings.Builder,
+	prefix byte,
+	line string,
+	written *int,
+	limit int,
+) bool {
+	if *written >= limit {
+		return false
+	}
+	builder.WriteByte(prefix)
+	builder.WriteString(line)
+	builder.WriteByte('\n')
+	*written++
+	return true
+}
+
+func commonPrefix(left, right []string) int {
+	limit := min(len(left), len(right))
+	index := 0
+	for index < limit && left[index] == right[index] {
+		index++
+	}
+	return index
+}
+
+func commonSuffixAfter(left, right []string, prefix int) int {
+	limit := min(len(left)-prefix, len(right)-prefix)
+	count := 0
+	for count < limit &&
+		left[len(left)-count-1] == right[len(right)-count-1] {
+		count++
+	}
+	return count
 }
 
 func splitLines(content []byte) []string {
@@ -905,6 +963,13 @@ func splitLines(content []byte) []string {
 		return nil
 	}
 	return strings.Split(trimmed, "\n")
+}
+
+func nonNilLines(lines []string) []string {
+	if lines == nil {
+		return []string{}
+	}
+	return lines
 }
 
 func withinOutput(filePath, outputDir string) bool {

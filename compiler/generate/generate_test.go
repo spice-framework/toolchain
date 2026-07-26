@@ -58,7 +58,7 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"components.ConfigProvider()",
 		"components.StoreProvider(provider0)",
 		"components.ServerProvider(provider1)",
-		"fmt \"fmt\"\n\n\tcomponents \"example.com/shop/components\"",
+		`components "example.com/shop/components"`,
 		"RegisterModuleCleanup(",
 		"provider2.Start",
 		"provider2.Stop",
@@ -81,6 +81,8 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		root,
 		filepath.ToSlash(root),
 		time.Now().Format("2006-01-02"),
+		"spicemanagement",
+		"spiceobservability",
 	} {
 		if forbidden != "" &&
 			(bytes.Contains(firstSource, []byte(forbidden)) || bytes.Contains(firstManifest, []byte(forbidden))) {
@@ -112,6 +114,106 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 	writePlan(t, root, plan)
 	writeTestFile(t, root, "internal/spicegen/shop/zz_spice_gen_test.go", generatedRuntimeTest)
 	runGoTest(t, root, "./internal/spicegen/shop")
+}
+
+func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
+	root := commandGenerationFixture(t)
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+
+	var firstSource, firstManifest []byte
+	for iteration := range 20 {
+		plan, renderDiagnostics := Render(program, model, applicationTarget, target)
+		if len(renderDiagnostics) != 0 {
+			t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(renderDiagnostics))
+		}
+		if iteration == 0 {
+			firstSource = plan.Files()[0].Content()
+			firstManifest = plan.ManifestContent()
+			continue
+		}
+		if !bytes.Equal(firstSource, plan.Files()[0].Content()) ||
+			!bytes.Equal(firstManifest, plan.ManifestContent()) {
+			t.Fatalf("annotation-driven output changed at iteration %d", iteration)
+		}
+	}
+
+	source := string(firstSource)
+	for _, expected := range []string{
+		"func Main(arguments []string) int",
+		"func RunCommand(options CommandOptions) int",
+		"signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)",
+		`Key:         "spice.shutdown-timeout"`,
+		"spiceobservability.NewSlogLifecycleObserver(logger)",
+		"spiceobservability.NewSlogHTTPObserver(logger)",
+		"managementMetrics := spicemanagement.NewHTTPMetrics()",
+		"spicemanagement.EndpointHealth",
+		"spicemanagement.EndpointMetrics",
+		"spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler)",
+		"application.mux = routeMux",
+		"return ExitFailure",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("generated command source missing %q:\n%s", expected, source)
+		}
+	}
+	for _, forbidden := range []string{
+		"os.Exit(",
+		"spicemanagement.EndpointInfo",
+		"spicemanagement.EndpointLiveness",
+		"spicemanagement.EndpointReadiness",
+		root,
+		filepath.ToSlash(root),
+	} {
+		if forbidden != "" &&
+			(strings.Contains(source, forbidden) || bytes.Contains(firstManifest, []byte(forbidden))) {
+			t.Fatalf("generated command output contains forbidden value %q", forbidden)
+		}
+	}
+
+	plan, renderDiagnostics := Render(program, model, applicationTarget, target)
+	if len(renderDiagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(renderDiagnostics))
+	}
+	writePlan(t, root, plan)
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/command/zz_spice_command_test.go",
+		generatedCommandTest,
+	)
+	runGoTest(t, root, "./internal/spicegen/command")
+}
+
+func TestRenderNormalizesBootstrapAnnotationListOrder(t *testing.T) {
+	t.Parallel()
+	firstRoot := commandOrderFixture(t, `["metrics", "health"]`)
+	secondRoot := commandOrderFixture(t, `["health", "metrics"]`)
+	firstProgram, firstModel, firstApplication := buildApplication(t, firstRoot, "./...")
+	secondProgram, secondModel, secondApplication := buildApplication(t, secondRoot, "./...")
+	firstTarget, diagnostics := DefaultTarget(firstProgram, firstApplication)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget(first) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	secondTarget, diagnostics := DefaultTarget(secondProgram, secondApplication)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget(second) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	first, diagnostics := Render(firstProgram, firstModel, firstApplication, firstTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render(first) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	second, diagnostics := Render(secondProgram, secondModel, secondApplication, secondTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render(second) diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	if !bytes.Equal(first.Files()[0].Content(), second.Files()[0].Content()) ||
+		!bytes.Equal(first.ManifestContent(), second.ManifestContent()) {
+		t.Fatal("management endpoint list order changed generated output")
+	}
 }
 
 func TestRenderAssignsStableAliasesForPackageNameCollisions(t *testing.T) {
@@ -498,6 +600,35 @@ func Application() {}
 	}
 }
 
+func TestRenderRejectsFrameworkOwnedConfigurationKey(t *testing.T) {
+	root := writeModule(t, "example.com/reserved", map[string]string{
+		"app/application.go": `package app
+
+import "time"
+
+// @Configuration(prefix="spice")
+type Settings struct {
+	ShutdownTimeout time.Duration ` + "`spice:\"shutdown-timeout,default=1s\"`" + `
+}
+
+// @Application
+func Reserved(Settings) {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	_, diagnostics = Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "reserved-configuration" ||
+		!strings.Contains(diagnostics[0].Message, `"spice.shutdown-timeout"`) ||
+		diagnostics[0].Position.Filename == "" {
+		t.Fatalf("Render() diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestRenderRejectsInvalidInputs(t *testing.T) {
 	root := writeModule(t, "example.com/inputs", map[string]string{
 		"app/application.go": `package app
@@ -740,7 +871,7 @@ func TestGeneratedConfigurationApplication(t *testing.T) {
 		t.Fatalf("ConfigurationSchema() error = %v", err)
 	}
 	properties := schema.Properties()
-	if len(properties) != 6 {
+	if len(properties) != 7 {
 		t.Fatalf("schema properties = %#v", properties)
 	}
 	if properties[3].Key != "server.port" || properties[3].Environment != "SERVER_PORT" ||
@@ -750,6 +881,12 @@ func TestGeneratedConfigurationApplication(t *testing.T) {
 	if properties[4].Key != "server.timeout" || properties[5].Key != "server.token" ||
 		!properties[5].Secret {
 		t.Fatalf("schema metadata = %#v", properties)
+	}
+	if properties[6].Key != "spice.shutdown-timeout" ||
+		properties[6].Kind != config.KindDuration ||
+		properties[6].Environment != "SPICE_SHUTDOWN_TIMEOUT" ||
+		properties[6].Default != "10s" {
+		t.Fatalf("shutdown metadata = %#v", properties[6])
 	}
 
 	if application, constructionErr := NewApplication(context.Background()); application != nil ||
@@ -987,6 +1124,238 @@ func request(
 }
 `
 
+const generatedCommandTest = `package spicegen
+
+import (
+	"bytes"
+	"context"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"example.com/command/components"
+	spiceconfig "github.com/StevenBuglione/spice/config"
+)
+
+func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
+	components.Reset(false)
+	source := commandSource(t, map[string]string{"command.secret": "true"})
+	var stdout bytes.Buffer
+	var logs bytes.Buffer
+	shutdownCalls := 0
+	exitCode := RunCommand(CommandOptions{
+		Context: context.Background(),
+		Arguments: []string{"--check"},
+		Stdout: &stdout,
+		Stderr: &logs,
+		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+		ShutdownContext: func(timeout time.Duration) (context.Context, context.CancelFunc) {
+			shutdownCalls++
+			if timeout != 10*time.Second {
+				t.Fatalf("shutdown timeout = %s, want 10s", timeout)
+			}
+			return context.WithTimeout(context.Background(), timeout)
+		},
+		Application: ApplicationOptions{Sources: []spiceconfig.Source{source}},
+	})
+	if exitCode != ExitSuccess || shutdownCalls != 1 ||
+		!strings.Contains(stdout.String(), "Spice command ready.") {
+		t.Fatalf("RunCommand(check) exit=%d calls=%d stdout=%q logs=%q", exitCode, shutdownCalls, stdout.String(), logs.String())
+	}
+	if got, want := components.Events(), []string{"construct resource", "construct server", "cleanup resource"}; !slices.Equal(got, want) {
+		t.Fatalf("check events = %v, want %v", got, want)
+	}
+
+	components.Reset(false)
+	application, err := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Sources: []spiceconfig.Source{source},
+		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
+	if err != nil {
+		t.Fatalf("NewApplicationWithOptions() error = %v", err)
+	}
+	for _, test := range []struct {
+		path string
+		status int
+	}{
+		{path: "/actuator/health", status: http.StatusOK},
+		{path: "/actuator/metrics", status: http.StatusOK},
+		{path: "/actuator/info", status: http.StatusNotFound},
+		{path: "/actuator/health/liveness", status: http.StatusNotFound},
+		{path: "/actuator/health/readiness", status: http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if response.Code != test.status {
+			t.Fatalf("%s status = %d, want %d; body=%s", test.path, response.Code, test.status, response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), "command.secret") {
+			t.Fatalf("%s leaked configuration metadata: %s", test.path, response.Body.String())
+		}
+	}
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
+func TestGeneratedCommandCancellationUsesFreshBoundedShutdownContext(t *testing.T) {
+	components.Reset(false)
+	source := commandSource(t, map[string]string{"command.secret": "true"})
+	runContext, cancelRun := context.WithCancel(context.Background())
+	var logs bytes.Buffer
+	var receivedTimeout time.Duration
+	freshContext := false
+	results := make(chan int, 1)
+	go func() {
+		results <- RunCommand(CommandOptions{
+			Context: runContext,
+			Stderr: &logs,
+			Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+			ShutdownTimeout: 250 * time.Millisecond,
+			ShutdownContext: func(timeout time.Duration) (context.Context, context.CancelFunc) {
+				receivedTimeout = timeout
+				shutdownContext, cancel := context.WithTimeout(context.Background(), timeout)
+				freshContext = shutdownContext != runContext && shutdownContext.Err() == nil
+				return shutdownContext, cancel
+			},
+			Application: ApplicationOptions{Sources: []spiceconfig.Source{source}},
+		})
+	}()
+	select {
+	case <-components.Started():
+	case <-time.After(5 * time.Second):
+		t.Fatal("generated command did not start")
+	}
+	cancelRun()
+	select {
+	case exitCode := <-results:
+		if exitCode != ExitSuccess {
+			t.Fatalf("RunCommand() exit = %d, logs=%s", exitCode, logs.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("generated command did not stop")
+	}
+	if receivedTimeout != 250*time.Millisecond || !freshContext {
+		t.Fatalf("shutdown timeout=%s fresh=%t", receivedTimeout, freshContext)
+	}
+	want := []string{"construct resource", "construct server", "start server", "stop server", "cleanup resource"}
+	if got := components.Events(); !slices.Equal(got, want) {
+		t.Fatalf("run events = %v, want %v", got, want)
+	}
+	if !strings.Contains(logs.String(), "application.lifecycle") {
+		t.Fatalf("logging annotation did not install lifecycle logs: %s", logs.String())
+	}
+}
+
+func TestGeneratedCommandFailurePathsRollbackAndReturnStableCodes(t *testing.T) {
+	tests := []struct {
+		name string
+		values map[string]string
+		blockStop bool
+		startThenCancel bool
+		timeout time.Duration
+		wantEvents []string
+	}{
+		{
+			name: "construction",
+			values: map[string]string{"command.secret": "true", "command.fail-construction": "true"},
+			wantEvents: []string{"construct resource", "construct server", "cleanup resource"},
+		},
+		{
+			name: "startup",
+			values: map[string]string{"command.secret": "true", "command.fail-start": "true"},
+			wantEvents: []string{"construct resource", "construct server", "start server", "cleanup resource"},
+		},
+		{
+			name: "shutdown timeout",
+			values: map[string]string{"command.secret": "true"},
+			blockStop: true,
+			startThenCancel: true,
+			timeout: 10 * time.Millisecond,
+			wantEvents: []string{"construct resource", "construct server", "start server", "stop server", "cleanup resource"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			components.Reset(test.blockStop)
+			source := commandSource(t, test.values)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var logs bytes.Buffer
+			results := make(chan int, 1)
+			go func() {
+				results <- RunCommand(CommandOptions{
+					Context: ctx,
+					Stderr: &logs,
+					Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+					ShutdownTimeout: test.timeout,
+					Application: ApplicationOptions{Sources: []spiceconfig.Source{source}},
+				})
+			}()
+			if test.startThenCancel {
+				select {
+				case <-components.Started():
+					cancel()
+				case <-time.After(5 * time.Second):
+					t.Fatal("generated command did not start")
+				}
+			}
+			select {
+			case exitCode := <-results:
+				if exitCode != ExitFailure {
+					t.Fatalf("RunCommand() exit = %d, want %d; logs=%s", exitCode, ExitFailure, logs.String())
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("generated command failure did not return")
+			}
+			if got := components.Events(); !slices.Equal(got, test.wantEvents) {
+				t.Fatalf("events = %v, want %v", got, test.wantEvents)
+			}
+		})
+	}
+}
+
+func TestGeneratedCommandRedactsInvalidSecretAndRejectsUsage(t *testing.T) {
+	components.Reset(false)
+	source := commandSource(t, map[string]string{"command.secret": "top-secret-invalid"})
+	var logs bytes.Buffer
+	exitCode := RunCommand(CommandOptions{
+		Context: context.Background(),
+		Arguments: []string{"--check"},
+		Stderr: &logs,
+		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+		Application: ApplicationOptions{Sources: []spiceconfig.Source{source}},
+	})
+	if exitCode != ExitFailure || strings.Contains(logs.String(), "top-secret-invalid") {
+		t.Fatalf("secret failure exit=%d logs=%q", exitCode, logs.String())
+	}
+
+	logs.Reset()
+	exitCode = RunCommand(CommandOptions{
+		Context: context.Background(),
+		Arguments: []string{"unexpected"},
+		Stderr: &logs,
+		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
+	if exitCode != ExitUsage {
+		t.Fatalf("usage exit = %d, want %d; logs=%s", exitCode, ExitUsage, logs.String())
+	}
+}
+
+func commandSource(t *testing.T, values map[string]string) spiceconfig.Source {
+	t.Helper()
+	source, err := spiceconfig.NewMapSource("test", values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+`
+
 func filePaths(files []File) []string {
 	result := make([]string, len(files))
 	for index, file := range files {
@@ -1074,6 +1443,166 @@ import "example.com/shop/components"
 func Shop(*components.Server) {
 	panic("application marker bodies must not execute")
 }
+`,
+	})
+}
+
+func commandGenerationFixture(t *testing.T) string {
+	t.Helper()
+	return writeModule(t, "example.com/command", map[string]string{
+		"components/components.go": `// Package components owns the command fixture.
+//
+// @Module
+package components
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"sync"
+
+	"github.com/StevenBuglione/spice/lifecycle"
+)
+
+type Settings struct {
+	Secret bool ` + "`spice:\"secret,secret,required\"`" + `
+	FailConstruction bool ` + "`spice:\"fail-construction,default=false\"`" + `
+	FailStart bool ` + "`spice:\"fail-start,default=false\"`" + `
+}
+
+// @Configuration(prefix="command")
+type Configuration Settings
+
+type Resource struct{}
+
+type Server struct {
+	settings Configuration
+	mux *http.ServeMux
+}
+
+var fixtureState = struct {
+	sync.Mutex
+	events []string
+	started chan struct{}
+	blockStop bool
+}{started: make(chan struct{})}
+
+func Reset(blockStop bool) {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	fixtureState.events = nil
+	fixtureState.started = make(chan struct{})
+	fixtureState.blockStop = blockStop
+}
+
+func Events() []string {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	return append([]string(nil), fixtureState.events...)
+}
+
+func Started() <-chan struct{} {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	return fixtureState.started
+}
+
+func record(event string) {
+	fixtureState.Lock()
+	defer fixtureState.Unlock()
+	fixtureState.events = append(fixtureState.events, event)
+}
+
+// @Bean
+func Mux() *http.ServeMux {
+	return http.NewServeMux()
+}
+
+// @Bean
+func NewResource() (*Resource, lifecycle.Cleanup) {
+	record("construct resource")
+	return &Resource{}, func(context.Context) error {
+		record("cleanup resource")
+		return nil
+	}
+}
+
+// @Bean
+func NewServer(
+	settings Configuration,
+	mux *http.ServeMux,
+	_ *Resource,
+) (*Server, error) {
+	record("construct server")
+	if settings.FailConstruction {
+		return nil, errors.New("server construction rejected")
+	}
+	return &Server{settings: settings, mux: mux}, nil
+}
+
+// @OnStart
+func (server *Server) Start(context.Context) error {
+	record("start server")
+	if server.settings.FailStart {
+		return errors.New("server startup rejected")
+	}
+	fixtureState.Lock()
+	started := fixtureState.started
+	fixtureState.Unlock()
+	close(started)
+	return nil
+}
+
+// @OnStop
+func (*Server) Stop(ctx context.Context) error {
+	record("stop server")
+	fixtureState.Lock()
+	block := fixtureState.blockStop
+	fixtureState.Unlock()
+	if !block {
+		return nil
+	}
+	<-ctx.Done()
+	return fmt.Errorf("server shutdown: %w", context.Cause(ctx))
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/command/components"
+
+// @Application
+// @management.Enable(expose=["metrics", "health"])
+// @observability.Logging
+func Command(*components.Server) {
+	panic("application marker bodies must not execute")
+}
+`,
+	})
+}
+
+func commandOrderFixture(t *testing.T, expose string) string {
+	t.Helper()
+	return writeModule(t, "example.com/commandorder", map[string]string{
+		"app/application.go": `package app
+
+import "net/http"
+
+type Server struct{}
+
+// @Bean
+func Mux() *http.ServeMux {
+	return http.NewServeMux()
+}
+
+// @Bean
+func NewServer(*http.ServeMux) *Server {
+	return &Server{}
+}
+
+// @Application
+// @management.Enable(expose=` + expose + `)
+func Command(*Server) {}
 `,
 	})
 }

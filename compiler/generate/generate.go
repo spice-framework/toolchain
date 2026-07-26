@@ -41,7 +41,11 @@ const (
 	generatedFilename = "zz_spice_gen.go"
 	configPath        = "github.com/StevenBuglione/spice/config"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
+	managementPath    = "github.com/StevenBuglione/spice/management"
+	observabilityPath = "github.com/StevenBuglione/spice/observability"
 	webPath           = "github.com/StevenBuglione/spice/web"
+
+	shutdownConfigurationKey = "spice.shutdown-timeout"
 )
 
 var targetIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -304,8 +308,8 @@ func renderSource(
 	providers := model.Providers()
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
-	aliases := importAliases(providers, configTypes, controllers)
-	hasOptions := len(configTypes) != 0 || len(controllers) != 0
+	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
+	aliases := importAliases(providers, configTypes, controllers, features)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
 	if err != nil {
@@ -321,45 +325,35 @@ func renderSource(
 	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
 	source.WriteString("package spicegen\n\n")
 	writeImports(&source, aliases)
-	fmt.Fprintf(&source, "const TargetID = %s\n\n", strconv.Quote(target.ID))
+	writeGeneratedConstants(&source, target.ID)
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
-	if len(controllers) != 0 {
+	source.WriteString("\tshutdownTimeout time.Duration\n")
+	if features.hasMux {
+		source.WriteString("\tmux *http.ServeMux\n")
 		source.WriteString("\thandler http.Handler\n")
 	}
 	source.WriteString("}\n\n")
-	if hasOptions {
-		writeApplicationOptions(&source, len(configTypes) != 0, len(controllers) != 0)
-	}
-	if len(configTypes) != 0 {
-		writeConfigurationAPI(&source, configTypes)
-	}
-	if hasOptions {
-		source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
-		source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
-		source.WriteString("}\n\n")
-		source.WriteString("func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) (*Application, error) {\n")
-	} else {
-		source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
-	}
+	writeApplicationOptions(&source, features)
+	writeConfigurationAPI(&source, configTypes)
+	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
+	source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
+	source.WriteString("}\n\n")
+	source.WriteString("func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) (*Application, error) {\n")
 	fmt.Fprintf(
 		&source,
 		"\tif ctx == nil {\n\t\treturn nil, fmt.Errorf(%s)\n\t}\n",
 		strconv.Quote("construct application "+target.ID+": context is nil"),
 	)
 	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
-	if hasOptions {
-		source.WriteString("\tobservers := options.Observers\n")
-	}
+	writeBootstrapObservers(&source, features)
 	source.WriteString("\tfor index, observer := range observers {\n")
 	source.WriteString("\t\tif err := application.coordinator.RegisterObserver(observer); err != nil {\n")
 	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
 	source.WriteString("\t\t}\n")
 	source.WriteString("\t}\n")
-	if len(configTypes) != 0 {
-		writeConfigurationResolution(&source, target)
-	}
+	writeConfigurationResolution(&source, target)
 	if providerErr := writeProviders(
 		&source,
 		providers,
@@ -370,16 +364,21 @@ func renderSource(
 	); providerErr != nil {
 		return nil, providerErr
 	}
+	if features.hasMux {
+		writeRouteMux(&source, providers, providerVariables)
+	}
 	if len(controllers) != 0 {
-		writeControllerRoutes(&source, controllers, providers, providerVariables, aliases)
+		writeControllerRoutes(&source, controllers, providerVariables, aliases)
 	}
 	writeHooks(&source, model, providerVariables, providerModules)
+	writeManagementSetup(&source, applicationTarget, features)
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
 	writeLifecycleMethods(&source)
-	if len(controllers) != 0 {
+	if features.hasMux {
 		writeHandlerMethod(&source)
 	}
+	writeCommandAPI(&source, features)
 
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {
@@ -424,23 +423,9 @@ func writeProviders(
 func writeControllerRoutes(
 	source *bytes.Buffer,
 	controllers []controller.Controller,
-	providers []provider.Provider,
 	providerVariables map[string]string,
 	aliases map[string]string,
 ) {
-	muxVariable := ""
-	for _, item := range providers {
-		if pointerNamedType(item.Output, "net/http", "ServeMux") {
-			muxVariable = providerVariables[item.SymbolID]
-			break
-		}
-	}
-	if muxVariable == "" {
-		source.WriteString("\trouteMux := http.NewServeMux()\n")
-	} else {
-		fmt.Fprintf(source, "\trouteMux := %s\n", muxVariable)
-	}
-	source.WriteString("\tapplication.handler = routeMux\n")
 	routeIndex := 0
 	for _, item := range controllers {
 		receiver := providerVariables[item.ProviderID]
@@ -476,7 +461,7 @@ func writeRouteObservation(
 	observationErr := "routeObservationErr" + strconv.Itoa(index)
 	fmt.Fprintf(
 		source,
-		"\t%s, %s := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: %s, Module: %s, Method: %s, Pattern: %s}, options.HTTPObservers...)\n",
+		"\t%s, %s := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: %s, Module: %s, Method: %s, Pattern: %s}, httpObservers...)\n",
 		observation,
 		observationErr,
 		strconv.Quote(route.SymbolID),
@@ -717,18 +702,19 @@ func pointerNamedType(value types.Type, packagePath, name string) bool {
 		named.Obj().Pkg().Path() == packagePath && named.Obj().Name() == name
 }
 
-func writeApplicationOptions(source *bytes.Buffer, hasConfiguration, hasControllers bool) {
+func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 	source.WriteString("type ApplicationOptions struct {\n")
-	if hasConfiguration {
-		source.WriteString("\tProfiles []string\n")
-		source.WriteString("\tSources []spiceconfig.Source\n")
-		source.WriteString("\tAllowUnknownConfiguration bool\n")
-	}
-	if hasControllers {
+	source.WriteString("\tProfiles []string\n")
+	source.WriteString("\tSources []spiceconfig.Source\n")
+	source.WriteString("\tAllowUnknownConfiguration bool\n")
+	if features.hasMux {
 		source.WriteString("\tErrorMapper spiceweb.ErrorMapper\n")
 		source.WriteString("\tMaxRequestBodyBytes int64\n")
 		source.WriteString("\tHTTPObservers []spiceweb.HTTPObserver\n")
 		source.WriteString("\tMiddleware []spiceweb.Middleware\n")
+	}
+	if features.logging {
+		source.WriteString("\tLogger *slog.Logger\n")
 	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
 	source.WriteString("}\n\n")
@@ -761,6 +747,13 @@ func writeConfigurationAPI(source *bytes.Buffer, configTypes []configuration.Typ
 			source.WriteString("\t\t},\n")
 		}
 	}
+	source.WriteString("\t\tspiceconfig.Property{\n")
+	fmt.Fprintf(source, "\t\t\tKey: %s,\n", strconv.Quote(shutdownConfigurationKey))
+	source.WriteString("\t\t\tKind: spiceconfig.KindDuration,\n")
+	source.WriteString("\t\t\tEnvironment: \"SPICE_SHUTDOWN_TIMEOUT\",\n")
+	source.WriteString("\t\t\tDefault: \"10s\",\n")
+	source.WriteString("\t\t\tHasDefault: true,\n")
+	source.WriteString("\t\t},\n")
 	source.WriteString("\t)\n")
 	source.WriteString("}\n\n")
 }
@@ -805,7 +798,25 @@ func writeConfigurationResolution(source *bytes.Buffer, target Target) {
 		strconv.Quote("resolve configuration for application "+target.ID+": %w"),
 	)
 	source.WriteString("\t}\n")
-	source.WriteString("\t_ = configurationSnapshot\n")
+	fmt.Fprintf(
+		source,
+		"\tapplication.shutdownTimeout, err = configurationSnapshot.Duration(%s)\n",
+		strconv.Quote(shutdownConfigurationKey),
+	)
+	source.WriteString("\tif err != nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
+		strconv.Quote("decode shutdown timeout for application "+target.ID+": %w"),
+	)
+	source.WriteString("\t}\n")
+	source.WriteString("\tif application.shutdownTimeout <= 0 {\n")
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s))\n",
+		strconv.Quote("decode shutdown timeout for application "+target.ID+": duration must be positive"),
+	)
+	source.WriteString("\t}\n")
 }
 
 func writeConfigurationBinder(
@@ -1024,6 +1035,13 @@ func (application *Application) Stop(ctx context.Context) error {
 	return application.coordinator.Stop(ctx)
 }
 
+func (application *Application) ShutdownTimeout() time.Duration {
+	if application == nil {
+		return 0
+	}
+	return application.shutdownTimeout
+}
+
 func (application *Application) RegisterObserver(observer spicelifecycle.Observer) error {
 	if application == nil || application.coordinator == nil {
 		return fmt.Errorf("register lifecycle observer: application is nil")
@@ -1072,32 +1090,59 @@ func importAliases(
 	providers []provider.Provider,
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
+	features commandFeatures,
 ) map[string]string {
 	aliases := map[string]string{
 		"context":     "context",
+		"flag":        "flag",
 		"fmt":         "fmt",
+		"io":          "io",
+		"log/slog":    "slog",
+		"os":          "os",
+		"os/signal":   "signal",
+		"syscall":     "syscall",
+		"time":        "time",
+		configPath:    "spiceconfig",
 		lifecyclePath: "spicelifecycle",
 	}
-	if len(configTypes) != 0 {
-		aliases[configPath] = "spiceconfig"
-	}
-	if len(controllers) != 0 {
+	if features.hasMux {
 		aliases["net/http"] = "http"
 		aliases[webPath] = "spiceweb"
+	}
+	if features.management {
+		aliases[managementPath] = "spicemanagement"
+	}
+	if features.logging {
+		aliases[observabilityPath] = "spiceobservability"
 	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
+		"CommandOptions":            {},
 		"ConfigurationSchema":       {},
+		"ExitFailure":               {},
+		"ExitSuccess":               {},
+		"ExitUsage":                 {},
+		"Main":                      {},
 		"NewApplication":            {},
 		"NewApplicationWithOptions": {},
+		"RunCommand":                {},
 		"TargetID":                  {},
 		"context":                   {},
+		"flag":                      {},
 		"fmt":                       {},
 		"http":                      {},
+		"io":                        {},
+		"os":                        {},
+		"signal":                    {},
+		"slog":                      {},
 		"spiceconfig":               {},
 		"spicelifecycle":            {},
+		"spicemanagement":           {},
+		"spiceobservability":        {},
 		"spiceweb":                  {},
+		"syscall":                   {},
+		"time":                      {},
 	}
 	names := importNames(providers, configTypes, controllers, aliases)
 	paths := make([]string, 0, len(names))
@@ -1321,7 +1366,38 @@ func validateRenderable(
 			})
 		}
 	}
+	diagnostics = append(
+		diagnostics,
+		reservedConfigurationDiagnostics(model, applicationTarget)...,
+	)
 	sortDiagnostics(diagnostics)
+	return diagnostics
+}
+
+func reservedConfigurationDiagnostics(
+	model application.Model,
+	applicationTarget application.Target,
+) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, configType := range model.Configurations() {
+		for _, field := range configType.Fields() {
+			if field.Key != shutdownConfigurationKey {
+				continue
+			}
+			diagnostics = append(diagnostics, Diagnostic{
+				Position:         field.Position,
+				PhysicalPosition: field.PhysicalPosition,
+				TargetID:         applicationTarget.SymbolID,
+				Kind:             "reserved-configuration",
+				Message: fmt.Sprintf(
+					"configuration field %s.%s uses framework-owned key %q; choose a different prefix or field key",
+					configType.TypeID,
+					field.Name,
+					shutdownConfigurationKey,
+				),
+			})
+		}
+	}
 	return diagnostics
 }
 
@@ -1407,20 +1483,22 @@ func modelHash(
 		Routes   []inputRoute `json:"routes"`
 	}
 	type input struct {
-		Schema         int                  `json:"schema"`
-		Target         TargetSummary        `json:"target"`
-		Symbol         string               `json:"symbol"`
-		Providers      []inputProvider      `json:"providers"`
-		Configurations []inputConfiguration `json:"configurations"`
-		Controllers    []inputController    `json:"controllers"`
-		Edges          []inputEdge          `json:"edges"`
-		Components     []inputComponent     `json:"components"`
-		Roots          []inputRoot          `json:"roots"`
+		Schema         int                         `json:"schema"`
+		Target         TargetSummary               `json:"target"`
+		Symbol         string                      `json:"symbol"`
+		Providers      []inputProvider             `json:"providers"`
+		Configurations []inputConfiguration        `json:"configurations"`
+		Controllers    []inputController           `json:"controllers"`
+		Edges          []inputEdge                 `json:"edges"`
+		Components     []inputComponent            `json:"components"`
+		Roots          []inputRoot                 `json:"roots"`
+		Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
 	}
 	value := input{
-		Schema: SchemaVersion,
-		Target: summarizeTarget(target),
-		Symbol: applicationTarget.SymbolID,
+		Schema:    SchemaVersion,
+		Target:    summarizeTarget(target),
+		Symbol:    applicationTarget.SymbolID,
+		Bootstrap: bootstrapHashInput(applicationTarget),
 	}
 	providers := model.Providers()
 	providerModules := providerModuleIDs(model, providers)
