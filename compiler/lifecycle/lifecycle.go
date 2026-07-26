@@ -13,6 +13,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/compiler/signature"
 )
 
 const acceptedHookSignature = "func(receiver)(context.Context) error"
@@ -24,10 +25,7 @@ const (
 	Stop  Kind = "stop"
 )
 
-var (
-	errorType = types.Universe.Lookup("error").Type()
-	anyType   = types.Universe.Lookup("any").Type()
-)
+var errorType = types.Universe.Lookup("error").Type()
 
 type Hook struct {
 	Kind             Kind
@@ -109,7 +107,7 @@ func build(program *load.Program, resolution resolve.Result, providers provider.
 	}
 	symbols := symbolIndex(program)
 	providerIndex := lifecycleProviderIndex(providers)
-	contextType := canonicalContextType(program)
+	contextType := signature.ContextType(program)
 	components := make(map[string]*Component)
 	methodKinds := lifecycleOccurrences(resolution)
 	for _, methodID := range sortedMethodIDs(methodKinds) {
@@ -523,136 +521,6 @@ func semanticTypeKey(value types.Type) string {
 	default:
 		return provider.TypeID(value)
 	}
-}
-
-func loadedNamedType(program *load.Program, packagePath, typeName string) *types.Named {
-	seen := make(map[*types.Package]struct{})
-	var found *types.Named
-	valid := true
-	var visit func(*types.Package)
-	visit = func(pkg *types.Package) {
-		if pkg == nil {
-			return
-		}
-		if _, ok := seen[pkg]; ok {
-			return
-		}
-		seen[pkg] = struct{}{}
-		if pkg.Path() == packagePath {
-			object, ok := pkg.Scope().Lookup(typeName).(*types.TypeName)
-			if !ok || object.IsAlias() {
-				valid = false
-			} else {
-				named, ok := object.Type().(*types.Named)
-				switch {
-				case !ok || named.Obj() != object:
-					valid = false
-				case found == nil:
-					found = named
-				case !types.Identical(found, named):
-					valid = false
-				}
-			}
-		}
-		for _, imported := range pkg.Imports() {
-			visit(imported)
-		}
-	}
-	for _, pkg := range program.Packages() {
-		visit(pkg.Types)
-	}
-	if !valid {
-		return nil
-	}
-	return found
-}
-
-func canonicalContextType(program *load.Program) types.Type {
-	contextType := loadedNamedType(program, "context", "Context")
-	timeType := loadedNamedType(program, "time", "Time")
-	if contextType == nil || timeType == nil || !validContextDeclaration(contextType, timeType) {
-		return nil
-	}
-	return contextType
-}
-
-func validContextDeclaration(contextType, timeType *types.Named) bool {
-	contract, ok := contextType.Underlying().(*types.Interface)
-	if !ok {
-		return false
-	}
-	contract.Complete()
-	if contract.NumEmbeddeds() != 0 || contract.NumExplicitMethods() != 4 || contract.NumMethods() != 4 {
-		return false
-	}
-
-	methods := make(map[string]*types.Signature, contract.NumMethods())
-	for method := range contract.Methods() {
-		signature, ok := validContextMethod(method, contextType)
-		if !ok {
-			return false
-		}
-		if _, duplicate := methods[method.Name()]; duplicate {
-			return false
-		}
-		methods[method.Name()] = signature
-	}
-
-	return validDeadlineMethod(methods["Deadline"], timeType) &&
-		validDoneMethod(methods["Done"]) &&
-		validErrMethod(methods["Err"]) &&
-		validValueMethod(methods["Value"])
-}
-
-func validContextMethod(method *types.Func, contextType *types.Named) (*types.Signature, bool) {
-	if method.Pkg() != contextType.Obj().Pkg() {
-		return nil, false
-	}
-	signature, ok := method.Type().(*types.Signature)
-	if !ok || signature.Recv() == nil {
-		return nil, false
-	}
-	if !types.Identical(signature.Recv().Type(), contextType) || signature.Variadic() {
-		return nil, false
-	}
-	if signature.TypeParams() != nil && signature.TypeParams().Len() != 0 {
-		return nil, false
-	}
-	if signature.RecvTypeParams() != nil && signature.RecvTypeParams().Len() != 0 {
-		return nil, false
-	}
-	return signature, true
-}
-
-func validDeadlineMethod(signature *types.Signature, timeType types.Type) bool {
-	return hasArity(signature, 0, 2) &&
-		types.Identical(signature.Results().At(0).Type(), timeType) &&
-		types.Identical(signature.Results().At(1).Type(), types.Typ[types.Bool])
-}
-
-func validDoneMethod(signature *types.Signature) bool {
-	if !hasArity(signature, 0, 1) {
-		return false
-	}
-	channel, ok := signature.Results().At(0).Type().(*types.Chan)
-	if !ok || channel.Dir() != types.RecvOnly {
-		return false
-	}
-	return types.Identical(channel.Elem(), types.NewStruct(nil, nil))
-}
-
-func validErrMethod(signature *types.Signature) bool {
-	return hasArity(signature, 0, 1) && types.Identical(signature.Results().At(0).Type(), errorType)
-}
-
-func validValueMethod(signature *types.Signature) bool {
-	return hasArity(signature, 1, 1) &&
-		types.Identical(signature.Params().At(0).Type(), anyType) &&
-		types.Identical(signature.Results().At(0).Type(), anyType)
-}
-
-func hasArity(signature *types.Signature, parameters, results int) bool {
-	return signature != nil && signature.Params().Len() == parameters && signature.Results().Len() == results
 }
 
 func methodLabel(symbol load.Symbol) string {

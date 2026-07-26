@@ -19,6 +19,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
 )
 
 const acceptedMarkerSignature = "func(applicationRoots...)"
@@ -35,6 +36,8 @@ const (
 	StageGraph Stage = "graph"
 	// StageLifecycle identifies lifecycle hook validation.
 	StageLifecycle Stage = "lifecycle"
+	// StageSchedule identifies scheduled-method validation.
+	StageSchedule Stage = "schedule"
 	// StageModule identifies application-module architecture validation.
 	StageModule Stage = "module"
 	// StageConfiguration identifies typed configuration validation.
@@ -112,6 +115,7 @@ type Model struct {
 	providers   []provider.Provider
 	edges       []graph.Edge
 	components  []lifecycle.Component
+	jobs        []compilerschedule.Job
 	configTypes []configuration.Type
 	controllers []controller.Controller
 	targets     []Target
@@ -150,6 +154,12 @@ func (m Model) Components() []lifecycle.Component {
 		result[index] = cloneComponent(m.components[index])
 	}
 	return result
+}
+
+// Jobs returns immutable provider-owned scheduling metadata in stable method
+// identity order.
+func (m Model) Jobs() []compilerschedule.Job {
+	return append([]compilerschedule.Job(nil), m.jobs...)
 }
 
 // Configurations returns validated typed configuration declarations in stable
@@ -278,10 +288,20 @@ func BuildWithOptions(
 		model.diagnostics = lifecycleDiagnostics(diagnostics)
 		return model
 	}
+	scheduleCatalog := compilerschedule.Build(
+		program,
+		resolution,
+		providerCatalog,
+	)
+	if diagnostics := scheduleCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = scheduleDiagnostics(diagnostics)
+		return model
+	}
 
 	model.providers = providerGraph.ConstructionOrder()
 	model.edges = providerGraph.Edges()
 	model.components = orderedComponents(model.providers, lifecycleCatalog.Components())
+	model.jobs = scheduleCatalog.Jobs()
 	model.targets, model.diagnostics = applicationTargets(program, resolution, providerCatalog.Providers())
 	if len(model.diagnostics) != 0 {
 		return model
@@ -800,6 +820,24 @@ func lifecycleDiagnostics(diagnostics []lifecycle.Diagnostic) []Diagnostic {
 	for index, diagnostic := range diagnostics {
 		result[index] = Diagnostic{
 			Stage:            StageLifecycle,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.MethodID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func scheduleDiagnostics(
+	diagnostics []compilerschedule.Diagnostic,
+) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageSchedule,
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.MethodID,

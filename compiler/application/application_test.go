@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
@@ -68,6 +69,11 @@ func (*Server) Stop(context.Context) error {
 	panic("lifecycle bodies must not execute during analysis")
 }
 
+// @schedule.FixedDelay(delay="5s", initialDelay="1s")
+func (*Server) Refresh(context.Context) error {
+	panic("scheduled methods must not execute during analysis")
+}
+
 // @Application
 func Web(server ServerAlias) {
 	panic("application marker bodies must not execute during analysis")
@@ -118,6 +124,14 @@ func Worker(Config) {
 		if component.Start == nil || component.Stop == nil {
 			t.Fatalf("component %s hooks = start:%#v stop:%#v", component.Provider.Name, component.Start, component.Stop)
 		}
+	}
+	jobs := model.Jobs()
+	if len(jobs) != 1 ||
+		jobs[0].Method.Name != "Refresh" ||
+		jobs[0].ProviderID != providers[1].SymbolID ||
+		jobs[0].Delay != 5*time.Second ||
+		jobs[0].InitialDelay != time.Second {
+		t.Fatalf("Jobs() = %#v", jobs)
 	}
 
 	targets := model.Targets()
@@ -696,6 +710,8 @@ func TestModelAccessorsReturnDefensiveCopies(t *testing.T) {
 		"go.mod": "module example.com/copies\n\ngo 1.26.0\n",
 		"app/application.go": `package app
 
+import "context"
+
 type Dependency struct{}
 type Root struct{}
 
@@ -704,6 +720,9 @@ func DependencyProvider() Dependency { return Dependency{} }
 
 // @Bean
 func RootProvider(Dependency) Root { return Root{} }
+
+// @schedule.FixedDelay(delay="1m")
+func (Root) Reconcile(context.Context) error { return nil }
 
 // @Application
 func Application(Root) {}
@@ -726,6 +745,15 @@ func Application(Root) {}
 	roots[0].ProviderID = "changed"
 	if model.Targets()[0].Roots()[0].ProviderID == "changed" {
 		t.Fatal("Targets returned mutable root storage")
+	}
+
+	jobs := model.Jobs()
+	if len(jobs) != 1 {
+		t.Fatalf("Jobs() = %#v", jobs)
+	}
+	jobs[0].Delay = 0
+	if model.Jobs()[0].Delay == 0 {
+		t.Fatal("Jobs returned mutable scheduling storage")
 	}
 
 	invalid := Build(nil, resolve.Result{})
