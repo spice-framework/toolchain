@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	requiredGoVersion = "go1.26.5"
-	minimumCoverage   = 85.0
-	modulePath        = "github.com/StevenBuglione/spice"
+	requiredGoVersion   = "go1.26.5"
+	requiredRustVersion = "1.93.0"
+	minimumCoverage     = 85.0
+	modulePath          = "github.com/StevenBuglione/spice"
 )
 
 var output = log.New(os.Stdout, "", 0)
@@ -39,7 +40,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: fmt, fuzz, lint, security, smoke, test, vet, offline, or verify")
+	mode := flag.String("mode", "verify", "verification mode: fmt, fuzz, lint, security, smoke, test, vet, offline, zed, or verify")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -78,6 +79,8 @@ func run(ctx context.Context, mode string) error {
 		return runExternal(ctx, root, nil, "go", "vet", "./...")
 	case "offline":
 		return offline(ctx, root)
+	case "zed":
+		return zed(ctx, root)
 	case "verify":
 		return verify(ctx, root)
 	default:
@@ -96,6 +99,7 @@ func verify(ctx context.Context, root string) error {
 		{"go vet", func() error { return runExternal(ctx, root, nil, "go", "vet", "./...") }},
 		{"lint and nil safety", func() error { return lint(ctx, root) }},
 		{"security", func() error { return security(ctx, root) }},
+		{"Zed extension", func() error { return zed(ctx, root) }},
 		{"tests", func() error { return test(ctx, root) }},
 		{"fuzz smoke tests", func() error { return fuzz(ctx, root) }},
 		{"coverage", func() error { return coverage(ctx, root) }},
@@ -154,6 +158,92 @@ func checkGoVersion(ctx context.Context, root string) error {
 	fields := strings.Fields(stdout)
 	if len(fields) < 3 || fields[2] != requiredGoVersion {
 		return fmt.Errorf("go version is %q, require %s", strings.TrimSpace(stdout), requiredGoVersion)
+	}
+	return nil
+}
+
+func checkRustVersion(ctx context.Context, root string) error {
+	stdout, err := captureExternal(ctx, root, "rustc", "--version")
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(stdout)
+	if len(fields) < 2 || fields[1] != requiredRustVersion {
+		return fmt.Errorf(
+			"rustc version is %q, require %s",
+			strings.TrimSpace(stdout),
+			requiredRustVersion,
+		)
+	}
+	return nil
+}
+
+func zed(ctx context.Context, root string) error {
+	zedRoot := filepath.Join(root, "editors", "zed")
+	if err := checkRustVersion(ctx, zedRoot); err != nil {
+		return err
+	}
+	commands := [][]string{
+		{"fmt", "--check"},
+		{"test", "--locked"},
+		{"clippy", "--locked", "--all-targets", "--", "-D", "warnings"},
+		{"build", "--locked", "--release", "--target", "wasm32-wasip2"},
+	}
+	for _, arguments := range commands {
+		if err := runExternal(
+			ctx,
+			zedRoot,
+			nil,
+			"cargo",
+			arguments...,
+		); err != nil {
+			return err
+		}
+	}
+	fixtureRoot := filepath.Join(zedRoot, "fixture")
+	if err := runExternal(
+		ctx,
+		fixtureRoot,
+		nil,
+		"go",
+		"mod",
+		"tidy",
+		"-diff",
+	); err != nil {
+		return err
+	}
+	temp, err := os.MkdirTemp("", "spice-zed-*")
+	if err != nil {
+		return fmt.Errorf("create Zed fixture directory: %w", err)
+	}
+	defer removeTemporaryDirectory(temp)
+	executable := filepath.Join(temp, "spice")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	if err := runExternal(
+		ctx,
+		root,
+		nil,
+		"go",
+		"build",
+		"-trimpath",
+		"-o",
+		executable,
+		"./cmd/spice",
+	); err != nil {
+		return err
+	}
+	if err := runExternal(
+		ctx,
+		fixtureRoot,
+		nil,
+		executable,
+		"verify",
+		"--format=json",
+		"./...",
+	); err != nil {
+		return err
 	}
 	return nil
 }
@@ -512,7 +602,7 @@ func command(
 	if err := validateExecutable(executable); err != nil {
 		return err
 	}
-	// #nosec G204 -- validateExecutable restricts execution to pinned repository tools and the Go toolchain.
+	// #nosec G204 -- validateExecutable restricts execution to approved repository tools and toolchains.
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = directory
 	cmd.Env = mergedEnvironment(environment)
@@ -533,7 +623,7 @@ func capture(
 	if err := validateExecutable(executable); err != nil {
 		return "", err
 	}
-	// #nosec G204 -- validateExecutable restricts execution to pinned repository tools and the Go toolchain.
+	// #nosec G204 -- validateExecutable restricts execution to approved repository tools and toolchains.
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = directory
 	cmd.Env = os.Environ()
@@ -553,7 +643,7 @@ func capture(
 func validateExecutable(executable string) error {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(executable)), ".exe")
 	switch name {
-	case "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "nilaway":
+	case "cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "nilaway", "rustc", "spice":
 		return nil
 	default:
 		return fmt.Errorf("executable %q is not an approved quality tool", executable)

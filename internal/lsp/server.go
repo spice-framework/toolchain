@@ -297,6 +297,8 @@ func (server *Server) handleRequest(message rpcMessage) error {
 		return server.hover(message)
 	case "textDocument/codeAction":
 		return server.codeAction(message)
+	case "textDocument/semanticTokens/full":
+		return server.semanticTokens(message)
 	default:
 		return server.writer.failure(
 			message.ID,
@@ -407,6 +409,13 @@ func initializeResult() map[string]any {
 			"codeActionProvider": map[string]any{
 				"codeActionKinds": []string{"quickfix"},
 				"resolveProvider": false,
+			},
+			"semanticTokensProvider": map[string]any{
+				"legend": map[string]any{
+					"tokenTypes":     []string{"decorator"},
+					"tokenModifiers": []string{},
+				},
+				"full": true,
 			},
 			"workspace": map[string]any{
 				"workspaceFolders": map[string]any{

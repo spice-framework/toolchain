@@ -32,7 +32,11 @@ func TestVerifyOrchestration(t *testing.T) {
 	) error {
 		calls = append(calls, executable+" "+strings.Join(arguments, " "))
 		for index, argument := range arguments {
-			if argument == "-o" && index+1 < len(arguments) {
+			if len(arguments) >= 2 &&
+				arguments[0] == "mod" &&
+				arguments[1] == "vendor" &&
+				argument == "-o" &&
+				index+1 < len(arguments) {
 				copyTestTree(t, filepath.Join(directory, "vendor"), arguments[index+1])
 			}
 		}
@@ -46,8 +50,12 @@ func TestVerifyOrchestration(t *testing.T) {
 	) (string, error) {
 		calls = append(calls, executable+" "+strings.Join(arguments, " "))
 		switch {
-		case slices.Equal(arguments, []string{"version"}):
+		case executable == "go" &&
+			slices.Equal(arguments, []string{"version"}):
 			return "go version " + requiredGoVersion + " test/arch\n", nil
+		case executable == "rustc" &&
+			slices.Equal(arguments, []string{"--version"}):
+			return "rustc " + requiredRustVersion + " (test)\n", nil
 		case len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return "total:\t(statements)\t90.0%\n", nil
 		case slices.Contains(arguments, "-n"):
@@ -74,6 +82,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		"-race -shuffle=on",
 		"-coverprofile=",
 		"-mod=vendor -count=1",
+		"cargo build --locked --release --target wasm32-wasip2",
 		"verify ./...",
 	} {
 		if !containsCall(calls, expected) {
@@ -133,7 +142,7 @@ func TestCoverageAndExecutableHelpers(t *testing.T) {
 	if _, coverageErr := totalCoverage("no total"); coverageErr == nil {
 		t.Fatal("totalCoverage() error = nil")
 	}
-	for _, executable := range []string{"go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "nilaway"} {
+	for _, executable := range []string{"cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "nilaway", "rustc", "spice"} {
 		if executableErr := validateExecutable(executable); executableErr != nil {
 			t.Fatalf("validateExecutable(%q) error = %v", executable, executableErr)
 		}
@@ -222,7 +231,11 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		arguments ...string,
 	) error {
 		for index, argument := range arguments {
-			if argument == "-o" && index+1 < len(arguments) {
+			if len(arguments) >= 2 &&
+				arguments[0] == "mod" &&
+				arguments[1] == "vendor" &&
+				argument == "-o" &&
+				index+1 < len(arguments) {
 				copyTestTree(t, filepath.Join(directory, "vendor"), arguments[index+1])
 			}
 		}
@@ -231,12 +244,16 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 	captureExternal = func(
 		_ context.Context,
 		_ string,
-		_ string,
+		executable string,
 		arguments ...string,
 	) (string, error) {
 		switch {
-		case slices.Equal(arguments, []string{"version"}):
+		case executable == "go" &&
+			slices.Equal(arguments, []string{"version"}):
 			return "go version " + requiredGoVersion + " test/arch", nil
+		case executable == "rustc" &&
+			slices.Equal(arguments, []string{"--version"}):
+			return "rustc " + requiredRustVersion + " (test)", nil
 		case len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return "total:\t(statements)\t90.0%\n", nil
 		case slices.Contains(arguments, "-n"):
@@ -250,7 +267,7 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"fmt", "fuzz", "lint", "security", "smoke", "test", "vet", "offline", "verify"} {
+	for _, mode := range []string{"fmt", "fuzz", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}

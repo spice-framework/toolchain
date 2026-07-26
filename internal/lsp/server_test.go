@@ -54,7 +54,8 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	})
 	initialize := client.waitForID("1")
 	if initialize.Error != nil ||
-		!strings.Contains(string(initialize.Result), "completionProvider") {
+		!strings.Contains(string(initialize.Result), "completionProvider") ||
+		!strings.Contains(string(initialize.Result), "semanticTokensProvider") {
 		t.Fatalf("initialize response = %+v", initialize)
 	}
 
@@ -77,6 +78,25 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		first.Diagnostics[0].Code != "spice.validation.unknown-annotation" ||
 		first.Diagnostics[0].Range.Start.Line != 5 {
 		t.Fatalf("version 1 diagnostics = %+v", first.Diagnostics)
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      20,
+		"method":  "textDocument/semanticTokens/full",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+		},
+	})
+	semanticResponse := client.waitForID("20")
+	var semanticResult semanticTokensResult
+	if err := json.Unmarshal(
+		semanticResponse.Result,
+		&semanticResult,
+	); err != nil {
+		t.Fatalf("Unmarshal(semantic tokens) error = %v", err)
+	}
+	if len(semanticResult.Data) < 10 {
+		t.Fatalf("semantic token data = %v", semanticResult.Data)
 	}
 
 	client.send(map[string]any{
