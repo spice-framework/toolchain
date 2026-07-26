@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/application"
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
@@ -21,12 +22,18 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
+	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	"github.com/StevenBuglione/spice/compiler/validate"
 	"github.com/StevenBuglione/spice/internal/genfs"
 )
 
 // Version is the development version reported by the Spice CLI.
 const Version = "0.1.0-dev"
+
+const (
+	starterSelectionPath    = ".spice/starters.json"
+	maxStarterSelectionSize = 4 << 20
+)
 
 type (
 	programLoader func(context.Context, load.Options, ...string) (*load.Program, error)
@@ -207,14 +214,14 @@ func prepareFocusedModuleTest(
 	if !ok {
 		return modulith.Model{}, false
 	}
-	if diagnostics := validationDiagnostics(resolution.Occurrences); len(diagnostics) != 0 {
-		if reportErr := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice module test failed: %d annotation validation error(s).", len(diagnostics)),
-		); reportErr != nil {
-			return modulith.Model{}, false
-		}
+	_, ok = prepareValidatedCompilerMetadata(
+		resolution.Occurrences,
+		stderr,
+		options,
+		"module test discovery",
+		"Spice module test failed: %d annotation validation error(s).",
+	)
+	if !ok {
 		return modulith.Model{}, false
 	}
 	model := modulith.Build(program, resolution)
@@ -418,14 +425,14 @@ func modulesCommand(
 	if !ok {
 		return 1
 	}
-	if diagnostics := validationDiagnostics(resolution.Occurrences); len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice module documentation failed: %d annotation validation error(s).", len(diagnostics)),
-		); err != nil {
-			return 1
-		}
+	_, metadataOK := prepareValidatedCompilerMetadata(
+		resolution.Occurrences,
+		stderr,
+		options,
+		"module documentation",
+		"Spice module documentation failed: %d annotation validation error(s).",
+	)
+	if !metadataOK {
 		return 1
 	}
 	model := modulith.Build(program, resolution)
@@ -660,17 +667,17 @@ func prepareGeneration(
 	if !ok {
 		return codegen.Plan{}, "", false
 	}
-	if diagnostics := validationDiagnostics(resolution.Occurrences); len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice generation failed: %d annotation validation error(s).", len(diagnostics)),
-		); err != nil {
-			return codegen.Plan{}, "", false
-		}
+	metadata, ok := prepareValidatedCompilerMetadata(
+		resolution.Occurrences,
+		stderr,
+		options,
+		"generation",
+		"Spice generation failed: %d annotation validation error(s).",
+	)
+	if !ok {
 		return codegen.Plan{}, "", false
 	}
-	model := application.Build(program, resolution)
+	model := application.BuildWithOptions(program, resolution, metadata.buildOptions)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
 		if err := reportDiagnostics(
 			stderr,
@@ -885,18 +892,17 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 		return 1
 	}
 
-	diagnostics := validationDiagnostics(result.Occurrences)
-	if len(diagnostics) > 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice verification failed: %d annotation validation error(s).", len(diagnostics)),
-		); err != nil {
-			return 1
-		}
+	metadata, ok := prepareValidatedCompilerMetadata(
+		result.Occurrences,
+		stderr,
+		options,
+		"verification",
+		"Spice verification failed: %d annotation validation error(s).",
+	)
+	if !ok {
 		return 1
 	}
-	model := application.Build(program, result)
+	model := application.BuildWithOptions(program, result, metadata.buildOptions)
 	modelDiagnostics := model.Diagnostics()
 	if len(modelDiagnostics) > 0 {
 		if err := reportDiagnostics(
@@ -1050,9 +1056,150 @@ func addTagValue(tags map[string]struct{}, value string) {
 	}
 }
 
-func validationDiagnostics(occurrences []resolve.Occurrence) []validate.Diagnostic {
+type compilerMetadata struct {
+	registry     annotation.Registry
+	buildOptions application.BuildOptions
+}
+
+func prepareCompilerMetadata(
+	stderr io.Writer,
+	options load.Options,
+	operation string,
+) (compilerMetadata, bool) {
+	metadata, err := loadCompilerMetadata(options)
+	if err == nil {
+		return metadata, true
+	}
+	if writeErr := writef(stderr, "Spice %s failed: %v\n", operation, err); writeErr != nil {
+		return compilerMetadata{}, false
+	}
+	return compilerMetadata{}, false
+}
+
+func prepareValidatedCompilerMetadata(
+	occurrences []resolve.Occurrence,
+	stderr io.Writer,
+	options load.Options,
+	operation string,
+	summaryFormat string,
+) (compilerMetadata, bool) {
+	metadata, ok := prepareCompilerMetadata(stderr, options, operation)
+	if !ok {
+		return compilerMetadata{}, false
+	}
+	diagnostics := validationDiagnostics(occurrences, metadata.registry)
+	if len(diagnostics) == 0 {
+		return metadata, true
+	}
+	if err := reportDiagnostics(
+		stderr,
+		diagnostics,
+		fmt.Sprintf(summaryFormat, len(diagnostics)),
+	); err != nil {
+		return compilerMetadata{}, false
+	}
+	return compilerMetadata{}, false
+}
+
+func loadCompilerMetadata(options load.Options) (compilerMetadata, error) {
+	result := compilerMetadata{registry: builtin.Registry()}
+	directory := options.Dir
+	if directory == "" {
+		directory = "."
+	}
+	content, found, err := readStarterSelection(directory)
+	if err != nil {
+		return compilerMetadata{}, err
+	}
+	if !found {
+		return result, nil
+	}
+
+	catalog, err := compilerstarter.Parse(content)
+	if err != nil {
+		return compilerMetadata{}, fmt.Errorf(
+			"parse starter selection %s: %w",
+			starterSelectionPath,
+			err,
+		)
+	}
+	registry, err := catalog.Registry(result.registry)
+	if err != nil {
+		return compilerMetadata{}, fmt.Errorf(
+			"compose starter selection %s: %w",
+			starterSelectionPath,
+			err,
+		)
+	}
+	result.registry = registry
+	result.buildOptions.BootstrapDefinitions = catalog.BootstrapDefinitions()
+	return result, nil
+}
+
+func readStarterSelection(
+	directory string,
+) (content []byte, found bool, returnErr error) {
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, false, fmt.Errorf("open starter selection root: %w", err)
+	}
+	defer func() {
+		if closeErr := root.Close(); closeErr != nil {
+			returnErr = errors.Join(
+				returnErr,
+				fmt.Errorf("close starter selection root: %w", closeErr),
+			)
+		}
+	}()
+
+	relativePath := filepath.FromSlash(starterSelectionPath)
+	info, err := root.Lstat(relativePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf(
+			"inspect starter selection %s: %w",
+			starterSelectionPath,
+			err,
+		)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, false, fmt.Errorf(
+			"starter selection %s must be a regular file",
+			starterSelectionPath,
+		)
+	}
+	if info.Size() > maxStarterSelectionSize {
+		return nil, false, fmt.Errorf(
+			"starter selection %s exceeds the %d-byte limit",
+			starterSelectionPath,
+			maxStarterSelectionSize,
+		)
+	}
+	content, err = root.ReadFile(relativePath)
+	if err != nil {
+		return nil, false, fmt.Errorf(
+			"read starter selection %s: %w",
+			starterSelectionPath,
+			err,
+		)
+	}
+	if len(content) > maxStarterSelectionSize {
+		return nil, false, fmt.Errorf(
+			"starter selection %s exceeds the %d-byte limit",
+			starterSelectionPath,
+			maxStarterSelectionSize,
+		)
+	}
+	return content, true, nil
+}
+
+func validationDiagnostics(
+	occurrences []resolve.Occurrence,
+	registry annotation.Registry,
+) []validate.Diagnostic {
 	diagnostics := make([]validate.Diagnostic, 0)
-	registry := builtin.Registry()
 	for _, occurrence := range occurrences {
 		diagnostics = append(diagnostics, validate.Occurrences([]scan.Occurrence{{
 			Annotation: occurrence.Annotation,
@@ -1090,7 +1237,11 @@ Commands:
   modules      Validate and render application-module documentation.
   test         Validate and run one focused application-module test graph.
   generate     Render and safely apply or check generated application code.
-  build        Generate an application and run the standard trimpath build.`)
+  build        Generate an application and run the standard trimpath build.
+
+Starter selection:
+  Commit .spice/starters.json to explicitly compose compatible third-party
+  annotation manifests. Installed or imported modules are never auto-enabled.`)
 	return err
 }
 
