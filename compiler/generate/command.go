@@ -41,6 +41,7 @@ type commandFeatures struct {
 	authorization   bool
 	scheduling      bool
 	transactions    bool
+	events          bool
 	httpObservation bool
 }
 

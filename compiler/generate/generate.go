@@ -22,6 +22,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
+	compilerevent "github.com/StevenBuglione/spice/compiler/event"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
@@ -44,6 +45,7 @@ const (
 	generatedFilename = "zz_spice_gen.go"
 	configPath        = "github.com/StevenBuglione/spice/config"
 	dataPath          = "github.com/StevenBuglione/spice/data"
+	eventPath         = "github.com/StevenBuglione/spice/event"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
 	managementPath    = "github.com/StevenBuglione/spice/management"
 	observabilityPath = "github.com/StevenBuglione/spice/observability"
@@ -315,12 +317,14 @@ func renderSource(
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
 	jobs := model.Jobs()
+	events := model.Events()
 	transactions := model.Transactions()
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
 	features.authorization = hasAuthorization(controllers)
 	features.scheduling = len(jobs) != 0
 	features.transactions = len(transactions) != 0
-	aliases := importAliases(providers, configTypes, controllers, features)
+	features.events = len(events) != 0
+	aliases := importAliases(providers, configTypes, controllers, events, features)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
 	if err != nil {
@@ -373,6 +377,8 @@ func renderSource(
 		aliases,
 		dependencies,
 		providerModules,
+		providerVariables,
+		events,
 	); providerErr != nil {
 		return nil, providerErr
 	}
@@ -441,8 +447,11 @@ func writeProviders(
 	aliases map[string]string,
 	dependencies map[string][]string,
 	providerModules map[string]string,
+	providerVariables map[string]string,
+	events []compilerevent.Topic,
 ) error {
 	configByProvider := configurationProviderIndex(configTypes)
+	eventByProvider := eventProviderIndex(events)
 	for index, item := range providers {
 		switch item.Source {
 		case provider.SourceBean, provider.SourceStarter:
@@ -461,14 +470,96 @@ func writeProviders(
 			}
 			writeConfigurationBinder(source, configType, index, aliases)
 		case provider.SourceEvent:
-			return fmt.Errorf(
-				"event provider %s requires generated topic support",
-				item.SymbolID,
-			)
+			topic, ok := eventByProvider[item.SymbolID]
+			if !ok {
+				return fmt.Errorf(
+					"event provider %s has no typed event metadata",
+					item.SymbolID,
+				)
+			}
+			if err := writeEventProvider(
+				source,
+				topic,
+				index,
+				aliases,
+				providerVariables,
+			); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("provider %s has unsupported source %q", item.SymbolID, item.Source)
 		}
 	}
+	return nil
+}
+
+func eventProviderIndex(events []compilerevent.Topic) map[string]compilerevent.Topic {
+	result := make(map[string]compilerevent.Topic, len(events))
+	for _, topic := range events {
+		result[topic.ProviderID] = topic
+	}
+	return result
+}
+
+func writeEventProvider(
+	source *bytes.Buffer,
+	topic compilerevent.Topic,
+	index int,
+	aliases map[string]string,
+	providerVariables map[string]string,
+) error {
+	payload := renderedType(topic.Payload, aliases)
+	topicVariable := "generatedEventTopic" + strconv.Itoa(index)
+	fmt.Fprintf(source, "\t%s, err := spiceevent.NewTopic(\n", topicVariable)
+	source.WriteString("\t\tspiceevent.Definition{\n")
+	fmt.Fprintf(source, "\t\t\tID: %s,\n", strconv.Quote(topic.MarkerID))
+	fmt.Fprintf(source, "\t\t\tModule: %s,\n", strconv.Quote(topic.Module))
+	source.WriteString("\t\t},\n")
+	fmt.Fprintf(source, "\t\t[]spiceevent.Subscriber[%s]{\n", payload)
+	for _, listener := range topic.Listeners() {
+		receiver := providerVariables[listener.ProviderID]
+		if receiver == "" {
+			return fmt.Errorf(
+				"event listener %s references unknown provider %s",
+				listener.MethodID,
+				listener.ProviderID,
+			)
+		}
+		source.WriteString("\t\t\t{\n")
+		fmt.Fprintf(source, "\t\t\t\tID: %s,\n", strconv.Quote(listener.MethodID))
+		fmt.Fprintf(source, "\t\t\t\tModule: %s,\n", strconv.Quote(listener.Module))
+		if listener.Order != 0 {
+			fmt.Fprintf(source, "\t\t\t\tOrder: %d,\n", listener.Order)
+		}
+		fmt.Fprintf(
+			source,
+			"\t\t\t\tHandle: %s.%s,\n",
+			receiver,
+			listener.Method.Name,
+		)
+		source.WriteString("\t\t\t},\n")
+	}
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t\toptions.EventObservers...,\n")
+	source.WriteString("\t)\n")
+	source.WriteString("\tif err != nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
+		strconv.Quote(
+			"construct event topic "+topic.MarkerID+
+				" ("+topic.PublisherTypeID+"): %w",
+		),
+	)
+	source.WriteString("\t}\n")
+	fmt.Fprintf(
+		source,
+		"\tvar %s spiceevent.Publisher[%s] = %s\n",
+		providerVariable(index),
+		payload,
+		topicVariable,
+	)
+	fmt.Fprintf(source, "\t_ = %s\n", providerVariable(index))
 	return nil
 }
 
@@ -1040,6 +1131,9 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 		source.WriteString("\tScheduleWaiter spiceschedule.Waiter\n")
 		source.WriteString("\tScheduleObservers []spiceschedule.Observer\n")
 	}
+	if features.events {
+		source.WriteString("\tEventObservers []spiceevent.Observer\n")
+	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
 	source.WriteString("}\n\n")
 }
@@ -1494,6 +1588,7 @@ func importAliases(
 	providers []provider.Provider,
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
+	events []compilerevent.Topic,
 	features commandFeatures,
 ) map[string]string {
 	aliases := map[string]string{
@@ -1529,6 +1624,9 @@ func importAliases(
 		aliases["database/sql"] = "sql"
 		aliases[dataPath] = "spicedata"
 	}
+	if features.events {
+		aliases[eventPath] = "spiceevent"
+	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
@@ -1553,6 +1651,7 @@ func importAliases(
 		"sql":                       {},
 		"spiceconfig":               {},
 		"spicedata":                 {},
+		"spiceevent":                {},
 		"spicelifecycle":            {},
 		"spicemanagement":           {},
 		"spiceobservability":        {},
@@ -1562,7 +1661,7 @@ func importAliases(
 		"syscall":                   {},
 		"time":                      {},
 	}
-	names := importNames(providers, configTypes, controllers, aliases)
+	names := importNames(providers, configTypes, controllers, events, aliases)
 	paths := make([]string, 0, len(names))
 	for importPath := range names {
 		paths = append(paths, importPath)
@@ -1587,6 +1686,7 @@ func importNames(
 	providers []provider.Provider,
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
+	events []compilerevent.Topic,
 	aliases map[string]string,
 ) map[string]string {
 	names := make(map[string]string)
@@ -1611,6 +1711,9 @@ func importNames(
 				addTypeImportName(names, aliases, binding.Type)
 			}
 		}
+	}
+	for _, topic := range events {
+		addTypeImportName(names, aliases, topic.Payload)
 	}
 	return names
 }
@@ -1855,6 +1958,22 @@ type modelHashScheduleJob struct {
 	ContinueOnError bool   `json:"continue_on_error"`
 }
 
+type modelHashEventListener struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Module   string `json:"module"`
+	Order    int    `json:"order"`
+}
+
+type modelHashEventTopic struct {
+	ID        string                   `json:"id"`
+	Provider  string                   `json:"provider"`
+	Module    string                   `json:"module"`
+	Publisher string                   `json:"publisher"`
+	Payload   string                   `json:"payload"`
+	Listeners []modelHashEventListener `json:"listeners"`
+}
+
 type modelHashDependency struct {
 	Index int    `json:"index"`
 	Type  string `json:"type"`
@@ -1973,6 +2092,7 @@ type modelHashInput struct {
 	Edges          []modelHashEdge             `json:"edges"`
 	Components     []modelHashComponent        `json:"components"`
 	Jobs           []modelHashScheduleJob      `json:"jobs"`
+	Events         []modelHashEventTopic       `json:"events,omitempty"`
 	Roots          []modelHashRoot             `json:"roots"`
 	Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
 }
@@ -2095,6 +2215,7 @@ func modelHash(
 		value.Components = append(value.Components, item)
 	}
 	value.Jobs = modelHashScheduleJobs(model.Jobs(), providerModules)
+	value.Events = modelHashEvents(model.Events())
 	for _, root := range applicationTarget.Roots() {
 		value.Roots = append(value.Roots, modelHashRoot{
 			Index:    root.Index,
@@ -2107,6 +2228,29 @@ func modelHash(
 		return "", err
 	}
 	return contentHash(encoded), nil
+}
+
+func modelHashEvents(topics []compilerevent.Topic) []modelHashEventTopic {
+	result := make([]modelHashEventTopic, len(topics))
+	for index, topic := range topics {
+		item := modelHashEventTopic{
+			ID:        topic.MarkerID,
+			Provider:  topic.ProviderID,
+			Module:    topic.Module,
+			Publisher: topic.PublisherTypeID,
+			Payload:   topic.PayloadTypeID,
+		}
+		for _, listener := range topic.Listeners() {
+			item.Listeners = append(item.Listeners, modelHashEventListener{
+				ID:       listener.MethodID,
+				Provider: listener.ProviderID,
+				Module:   listener.Module,
+				Order:    listener.Order,
+			})
+		}
+		result[index] = item
+	}
+	return result
 }
 
 func modelHashTransactions(
