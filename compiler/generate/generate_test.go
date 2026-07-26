@@ -151,9 +151,11 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 		"spiceobservability.NewSlogHTTPObserver(logger)",
 		"managementMetrics := spicemanagement.NewHTTPMetrics()",
 		"spicemanagement.NewConfigurationReport(configurationSchema, configurationSnapshot)",
+		"spicemanagement.NewModuleReport(",
 		"spicemanagement.EndpointHealth",
 		"spicemanagement.EndpointMetrics",
 		"spicemanagement.EndpointConfigProps",
+		"spicemanagement.EndpointModules",
 		"spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler)",
 		"application.mux = routeMux",
 		"return ExitFailure",
@@ -1766,6 +1768,35 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 		) {
 		t.Fatalf("configprops leaked or omitted secret: %s", response.Body)
 	}
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/actuator/modules",
+			nil,
+		),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf(
+			"modules status = %d, body=%s",
+			response.Code,
+			response.Body,
+		)
+	}
+	var modules spicemanagement.ModuleReport
+	if err := json.Unmarshal(response.Body.Bytes(), &modules); err != nil {
+		t.Fatal(err)
+	}
+	if modules.Schema != "spice.modules/v1" ||
+		len(modules.Modules) != 1 ||
+		modules.Modules[0].ID != "example.com/command/components" ||
+		!slices.Equal(
+			modules.UnassignedPackages,
+			[]string{"example.com/command/bootstrap"},
+		) {
+		t.Fatalf("modules report = %#v", modules)
+	}
 	if err := application.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
@@ -2438,7 +2469,7 @@ func (*Server) Stop(ctx context.Context) error {
 import "example.com/command/components"
 
 // @Application
-// @management.Enable(expose=["metrics", "health", "configprops"])
+// @management.Enable(expose=["metrics", "health", "configprops", "modules"])
 // @observability.Logging
 func Command(*components.Server) {
 	panic("application marker bodies must not execute")

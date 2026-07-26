@@ -530,6 +530,52 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management configuration report: %w", err))
 	}
+	managementModules, err := spicemanagement.NewModuleReport(
+		[]spicemanagement.ModuleDefinition{
+			{
+				ID:          "github.com/StevenBuglione/spice/examples/commerce/inventory",
+				RootPackage: "github.com/StevenBuglione/spice/examples/commerce/inventory",
+				Packages: []string{
+					"github.com/StevenBuglione/spice/examples/commerce/inventory",
+				},
+			},
+			{
+				ID:          "github.com/StevenBuglione/spice/examples/commerce/orders",
+				RootPackage: "github.com/StevenBuglione/spice/examples/commerce/orders",
+				Packages: []string{
+					"github.com/StevenBuglione/spice/examples/commerce/orders",
+				},
+				AllowedDependencies: []string{
+					"github.com/StevenBuglione/spice/examples/commerce/inventory",
+					"github.com/StevenBuglione/spice/examples/commerce/payments",
+				},
+			},
+			{
+				ID:          "github.com/StevenBuglione/spice/examples/commerce/payments",
+				RootPackage: "github.com/StevenBuglione/spice/examples/commerce/payments",
+				Packages: []string{
+					"github.com/StevenBuglione/spice/examples/commerce/payments",
+				},
+			},
+			{
+				ID:          "github.com/StevenBuglione/spice/examples/commerce/platform",
+				RootPackage: "github.com/StevenBuglione/spice/examples/commerce/platform",
+				Packages: []string{
+					"github.com/StevenBuglione/spice/examples/commerce/platform",
+				},
+			},
+		},
+		[]spicemanagement.ModuleEdge{
+			{FromModule: "github.com/StevenBuglione/spice/examples/commerce/orders", ToModule: "github.com/StevenBuglione/spice/examples/commerce/inventory", API: "default", FromPackage: "github.com/StevenBuglione/spice/examples/commerce/orders", ToPackage: "github.com/StevenBuglione/spice/examples/commerce/inventory"},
+			{FromModule: "github.com/StevenBuglione/spice/examples/commerce/orders", ToModule: "github.com/StevenBuglione/spice/examples/commerce/payments", API: "default", FromPackage: "github.com/StevenBuglione/spice/examples/commerce/orders", ToPackage: "github.com/StevenBuglione/spice/examples/commerce/payments"},
+		},
+		[]string{
+			"github.com/StevenBuglione/spice/examples/commerce/bootstrap",
+		},
+	)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure management module report: %w", err))
+	}
 	managementHandler, err := spicemanagement.NewHandler(spicemanagement.HandlerOptions{
 		Manager: managementManager,
 		Info: map[string]string{
@@ -539,12 +585,14 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		},
 		Metrics:       managementMetrics,
 		Configuration: &managementConfiguration,
+		Modules:       &managementModules,
 		Expose: []spicemanagement.Endpoint{
 			spicemanagement.EndpointConfigProps,
 			spicemanagement.EndpointHealth,
 			spicemanagement.EndpointInfo,
 			spicemanagement.EndpointLiveness,
 			spicemanagement.EndpointMetrics,
+			spicemanagement.EndpointModules,
 			spicemanagement.EndpointReadiness,
 		},
 	})

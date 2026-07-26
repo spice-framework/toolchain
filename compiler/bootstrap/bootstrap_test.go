@@ -36,6 +36,7 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 						{Kind: annotation.KindString, String: "health"},
 						{Kind: annotation.KindString, String: "info"},
 						{Kind: annotation.KindString, String: "configprops"},
+						{Kind: annotation.KindString, String: "modules"},
 					},
 				},
 			},
@@ -69,6 +70,7 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 		EndpointHealth,
 		EndpointInfo,
 		EndpointMetrics,
+		EndpointModules,
 	}
 	if endpoints := management.Endpoints(); !slices.Equal(endpoints, wantEndpoints) {
 		t.Fatalf("Endpoints() = %v, want %v", endpoints, wantEndpoints)

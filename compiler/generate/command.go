@@ -38,6 +38,7 @@ type commandFeatures struct {
 	logging         bool
 	metrics         bool
 	configProps     bool
+	modules         bool
 	hasMux          bool
 	authorization   bool
 	scheduling      bool
@@ -63,6 +64,7 @@ func commandFeaturesFor(
 		logging:         metadata.Enabled(compilerbootstrap.CapabilityLogging),
 		metrics:         slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
 		configProps:     slices.Contains(endpoints, compilerbootstrap.EndpointConfigProps),
+		modules:         slices.Contains(endpoints, compilerbootstrap.EndpointModules),
 		hasMux:          hasControllers || managementEnabled || httpObservation,
 		httpObservation: httpObservation,
 	}
@@ -227,6 +229,7 @@ func writeRouteMux(
 
 func writeManagementSetup(
 	source *bytes.Buffer,
+	model application.Model,
 	target application.Target,
 	features commandFeatures,
 ) {
@@ -251,6 +254,9 @@ func writeManagementSetup(
 		source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management configuration report: %w\", err))\n")
 		source.WriteString("\t}\n")
 	}
+	if features.modules {
+		writeManagementModuleReport(source, model)
+	}
 	source.WriteString("\tmanagementHandler, err := spicemanagement.NewHandler(spicemanagement.HandlerOptions{\n")
 	source.WriteString("\t\tManager: managementManager,\n")
 	source.WriteString("\t\tInfo: map[string]string{\n")
@@ -264,6 +270,9 @@ func writeManagementSetup(
 	if features.configProps {
 		source.WriteString("\t\tConfiguration: &managementConfiguration,\n")
 	}
+	if features.modules {
+		source.WriteString("\t\tModules: &managementModules,\n")
+	}
 	source.WriteString("\t\tExpose: []spicemanagement.Endpoint{\n")
 	for _, endpoint := range features.endpoints {
 		fmt.Fprintf(source, "\t\t\t%s,\n", managementEndpointName(endpoint))
@@ -276,6 +285,91 @@ func writeManagementSetup(
 	source.WriteString("\tif err := spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler); err != nil {\n")
 	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"register management routes: %w\", err))\n")
 	source.WriteString("\t}\n")
+}
+
+func writeManagementModuleReport(
+	source *bytes.Buffer,
+	model application.Model,
+) {
+	source.WriteString("\tmanagementModules, err := spicemanagement.NewModuleReport(\n")
+	source.WriteString("\t\t[]spicemanagement.ModuleDefinition{\n")
+	for _, module := range model.Modules() {
+		source.WriteString("\t\t\t{\n")
+		fmt.Fprintf(source, "\t\t\t\tID: %s,\n", strconv.Quote(module.ID))
+		fmt.Fprintf(
+			source,
+			"\t\t\t\tRootPackage: %s,\n",
+			strconv.Quote(module.RootPackage),
+		)
+		packages := module.Packages()
+		packagePaths := make([]string, len(packages))
+		for index, item := range packages {
+			packagePaths[index] = item.Path
+		}
+		writeManagementStringSlice(source, "Packages", packagePaths)
+		interfaces := module.NamedInterfaces()
+		if len(interfaces) != 0 {
+			source.WriteString("\t\t\t\tNamedInterfaces: []spicemanagement.NamedInterface{\n")
+			for _, item := range interfaces {
+				fmt.Fprintf(
+					source,
+					"\t\t\t\t\t{Name: %s, PackagePath: %s},\n",
+					strconv.Quote(item.Name),
+					strconv.Quote(item.PackagePath),
+				)
+			}
+			source.WriteString("\t\t\t\t},\n")
+		}
+		dependencies := module.AllowedDependencies()
+		allowed := make([]string, len(dependencies))
+		for index, dependency := range dependencies {
+			allowed[index] = dependency.String()
+		}
+		writeManagementStringSlice(source, "AllowedDependencies", allowed)
+		source.WriteString("\t\t\t},\n")
+	}
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t\t[]spicemanagement.ModuleEdge{\n")
+	for _, edge := range model.ModuleEdges() {
+		api := "default"
+		if edge.API != "" {
+			api = edge.API
+		}
+		fmt.Fprintf(
+			source,
+			"\t\t\t{FromModule: %s, ToModule: %s, API: %s, FromPackage: %s, ToPackage: %s},\n",
+			strconv.Quote(edge.FromModule),
+			strconv.Quote(edge.ToModule),
+			strconv.Quote(api),
+			strconv.Quote(edge.FromPackage),
+			strconv.Quote(edge.ToPackage),
+		)
+	}
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t\t[]string{\n")
+	for _, item := range model.UnassignedPackages() {
+		fmt.Fprintf(source, "\t\t\t%s,\n", strconv.Quote(item.Path))
+	}
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management module report: %w\", err))\n")
+	source.WriteString("\t}\n")
+}
+
+func writeManagementStringSlice(
+	source *bytes.Buffer,
+	name string,
+	values []string,
+) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Fprintf(source, "\t\t\t\t%s: []string{\n", name)
+	for _, value := range values {
+		fmt.Fprintf(source, "\t\t\t\t\t%s,\n", strconv.Quote(value))
+	}
+	source.WriteString("\t\t\t\t},\n")
 }
 
 func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
@@ -292,6 +386,8 @@ func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
 		return "spicemanagement.EndpointMetrics"
 	case compilerbootstrap.EndpointConfigProps:
 		return "spicemanagement.EndpointConfigProps"
+	case compilerbootstrap.EndpointModules:
+		return "spicemanagement.EndpointModules"
 	}
 	return strconv.Quote(string(endpoint))
 }

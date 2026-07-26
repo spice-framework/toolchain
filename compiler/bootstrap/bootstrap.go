@@ -52,6 +52,7 @@ const (
 	EndpointInfo        Endpoint = "info"
 	EndpointMetrics     Endpoint = "metrics"
 	EndpointConfigProps Endpoint = "configprops"
+	EndpointModules     Endpoint = "modules"
 )
 
 // OptionDefinition describes the semantic rules for one feature argument.
@@ -762,6 +763,7 @@ func endpointNames() []string {
 		string(EndpointInfo),
 		string(EndpointMetrics),
 		string(EndpointConfigProps),
+		string(EndpointModules),
 	}
 }
 

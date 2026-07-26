@@ -441,7 +441,7 @@ func renderSource(
 		providerModules,
 		applicationTarget.PackagePath,
 	)
-	writeManagementSetup(&source, applicationTarget, features)
+	writeManagementSetup(&source, model, applicationTarget, features)
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
 	writeLifecycleMethods(&source)
@@ -2388,6 +2388,27 @@ type modelHashTransaction struct {
 	ReadOnly  bool               `json:"read_only,omitempty"`
 }
 
+type modelHashNamedInterface struct {
+	Name        string `json:"name"`
+	PackagePath string `json:"package"`
+}
+
+type modelHashModule struct {
+	ID                  string                    `json:"id"`
+	RootPackage         string                    `json:"root_package"`
+	Packages            []string                  `json:"packages"`
+	NamedInterfaces     []modelHashNamedInterface `json:"named_interfaces"`
+	AllowedDependencies []string                  `json:"allowed_dependencies"`
+}
+
+type modelHashModuleEdge struct {
+	FromModule  string `json:"from_module"`
+	ToModule    string `json:"to_module"`
+	API         string `json:"api"`
+	FromPackage string `json:"from_package"`
+	ToPackage   string `json:"to_package"`
+}
+
 type modelHashInput struct {
 	Schema         int                         `json:"schema"`
 	Target         TargetSummary               `json:"target"`
@@ -2403,6 +2424,9 @@ type modelHashInput struct {
 	Caches         []modelHashCache            `json:"caches,omitempty"`
 	Roots          []modelHashRoot             `json:"roots"`
 	Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
+	Modules        []modelHashModule           `json:"modules,omitempty"`
+	ModuleEdges    []modelHashModuleEdge       `json:"module_edges,omitempty"`
+	Unassigned     []string                    `json:"unassigned_packages,omitempty"`
 }
 
 func modelHash(
@@ -2525,6 +2549,7 @@ func modelHash(
 	value.Jobs = modelHashScheduleJobs(model.Jobs(), providerModules)
 	value.Events = modelHashEvents(model.Events())
 	value.Caches = modelHashCaches(model.Caches())
+	addModelHashModules(&value, model, applicationTarget)
 	for _, root := range applicationTarget.Roots() {
 		value.Roots = append(value.Roots, modelHashRoot{
 			Index:    root.Index,
@@ -2537,6 +2562,74 @@ func modelHash(
 		return "", err
 	}
 	return contentHash(encoded), nil
+}
+
+func addModelHashModules(
+	value *modelHashInput,
+	model application.Model,
+	applicationTarget application.Target,
+) {
+	if !commandFeaturesFor(
+		applicationTarget,
+		len(model.Controllers()) != 0,
+	).modules {
+		return
+	}
+	value.Modules = modelHashModules(model)
+	value.ModuleEdges = modelHashModuleEdges(model)
+	for _, item := range model.UnassignedPackages() {
+		value.Unassigned = append(value.Unassigned, item.Path)
+	}
+}
+
+func modelHashModules(model application.Model) []modelHashModule {
+	modules := model.Modules()
+	result := make([]modelHashModule, len(modules))
+	for index, module := range modules {
+		item := modelHashModule{
+			ID:          module.ID,
+			RootPackage: module.RootPackage,
+		}
+		for _, pkg := range module.Packages() {
+			item.Packages = append(item.Packages, pkg.Path)
+		}
+		for _, namedInterface := range module.NamedInterfaces() {
+			item.NamedInterfaces = append(
+				item.NamedInterfaces,
+				modelHashNamedInterface{
+					Name:        namedInterface.Name,
+					PackagePath: namedInterface.PackagePath,
+				},
+			)
+		}
+		for _, dependency := range module.AllowedDependencies() {
+			item.AllowedDependencies = append(
+				item.AllowedDependencies,
+				dependency.String(),
+			)
+		}
+		result[index] = item
+	}
+	return result
+}
+
+func modelHashModuleEdges(model application.Model) []modelHashModuleEdge {
+	edges := model.ModuleEdges()
+	result := make([]modelHashModuleEdge, len(edges))
+	for index, edge := range edges {
+		api := "default"
+		if edge.API != "" {
+			api = edge.API
+		}
+		result[index] = modelHashModuleEdge{
+			FromModule:  edge.FromModule,
+			ToModule:    edge.ToModule,
+			API:         api,
+			FromPackage: edge.FromPackage,
+			ToPackage:   edge.ToPackage,
+		}
+	}
+	return result
 }
 
 func modelHashEvents(topics []compilerevent.Topic) []modelHashEventTopic {
