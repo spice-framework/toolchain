@@ -107,6 +107,8 @@ func runWithExecutors(
 		return runCommand(arguments[1:], stdout, stderr, options, loader)
 	case "dev":
 		return devCommand(arguments[1:], stdout, stderr, options, loader)
+	case "lsp":
+		return lspCommand(arguments[1:], os.Stdin, stdout, stderr, options, loader)
 	default:
 		return unknownCommand(arguments[0], stderr)
 	}
@@ -1389,6 +1391,7 @@ Usage:
   spice build [--target name] [package-pattern ...]
   spice run [--target name] [package-pattern ...] [-- application-argument ...]
   spice dev [--target name] [dev-option ...] [package-pattern ...] [-- application-argument ...]
+  spice lsp
 
 Commands:
   version      Print the Spice version.
@@ -1400,6 +1403,7 @@ Commands:
   build        Generate an application and run the standard trimpath build.
   run          Generate, build, and execute a package-main application.
   dev          Watch, regenerate, build, and gracefully restart an application.
+  lsp          Serve editor-neutral Spice language features over stdio.
 
 Development options:
   --quiet duration         Debounce quiet period (default 150ms).

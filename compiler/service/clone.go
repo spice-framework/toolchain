@@ -61,6 +61,7 @@ func cloneDefinitions(items []AnnotationDefinition) []AnnotationDefinition {
 				argument.Kinds,
 			)
 			result[index].Arguments[argumentIndex].ListElementKinds = slices.Clone(argument.ListElementKinds)
+			result[index].Arguments[argumentIndex].AllowedStrings = slices.Clone(argument.AllowedStrings)
 		}
 	}
 	return result

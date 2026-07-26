@@ -188,6 +188,7 @@ type AnnotationArgument struct {
 	Name             string
 	Kinds            []annotation.Kind
 	ListElementKinds []annotation.Kind
+	AllowedStrings   []string
 	Required         bool
 	Positional       bool
 }

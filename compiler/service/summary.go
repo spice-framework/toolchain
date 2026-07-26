@@ -1,13 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"go/token"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/application"
+	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -182,7 +185,20 @@ func summarizeConfigurations(model application.Model) []Configuration {
 
 func summarizeDefinitions(
 	registry annotation.Registry,
+	extensions []compilerbootstrap.Definition,
 ) []AnnotationDefinition {
+	bootstrapDefinitions := append(
+		compilerbootstrap.Builtins(),
+		extensions...,
+	)
+	allowedStrings := make(map[string]map[string][]string)
+	for _, definition := range bootstrapDefinitions {
+		options := make(map[string][]string, len(definition.Options))
+		for _, option := range definition.Options {
+			options[option.Name] = slices.Clone(option.AllowedStrings)
+		}
+		allowedStrings[definition.Annotation] = options
+	}
 	items := registry.Definitions()
 	result := make([]AnnotationDefinition, len(items))
 	for index, item := range items {
@@ -192,8 +208,11 @@ func summarizeDefinitions(
 				Name:             argument.Name,
 				Kinds:            slices.Clone(argument.Kinds),
 				ListElementKinds: slices.Clone(argument.ListElementKinds),
-				Required:         argument.Required,
-				Positional:       argument.Positional,
+				AllowedStrings: slices.Clone(
+					allowedStrings[item.Name][argument.Name],
+				),
+				Required:   argument.Required,
+				Positional: argument.Positional,
 			}
 		}
 		result[index] = AnnotationDefinition{
@@ -206,6 +225,99 @@ func summarizeDefinitions(
 	return result
 }
 
+func overlaySafeFixes(
+	set diagnostic.Set,
+	overlay map[string]Document,
+) diagnostic.Set {
+	items := set.Items()
+	for index := range items {
+		if !strings.HasPrefix(items[index].Code, "spice.load.") ||
+			len(items[index].Fixes) != 0 {
+			continue
+		}
+		filePath := filepathFromSlash(items[index].Location.Path)
+		document, found := overlay[filePath]
+		if !found {
+			continue
+		}
+		edit, found := annotationCommentPrefixEdit(
+			items[index].Location,
+			document,
+		)
+		if !found {
+			continue
+		}
+		items[index] = items[index].WithFixes(diagnostic.SuggestedFix{
+			Title: "Convert to a valid Spice annotation comment",
+			Edits: []diagnostic.TextEdit{edit},
+		})
+	}
+	return diagnostic.NewSet(items...)
+}
+
+func annotationCommentPrefixEdit(
+	location diagnostic.Location,
+	document Document,
+) (diagnostic.TextEdit, bool) {
+	line := location.Range.Start.Line
+	if line <= 0 {
+		return diagnostic.TextEdit{}, false
+	}
+	start, end, found := sourceLine(document.Content, line)
+	if !found {
+		return diagnostic.TextEdit{}, false
+	}
+	content := document.Content[start:end]
+	indent := 0
+	for indent < len(content) &&
+		(content[indent] == ' ' || content[indent] == '\t') {
+		indent++
+	}
+	if indent >= len(content) || content[indent] != '@' {
+		return diagnostic.TextEdit{}, false
+	}
+	position := diagnostic.Position{
+		Line:   line,
+		Column: indent + 1,
+		Offset: start + indent,
+	}
+	editLocation := location
+	editLocation.Range = diagnostic.Range{Start: position, End: position}
+	if editLocation.Display != nil {
+		display := *editLocation.Display
+		display.Range = editLocation.Range
+		editLocation.Display = &display
+	}
+	version := document.Version
+	return diagnostic.TextEdit{
+		Location:        editLocation,
+		DocumentVersion: &version,
+		NewText:         "// ",
+	}, true
+}
+
+func sourceLine(
+	content []byte,
+	oneBasedLine int,
+) (int, int, bool) {
+	if oneBasedLine <= 0 {
+		return 0, 0, false
+	}
+	start := 0
+	for line := 1; line < oneBasedLine; line++ {
+		index := bytes.IndexByte(content[start:], '\n')
+		if index < 0 {
+			return 0, 0, false
+		}
+		start += index + 1
+	}
+	end := start
+	for end < len(content) && content[end] != '\n' && content[end] != '\r' {
+		end++
+	}
+	return start, end, true
+}
+
 func actionsFromDiagnostics(
 	set diagnostic.Set,
 ) []diagnostic.SuggestedFix {
@@ -216,7 +328,47 @@ func actionsFromDiagnostics(
 	sort.SliceStable(result, func(left, right int) bool {
 		return result[left].Title < result[right].Title
 	})
-	return cloneActions(result)
+	unique := result[:0]
+	for _, item := range result {
+		if len(unique) != 0 &&
+			equalSuggestedFix(unique[len(unique)-1], item) {
+			continue
+		}
+		unique = append(unique, item)
+	}
+	return cloneActions(unique)
+}
+
+func equalSuggestedFix(
+	left diagnostic.SuggestedFix,
+	right diagnostic.SuggestedFix,
+) bool {
+	if left.Title != right.Title || len(left.Edits) != len(right.Edits) {
+		return false
+	}
+	for index, leftEdit := range left.Edits {
+		rightEdit := right.Edits[index]
+		if leftEdit.NewText != rightEdit.NewText ||
+			leftEdit.Location.URI != rightEdit.Location.URI ||
+			leftEdit.Location.Path != rightEdit.Location.Path ||
+			leftEdit.Location.Range != rightEdit.Location.Range ||
+			!equalVersion(
+				leftEdit.DocumentVersion,
+				rightEdit.DocumentVersion,
+			) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalVersion(left, right *int) bool {
+	switch {
+	case left == nil || right == nil:
+		return left == right
+	default:
+		return *left == *right
+	}
 }
 
 func versionDiagnostics(

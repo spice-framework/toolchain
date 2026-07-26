@@ -1,0 +1,71 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"io"
+
+	"github.com/StevenBuglione/spice/compiler/load"
+	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/StevenBuglione/spice/internal/lsp"
+)
+
+func lspCommand(
+	arguments []string,
+	input io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+) int {
+	return lspCommandContext(
+		context.Background(),
+		arguments,
+		input,
+		stdout,
+		stderr,
+		options,
+		loader,
+	)
+}
+
+func lspCommandContext(
+	ctx context.Context,
+	arguments []string,
+	input io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+) int {
+	if len(arguments) != 0 {
+		if err := writef(
+			stderr,
+			"Spice lsp failed: lsp does not accept arguments\n",
+		); err != nil {
+			return 1
+		}
+		return 2
+	}
+	server, err := lsp.New(lsp.Config{
+		NewService: func(root string) (*compilerservice.Service, error) {
+			workspaceOptions := options
+			workspaceOptions.Dir = root
+			return newCompilerAnalysisService(workspaceOptions, loader)
+		},
+	})
+	if err != nil {
+		if writeErr := writef(stderr, "Spice lsp failed: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	if err := server.Run(ctx, input, stdout); err != nil &&
+		!errors.Is(err, context.Canceled) {
+		if writeErr := writef(stderr, "Spice lsp failed: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	return 0
+}

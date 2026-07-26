@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -125,6 +126,21 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 	if len(result.AnnotationDefinitions()) == 0 {
 		t.Fatal("AnnotationDefinitions() are empty")
 	}
+	foundManagementValues := false
+	for _, definition := range result.AnnotationDefinitions() {
+		if definition.Name != "management.Enable" {
+			continue
+		}
+		for _, argument := range definition.Arguments {
+			if argument.Name == "expose" &&
+				slices.Contains(argument.AllowedStrings, "health") {
+				foundManagementValues = true
+			}
+		}
+	}
+	if !foundManagementValues {
+		t.Fatal("AnnotationDefinitions() omitted management endpoint values")
+	}
 	for _, relativePath := range []string{
 		"zz_spice_gen.go",
 		".spice/servicefixture.manifest.json",
@@ -132,6 +148,51 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 		if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(relativePath))); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("overlay analysis wrote %s: %v", relativePath, statErr)
 		}
+	}
+}
+
+func TestServiceOffersVersionedRawAnnotationCommentFix(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	original, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("ReadFile(main.go) error = %v", err)
+	}
+	raw := bytes.Replace(
+		original,
+		[]byte("// @Application"),
+		[]byte("@Application"),
+		1,
+	)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := service.Analyze(
+		context.Background(),
+		Request{
+			WorkspaceRoot: root,
+			Overlay: map[string]Document{
+				mainPath: {Version: 11, Content: raw},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	actions := result.CodeActions()
+	if len(actions) != 1 ||
+		actions[0].Title != "Convert to a valid Spice annotation comment" ||
+		len(actions[0].Edits) != 1 {
+		t.Fatalf("CodeActions() = %+v", actions)
+	}
+	edit := actions[0].Edits[0]
+	if edit.NewText != "// " ||
+		edit.DocumentVersion == nil ||
+		*edit.DocumentVersion != 11 ||
+		edit.Location.Range.Start != edit.Location.Range.End {
+		t.Fatalf("CodeActions()[0].Edits[0] = %+v", edit)
 	}
 }
 

@@ -245,7 +245,10 @@ func (service *Service) analyze(
 	result := Result{
 		workspaceRoot: request.root,
 		sequence:      request.sequence,
-		definitions:   summarizeDefinitions(service.config.registry),
+		definitions: summarizeDefinitions(
+			service.config.registry,
+			service.config.bootstrapDefinitions,
+		),
 	}
 	options := service.analysisLoadOptions(request)
 	program, loadErr := service.config.loader(
@@ -259,7 +262,10 @@ func (service *Service) analyze(
 	if loadErr != nil {
 		if program != nil {
 			result.diagnostics = versionDiagnostics(
-				diagnosticadapt.Load(request.root, program.Diagnostics()),
+				overlaySafeFixes(
+					diagnosticadapt.Load(request.root, program.Diagnostics()),
+					request.overlay,
+				),
 				request.overlay,
 			)
 		} else {
