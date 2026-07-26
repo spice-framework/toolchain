@@ -380,6 +380,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./httpclient", "FuzzResolveReference"},
 		{"./session", "FuzzManagerLoad"},
 		{"./starter", "FuzzParseManifest"},
+		{"./view", "FuzzRendererEscaping"},
 	}
 	for _, target := range targets {
 		if err := runExternal(
