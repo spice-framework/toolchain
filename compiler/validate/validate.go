@@ -23,6 +23,7 @@ const (
 	diagnosticTooManyPositional
 	diagnosticDuplicateAssignment
 	diagnosticWrongKind
+	diagnosticWrongListElementKind
 	diagnosticMissingRequired
 )
 
@@ -39,6 +40,7 @@ type Diagnostic struct {
 	Available     []string
 	ExpectedKinds []annotation.Kind
 	ActualKind    annotation.Kind
+	ListIndex     int
 
 	kind diagnosticKind
 }
@@ -145,6 +147,18 @@ func (diagnostic Diagnostic) Error() string {
 			position.Column,
 			diagnostic.Annotation,
 			diagnostic.Argument,
+			kindsText(diagnostic.ExpectedKinds),
+			diagnostic.ActualKind,
+		)
+	case diagnosticWrongListElementKind:
+		return fmt.Sprintf(
+			"%s:%d:%d: annotation @%s argument %q list item %d requires %s, got %s",
+			position.Filename,
+			position.Line,
+			position.Column,
+			diagnostic.Annotation,
+			diagnostic.Argument,
+			diagnostic.ListIndex,
 			kindsText(diagnostic.ExpectedKinds),
 			diagnostic.ActualKind,
 		)
@@ -294,10 +308,45 @@ func annotationArguments(occurrence scan.Occurrence, definition annotation.Defin
 			diagnostic.ExpectedKinds = append([]annotation.Kind(nil), argumentDefinition.Kinds...)
 			diagnostic.ActualKind = suppliedArgument.Value.Kind
 			diagnostics = append(diagnostics, diagnostic)
+			continue
 		}
+		diagnostics = append(
+			diagnostics,
+			listElementDiagnostics(occurrence, argumentName, suppliedArgument.Value, argumentDefinition)...,
+		)
 	}
 
 	return append(diagnostics, missingRequired(occurrence, definition, assigned)...)
+}
+
+func listElementDiagnostics(
+	occurrence scan.Occurrence,
+	argumentName string,
+	value annotation.Value,
+	definition annotation.ArgumentDefinition,
+) []Diagnostic {
+	if value.Kind != annotation.KindList || len(definition.ListElementKinds) == 0 {
+		return nil
+	}
+	var diagnostics []Diagnostic
+	for index, item := range value.List {
+		if kindAccepted(item.Kind, definition.ListElementKinds) {
+			continue
+		}
+		diagnostic := argumentDiagnostic(
+			occurrence,
+			diagnosticWrongListElementKind,
+			argumentName,
+		)
+		diagnostic.ListIndex = index
+		diagnostic.ExpectedKinds = append(
+			[]annotation.Kind(nil),
+			definition.ListElementKinds...,
+		)
+		diagnostic.ActualKind = item.Kind
+		diagnostics = append(diagnostics, diagnostic)
+	}
+	return diagnostics
 }
 
 func missingRequired(occurrence scan.Occurrence, definition annotation.Definition, assigned map[string]int) []Diagnostic {

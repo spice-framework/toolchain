@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"slices"
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
 	"github.com/StevenBuglione/spice/compiler/graph"
@@ -39,6 +41,8 @@ const (
 	StageConfiguration Stage = "configuration"
 	// StageController identifies typed HTTP controller validation.
 	StageController Stage = "controller"
+	// StageBootstrap identifies application-platform feature validation.
+	StageBootstrap Stage = "bootstrap"
 	// StageApplication identifies application marker and root validation.
 	StageApplication Stage = "application"
 )
@@ -64,11 +68,17 @@ type Target struct {
 	Position         token.Position
 	PhysicalPosition token.Position
 	roots            []Root
+	bootstrap        compilerbootstrap.Metadata
 }
 
 // Roots returns the target's roots in function-parameter order.
 func (t Target) Roots() []Root {
 	return append([]Root(nil), t.roots...)
+}
+
+// Bootstrap returns immutable, typed application-platform feature metadata.
+func (t Target) Bootstrap() compilerbootstrap.Metadata {
+	return t.bootstrap
 }
 
 // Diagnostic is one deterministic source-positioned application-model failure.
@@ -247,7 +257,123 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 	model.edges = providerGraph.Edges()
 	model.components = orderedComponents(model.providers, lifecycleCatalog.Components())
 	model.targets, model.diagnostics = applicationTargets(program, resolution, providerCatalog.Providers())
+	if len(model.diagnostics) != 0 {
+		return model
+	}
+	bootstrapResult := compilerbootstrap.Compile(
+		resolution,
+		bootstrapApplications(model.targets),
+		compilerbootstrap.Builtins(),
+	)
+	if diagnostics := bootstrapResult.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = bootstrapDiagnostics(diagnostics)
+		return model
+	}
+	for index := range model.targets {
+		model.targets[index].bootstrap = bootstrapResult.Metadata(model.targets[index].SymbolID)
+	}
+	model.diagnostics = bootstrapRequirementDiagnostics(
+		model.targets,
+		model.providers,
+		model.edges,
+	)
 	return model
+}
+
+func bootstrapApplications(targets []Target) []compilerbootstrap.Application {
+	result := make([]compilerbootstrap.Application, len(targets))
+	for index, target := range targets {
+		result[index] = compilerbootstrap.Application{
+			SymbolID: target.SymbolID,
+			Name:     target.Name,
+		}
+	}
+	return result
+}
+
+func bootstrapRequirementDiagnostics(
+	targets []Target,
+	providers []provider.Provider,
+	edges []graph.Edge,
+) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, target := range targets {
+		available := targetRuntimeCapabilities(target, providers, edges)
+		for _, feature := range target.bootstrap.Features() {
+			for _, requirement := range feature.Requirements() {
+				if slices.Contains(available, requirement) {
+					continue
+				}
+				diagnostics = append(diagnostics, Diagnostic{
+					Stage:            StageBootstrap,
+					Position:         feature.Position,
+					PhysicalPosition: feature.PhysicalPosition,
+					SymbolID:         target.SymbolID,
+					Kind:             "missing-capability",
+					Message: fmt.Sprintf(
+						"bootstrap annotation @%s on application %q requires selected application graph capability %q",
+						feature.Annotation,
+						target.Name,
+						requirement,
+					),
+				})
+			}
+		}
+	}
+	sortDiagnostics(diagnostics)
+	return diagnostics
+}
+
+func targetRuntimeCapabilities(
+	target Target,
+	providers []provider.Provider,
+	edges []graph.Edge,
+) []compilerbootstrap.RuntimeCapability {
+	reachable := reachableProviders(target, edges)
+	for _, item := range providers {
+		if !reachable[item.SymbolID] {
+			continue
+		}
+		if pointerNamedType(item.Output, "net/http", "ServeMux") {
+			return []compilerbootstrap.RuntimeCapability{compilerbootstrap.RuntimeHTTPServeMux}
+		}
+	}
+	return nil
+}
+
+func reachableProviders(target Target, edges []graph.Edge) map[string]bool {
+	dependencies := make(map[string][]string)
+	for _, edge := range edges {
+		dependencies[edge.ConsumerID] = append(
+			dependencies[edge.ConsumerID],
+			edge.DependencyID,
+		)
+	}
+	reachable := make(map[string]bool)
+	queue := make([]string, 0, len(target.roots))
+	for _, root := range target.roots {
+		queue = append(queue, root.ProviderID)
+	}
+	for len(queue) != 0 {
+		providerID := queue[0]
+		queue = queue[1:]
+		if reachable[providerID] {
+			continue
+		}
+		reachable[providerID] = true
+		queue = append(queue, dependencies[providerID]...)
+	}
+	return reachable
+}
+
+func pointerNamedType(value types.Type, packagePath, name string) bool {
+	pointer, ok := types.Unalias(value).(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := types.Unalias(pointer.Elem()).(*types.Named)
+	return ok && named.Obj() != nil && named.Obj().Pkg() != nil &&
+		named.Obj().Pkg().Path() == packagePath && named.Obj().Name() == name
 }
 
 func configurationProviders(configTypes []configuration.Type) []provider.Provider {
@@ -662,6 +788,22 @@ func moduleDiagnostics(diagnostics []modulith.Diagnostic) []Diagnostic {
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.ModuleID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func bootstrapDiagnostics(diagnostics []compilerbootstrap.Diagnostic) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageBootstrap,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.SymbolID,
 			Kind:             diagnostic.Kind,
 			Message:          diagnostic.Message,
 		}

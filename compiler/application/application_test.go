@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
@@ -132,6 +133,155 @@ func Worker(Config) {
 	if roots := targets[1].Roots(); len(roots) != 1 ||
 		roots[0].ProviderID != providers[0].SymbolID {
 		t.Fatalf("Worker roots = %#v", roots)
+	}
+}
+
+func TestBuildCarriesQualifiedBootstrapMetadataInApplicationIR(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/bootstrap\n\ngo 1.26.0\n",
+		"app/application.go": `package app
+
+import "net/http"
+
+type Server struct {
+	Mux *http.ServeMux
+}
+
+// @Bean
+func Mux() *http.ServeMux {
+	return http.NewServeMux()
+}
+
+// @Bean
+func NewServer(mux *http.ServeMux) *Server {
+	return &Server{Mux: mux}
+}
+
+// @Application
+// @management.Enable(expose=["readiness", "health", "metrics"])
+// @observability.Logging
+func Commerce(*Server) {
+	panic("application marker bodies must not execute during analysis")
+}
+`,
+	})
+
+	program, resolution := loadAndResolve(t, root, "./app")
+	model := Build(program, resolution)
+	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	targets := model.Targets()
+	if len(targets) != 1 {
+		t.Fatalf("Targets() = %#v", targets)
+	}
+	metadata := targets[0].Bootstrap()
+	if !metadata.Enabled(compilerbootstrap.CapabilityLogging) {
+		t.Fatal("Bootstrap() did not enable logging")
+	}
+	management, found := metadata.Management()
+	want := []compilerbootstrap.Endpoint{
+		compilerbootstrap.EndpointHealth,
+		compilerbootstrap.EndpointMetrics,
+		compilerbootstrap.EndpointReadiness,
+	}
+	if !found || !slices.Equal(management.Endpoints(), want) {
+		t.Fatalf("management = %#v, found=%t, want endpoints %v", management, found, want)
+	}
+
+	features := metadata.Features()
+	features[0].Annotation = "changed"
+	endpoints := management.Endpoints()
+	endpoints[0] = compilerbootstrap.Endpoint("changed")
+	freshManagement, freshFound := model.Targets()[0].Bootstrap().Management()
+	if !freshFound ||
+		model.Targets()[0].Bootstrap().Features()[0].Annotation == "changed" ||
+		!slices.Equal(freshManagement.Endpoints(), want) {
+		t.Fatal("bootstrap metadata was mutated through application IR accessors")
+	}
+}
+
+func TestBuildRejectsInvalidBootstrapMetadataAndMissingGraphCapabilities(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		kind string
+		want string
+	}{
+		{
+			name: "unsupported endpoint",
+			body: `// @Application
+// @management.Enable(expose=["health", "env"])
+func Commerce(Service) {}
+`,
+			kind: "unsupported-item",
+			want: `unsupported value "env"`,
+		},
+		{
+			name: "duplicate endpoint",
+			body: `// @Application
+// @management.Enable(expose=["health", "health"])
+func Commerce(Service) {}
+`,
+			kind: "duplicate-item",
+			want: `duplicate value "health"`,
+		},
+		{
+			name: "invalid option type",
+			body: `// @Application
+// @management.Enable(expose=true)
+func Commerce(Service) {}
+`,
+			kind: "invalid-option-kind",
+			want: "requires list, got boolean",
+		},
+		{
+			name: "conflicting duplicate annotation",
+			body: `// @Application
+// @observability.Logging
+// @observability.Logging
+func Commerce(Service) {}
+`,
+			kind: "duplicate-annotation",
+			want: "duplicated or conflicting",
+		},
+		{
+			name: "missing selected graph capability",
+			body: `// @Application
+// @management.Enable(expose=["health"])
+func Commerce(Service) {}
+`,
+			kind: "missing-capability",
+			want: `requires selected application graph capability "http.serve-mux"`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := writeModule(t, map[string]string{
+				"go.mod": "module example.com/bootstrap\n\ngo 1.26.0\n",
+				"app/application.go": `package app
+
+type Service struct{}
+
+// @Bean
+func NewService() Service { return Service{} }
+
+` + test.body,
+			})
+			program, resolution := loadAndResolve(t, root, "./app")
+			model := Build(program, resolution)
+			diagnostics := model.Diagnostics()
+			if len(diagnostics) != 1 ||
+				diagnostics[0].Stage != StageBootstrap ||
+				diagnostics[0].Kind != test.kind ||
+				!strings.Contains(diagnostics[0].Message, test.want) {
+				t.Fatalf("Build() diagnostics = %#v", diagnostics)
+			}
+			if diagnostics[0].Position.Filename == "" ||
+				diagnostics[0].Position.Line == 0 {
+				t.Fatalf("diagnostic has no source position: %#v", diagnostics[0])
+			}
+		})
 	}
 }
 

@@ -24,6 +24,8 @@ func TestOccurrencesAcceptsValidBuiltInsAndArguments(t *testing.T) {
 		parsedOccurrence(t, "controller.go", 7, `// @Post(path="/")`, scan.TargetMethod, "CreateUser"),
 		parsedOccurrence(t, "controller.go", 8, `// @Post("/")`, scan.TargetMethod, "CreateUserCompact"),
 		parsedOccurrence(t, "service.go", 9, `// @Service`, scan.TargetType, "UserService"),
+		parsedOccurrence(t, "app.go", 10, `// @management.Enable(expose=["health", "info"])`, scan.TargetFunction, "main"),
+		parsedOccurrence(t, "app.go", 11, `// @observability.Logging`, scan.TargetFunction, "main"),
 	}
 	if diagnostics := Occurrences(occurrences, builtin.Registry()); len(diagnostics) != 0 {
 		t.Fatalf("Occurrences() diagnostics = %#v", diagnostics)
@@ -46,6 +48,7 @@ func TestOccurrencesRejectsInvalidArguments(t *testing.T) {
 		{name: "duplicate semantic assignment", comment: `// @Get("/{id}", path="/{other}")`, target: scan.TargetMethod, contains: []string{`assigns argument "path" more than once`}},
 		{name: "marker arguments", comment: `// @Service(name="users")`, target: scan.TargetType, contains: []string{"does not accept arguments"}},
 		{name: "multiple positional", comment: `// @Get("/one", "/two")`, target: scan.TargetMethod, contains: []string{"accepts at most one positional argument"}},
+		{name: "wrong management list item", comment: `// @management.Enable(expose=["health", readiness])`, target: scan.TargetFunction, contains: []string{`argument "expose" list item 1 requires string, got identifier`}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

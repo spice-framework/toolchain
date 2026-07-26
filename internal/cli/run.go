@@ -616,6 +616,8 @@ func verificationSummary(diagnostics []application.Diagnostic) string {
 			label = "configuration declaration"
 		case application.StageController:
 			label = "HTTP controller"
+		case application.StageBootstrap:
+			label = "application bootstrap"
 		case application.StageApplication:
 		}
 	}
