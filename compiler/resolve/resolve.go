@@ -16,28 +16,31 @@ import (
 
 // Occurrence associates one parsed annotation with the exact declaration from
 // the supplied typed Program. DisplayPosition is developer-facing and may be
-// adjusted by //line directives; PhysicalFile and PhysicalOffset remain the
-// deterministic source identity.
+// adjusted by //line directives; PhysicalPosition remains the deterministic
+// loaded source identity. PhysicalFile and PhysicalOffset are retained for
+// compatibility.
 type Occurrence struct {
-	Annotation      annotation.Annotation
-	Target          annotation.Target
-	Name            string
-	SymbolID        string
-	PackagePath     string
-	PhysicalFile    string
-	PhysicalOffset  int
-	DisplayPosition token.Position
+	Annotation       annotation.Annotation
+	Target           annotation.Target
+	Name             string
+	SymbolID         string
+	PackagePath      string
+	PhysicalFile     string
+	PhysicalOffset   int
+	PhysicalPosition token.Position
+	DisplayPosition  token.Position
 }
 
 // Diagnostic is one deterministic source-positioned resolution failure.
 type Diagnostic struct {
-	Position       token.Position
-	PhysicalFile   string
-	PhysicalOffset int
-	Annotation     string
-	Kind           string
-	Message        string
-	rendered       string
+	Position         token.Position
+	PhysicalFile     string
+	PhysicalOffset   int
+	PhysicalPosition token.Position
+	Annotation       string
+	Kind             string
+	Message          string
+	rendered         string
 }
 
 // Error formats a compiler-style diagnostic.
@@ -72,10 +75,11 @@ type symbolIndex struct {
 }
 
 type parsedDirective struct {
-	annotation      annotation.Annotation
-	physicalFile    string
-	physicalOffset  int
-	displayPosition token.Position
+	annotation       annotation.Annotation
+	physicalFile     string
+	physicalOffset   int
+	physicalPosition token.Position
+	displayPosition  token.Position
 }
 
 // Annotations resolves declaration documentation annotations against the exact
@@ -325,12 +329,13 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 		parsed, ok, err := annotationparser.ParseComment(comment.Text, display)
 		if err != nil {
 			diagnostics = append(diagnostics, Diagnostic{
-				Position:       display,
-				PhysicalFile:   filepath.Clean(physical.Filename),
-				PhysicalOffset: physical.Offset,
-				Kind:           "parse",
-				Message:        err.Error(),
-				rendered:       err.Error(),
+				Position:         display,
+				PhysicalFile:     filepath.Clean(physical.Filename),
+				PhysicalOffset:   physical.Offset,
+				PhysicalPosition: physical,
+				Kind:             "parse",
+				Message:          err.Error(),
+				rendered:         err.Error(),
 			})
 			continue
 		}
@@ -338,10 +343,11 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 			continue
 		}
 		directives = append(directives, parsedDirective{
-			annotation:      parsed,
-			physicalFile:    filepath.Clean(physical.Filename),
-			physicalOffset:  physical.Offset,
-			displayPosition: display,
+			annotation:       parsed,
+			physicalFile:     filepath.Clean(physical.Filename),
+			physicalOffset:   physical.Offset,
+			physicalPosition: physical,
+			displayPosition:  display,
 		})
 	}
 	return directives, diagnostics
@@ -349,35 +355,38 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 
 func occurrence(directive parsedDirective, symbol load.Symbol, target annotation.Target) Occurrence {
 	return Occurrence{
-		Annotation:      directive.annotation,
-		Target:          target,
-		Name:            symbol.Name,
-		SymbolID:        symbol.ID,
-		PackagePath:     symbol.PackagePath,
-		PhysicalFile:    directive.physicalFile,
-		PhysicalOffset:  directive.physicalOffset,
-		DisplayPosition: directive.displayPosition,
+		Annotation:       directive.annotation,
+		Target:           target,
+		Name:             symbol.Name,
+		SymbolID:         symbol.ID,
+		PackagePath:      symbol.PackagePath,
+		PhysicalFile:     directive.physicalFile,
+		PhysicalOffset:   directive.physicalOffset,
+		PhysicalPosition: directive.physicalPosition,
+		DisplayPosition:  directive.displayPosition,
 	}
 }
 
 func ambiguityDiagnostic(directive parsedDirective, message string) Diagnostic {
 	return Diagnostic{
-		Position:       directive.displayPosition,
-		PhysicalFile:   directive.physicalFile,
-		PhysicalOffset: directive.physicalOffset,
-		Annotation:     directive.annotation.Name,
-		Kind:           "ambiguity",
-		Message:        message,
+		Position:         directive.displayPosition,
+		PhysicalFile:     directive.physicalFile,
+		PhysicalOffset:   directive.physicalOffset,
+		PhysicalPosition: directive.physicalPosition,
+		Annotation:       directive.annotation.Name,
+		Kind:             "ambiguity",
+		Message:          message,
 	}
 }
 
 func missingSymbolDiagnostic(directive parsedDirective, declarationKind, name string) Diagnostic {
 	return Diagnostic{
-		Position:       directive.displayPosition,
-		PhysicalFile:   directive.physicalFile,
-		PhysicalOffset: directive.physicalOffset,
-		Annotation:     directive.annotation.Name,
-		Kind:           "resolution",
+		Position:         directive.displayPosition,
+		PhysicalFile:     directive.physicalFile,
+		PhysicalOffset:   directive.physicalOffset,
+		PhysicalPosition: directive.physicalPosition,
+		Annotation:       directive.annotation.Name,
+		Kind:             "resolution",
 		Message: fmt.Sprintf(
 			"annotation @%s targets %s %q, but the loaded type information has no stable Spice symbol for it; annotate an addressable declaration selected by the active Go build",
 			directive.annotation.Name,

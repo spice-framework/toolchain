@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -89,7 +90,7 @@ func runWithExecutors(
 	case "version", "--version":
 		return versionCommand(stdout)
 	case "verify":
-		return verify(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
+		return verifyCommand(arguments[1:], stdout, stderr, options, loader)
 	case "annotations":
 		return annotations(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
 	case "modules":
@@ -863,37 +864,6 @@ func executeGoTest(
 	return nil
 }
 
-func verify(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {
-	program, result, metadata, ok := resolveValidatedCompilerPatterns(
-		patterns,
-		stderr,
-		options,
-		loader,
-		"verification",
-		"Spice verification failed",
-	)
-	if !ok {
-		return 1
-	}
-	model := application.BuildWithOptions(program, result, metadata.buildOptions)
-	modelDiagnostics := model.Diagnostics()
-	if len(modelDiagnostics) > 0 {
-		if err := reportDiagnostics(
-			stderr,
-			modelDiagnostics,
-			verificationSummary(modelDiagnostics),
-		); err != nil {
-			return 1
-		}
-		return 1
-	}
-
-	if err := writef(stdout, "Spice verification passed: %d annotations in %d Go files.\n", len(result.Occurrences), result.Files); err != nil {
-		return 1
-	}
-	return 0
-}
-
 func verificationSummary(diagnostics []application.Diagnostic) string {
 	label := "application model"
 	if len(diagnostics) != 0 {
@@ -1256,12 +1226,23 @@ func validationDiagnostics(
 ) []validate.Diagnostic {
 	diagnostics := make([]validate.Diagnostic, 0)
 	for _, occurrence := range occurrences {
-		diagnostics = append(diagnostics, validate.Occurrences([]scan.Occurrence{{
+		occurrenceDiagnostics := validate.Occurrences([]scan.Occurrence{{
 			Annotation: occurrence.Annotation,
 			Target:     occurrence.Target,
 			Name:       occurrence.Name,
 			File:       occurrence.PhysicalFile,
-		}}, registry)...)
+		}}, registry)
+		for index := range occurrenceDiagnostics {
+			physical := occurrence.PhysicalPosition
+			if physical.Filename == "" {
+				physical = token.Position{
+					Filename: occurrence.PhysicalFile,
+					Offset:   occurrence.PhysicalOffset,
+				}
+			}
+			occurrenceDiagnostics[index].PhysicalPosition = physical
+		}
+		diagnostics = append(diagnostics, occurrenceDiagnostics...)
 	}
 	return diagnostics
 }
@@ -1278,7 +1259,7 @@ func printHelp(writer io.Writer) error {
 
 Usage:
   spice version
-  spice verify [package-pattern ...]
+  spice verify [--format text|json] [package-pattern ...]
   spice annotations [package-pattern ...]
   spice modules [--format json|mermaid|plantuml] [--focus module] [package-pattern ...]
   spice test --module module [--race] [--count n] [--run regexp] [--timeout duration] [package-pattern ...]

@@ -211,8 +211,14 @@ var Second int
 			t.Fatalf("run=%d code=%d stdout=%q stderr=%q", run, code, stdout, stderr)
 		}
 		normalized := filepath.ToSlash(stderr)
-		zIndex := strings.Index(normalized, "z.go:100:1: unknown annotation @UnknownA")
-		aIndex := strings.Index(normalized, "a.go:1:1: unknown annotation @UnknownB")
+		zIndex := strings.Index(
+			normalized,
+			"z.go:100:1: [spice.validation.unknown-annotation] unknown annotation @UnknownA",
+		)
+		aIndex := strings.Index(
+			normalized,
+			"a.go:1:1: [spice.validation.unknown-annotation] unknown annotation @UnknownB",
+		)
 		if zIndex < 0 || aIndex < 0 || zIndex >= aIndex {
 			t.Fatalf("run=%d diagnostics not in physical order: %q", run, stderr)
 		}

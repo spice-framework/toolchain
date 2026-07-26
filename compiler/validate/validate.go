@@ -29,12 +29,13 @@ const (
 
 // Diagnostic is one source-positioned annotation validation failure.
 type Diagnostic struct {
-	Position   token.Position
-	Annotation string
-	Target     annotation.Target
-	Name       string
-	Allowed    []annotation.Target
-	Unknown    bool
+	Position         token.Position
+	PhysicalPosition token.Position
+	Annotation       string
+	Target           annotation.Target
+	Name             string
+	Allowed          []annotation.Target
+	Unknown          bool
 
 	Argument      string
 	Available     []string
@@ -43,6 +44,48 @@ type Diagnostic struct {
 	ListIndex     int
 
 	kind diagnosticKind
+}
+
+// Code returns the stable validation failure kind.
+func (diagnostic Diagnostic) Code() string {
+	if diagnostic.Unknown {
+		return "unknown-annotation"
+	}
+	switch diagnostic.kind {
+	case diagnosticUnknownAnnotation:
+		return "unknown-annotation"
+	case diagnosticInvalidTarget:
+		return "invalid-target"
+	case diagnosticArgumentsNotAccepted:
+		return "arguments-not-accepted"
+	case diagnosticUnknownArgument:
+		return "unknown-argument"
+	case diagnosticPositionalNotAccepted:
+		return "positional-not-accepted"
+	case diagnosticTooManyPositional:
+		return "too-many-positional"
+	case diagnosticDuplicateAssignment:
+		return "duplicate-assignment"
+	case diagnosticWrongKind:
+		return "wrong-kind"
+	case diagnosticWrongListElementKind:
+		return "wrong-list-element-kind"
+	case diagnosticMissingRequired:
+		return "missing-required"
+	}
+	return "unknown"
+}
+
+// Message returns the actionable diagnostic text without its source prefix.
+func (diagnostic Diagnostic) Message() string {
+	position := normalizedPosition(diagnostic.Position)
+	prefix := fmt.Sprintf(
+		"%s:%d:%d: ",
+		position.Filename,
+		position.Line,
+		position.Column,
+	)
+	return strings.TrimPrefix(diagnostic.Error(), prefix)
 }
 
 // Error formats an actionable, stable compiler-style diagnostic.

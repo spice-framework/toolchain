@@ -372,6 +372,7 @@ func fuzz(ctx context.Context, root string) error {
 		pkg    string
 		target string
 	}{
+		{"./compiler/diagnostic", "FuzzDiagnosticReportJSON"},
 		{"./compiler/load", "FuzzGeneratedMainBridgeError"},
 		{"./compiler/parser", "FuzzParseComment"},
 		{"./compiler/validate", "FuzzOccurrences"},
@@ -458,6 +459,10 @@ func offline(ctx context.Context, root string) error {
 func smoke(ctx context.Context, root string) error {
 	commands := [][]string{
 		{"go", "run", "./cmd/spice", "verify", "./..."},
+		{
+			"go", "run", "./cmd/spice", "verify", "--format=json",
+			"./examples/commerce/...",
+		},
 		{"go", "run", "./cmd/spice", "version"},
 		{"go", "run", "./cmd/spice", "modules", "--format=json", "./..."},
 		{

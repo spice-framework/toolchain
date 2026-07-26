@@ -1038,10 +1038,17 @@ func rootDiagnostic(
 }
 
 func occurrenceDiagnostic(occurrence resolve.Occurrence, kind, message string) Diagnostic {
+	physical := occurrence.PhysicalPosition
+	if physical.Filename == "" {
+		physical = token.Position{
+			Filename: occurrence.PhysicalFile,
+			Offset:   occurrence.PhysicalOffset,
+		}
+	}
 	return Diagnostic{
 		Stage:            StageApplication,
 		Position:         occurrence.DisplayPosition,
-		PhysicalPosition: token.Position{Filename: occurrence.PhysicalFile, Offset: occurrence.PhysicalOffset},
+		PhysicalPosition: physical,
 		SymbolID:         occurrence.SymbolID,
 		Kind:             kind,
 		Message:          message,
@@ -1075,16 +1082,25 @@ func resolutionDiagnostics(diagnostics []resolve.Diagnostic) []Diagnostic {
 				Line:     diagnostic.Position.Line,
 				Column:   diagnostic.Position.Column,
 			},
-			PhysicalPosition: token.Position{
-				Filename: diagnostic.PhysicalFile,
-				Offset:   diagnostic.PhysicalOffset,
-			},
-			Kind:    diagnostic.Kind,
-			Message: diagnostic.Message,
+			PhysicalPosition: resolutionPhysicalPosition(diagnostic),
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
 		}
 	}
 	sortDiagnostics(result)
 	return result
+}
+
+func resolutionPhysicalPosition(
+	diagnostic resolve.Diagnostic,
+) token.Position {
+	if diagnostic.PhysicalPosition.Filename != "" {
+		return diagnostic.PhysicalPosition
+	}
+	return token.Position{
+		Filename: diagnostic.PhysicalFile,
+		Offset:   diagnostic.PhysicalOffset,
+	}
 }
 
 func providerDiagnostics(diagnostics []provider.Diagnostic) []Diagnostic {

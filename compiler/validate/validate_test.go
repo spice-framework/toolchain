@@ -144,6 +144,26 @@ func diagnosticsText(diagnostics []Diagnostic) string {
 	return strings.Join(messages, "\n")
 }
 
+func TestDiagnosticCodeAndMessage(t *testing.T) {
+	t.Parallel()
+	diagnostics := Occurrences([]scan.Occurrence{
+		parsedOccurrence(
+			t,
+			"controller.go",
+			7,
+			`// @Controller(prefx="/users")`,
+			scan.TargetType,
+			"Controller",
+		),
+	}, builtin.Registry())
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Code() != "unknown-argument" ||
+		strings.HasPrefix(diagnostics[0].Message(), "controller.go:") ||
+		!strings.Contains(diagnostics[0].Message(), `"prefx"`) {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}
+
 func FuzzOccurrences(f *testing.F) {
 	f.Add("Get", "path", "/users/{id}")
 	f.Add("Controller", "prefix", "/users")
