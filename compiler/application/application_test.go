@@ -37,6 +37,7 @@ import (
 )
 
 type Config struct{}
+type Message struct{ ID string }
 type Server struct{}
 type ServerAlias = *Server
 
@@ -73,6 +74,11 @@ func (*Server) Stop(context.Context) error {
 // @schedule.FixedDelay(delay="5s", initialDelay="1s")
 func (*Server) Refresh(context.Context) error {
 	panic("scheduled methods must not execute during analysis")
+}
+
+// @async.Execute
+func (*Server) Deliver(context.Context, Message) error {
+	panic("asynchronous methods must not execute during analysis")
 }
 
 // @Application
@@ -133,6 +139,14 @@ func Worker(Config) {
 		jobs[0].Delay != 5*time.Second ||
 		jobs[0].InitialDelay != time.Second {
 		t.Fatalf("Jobs() = %#v", jobs)
+	}
+	tasks := model.AsyncTasks()
+	if len(tasks) != 1 ||
+		tasks[0].Method.Name != "Deliver" ||
+		tasks[0].ProviderID != providers[1].SymbolID ||
+		tasks[0].SubmitMethod != "SubmitServerDeliver" ||
+		len(tasks[0].Parameters()) != 1 {
+		t.Fatalf("AsyncTasks() = %#v", tasks)
 	}
 
 	targets := model.Targets()
@@ -796,6 +810,9 @@ func RootProvider(Dependency) Root { return Root{} }
 // @schedule.FixedDelay(delay="1m")
 func (Root) Reconcile(context.Context) error { return nil }
 
+// @async.Execute
+func (Root) Dispatch(context.Context, string) error { return nil }
+
 // @Application
 func Application(Root) {}
 `,
@@ -826,6 +843,18 @@ func Application(Root) {}
 	jobs[0].Delay = 0
 	if model.Jobs()[0].Delay == 0 {
 		t.Fatal("Jobs returned mutable scheduling storage")
+	}
+
+	tasks := model.AsyncTasks()
+	if len(tasks) != 1 {
+		t.Fatalf("AsyncTasks() = %#v", tasks)
+	}
+	tasks[0].SubmitMethod = "changed"
+	parameters := tasks[0].Parameters()
+	parameters[0].TypeID = "changed"
+	if model.AsyncTasks()[0].SubmitMethod == "changed" ||
+		model.AsyncTasks()[0].Parameters()[0].TypeID == "changed" {
+		t.Fatal("AsyncTasks returned mutable asynchronous storage")
 	}
 
 	invalid := Build(nil, resolve.Result{})

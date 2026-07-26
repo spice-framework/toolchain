@@ -894,35 +894,32 @@ func verify(patterns []string, stdout, stderr io.Writer, options load.Options, l
 func verificationSummary(diagnostics []application.Diagnostic) string {
 	label := "application model"
 	if len(diagnostics) != 0 {
-		switch diagnostics[0].Stage {
-		case application.StageResolution:
-			label = "annotation resolution"
-		case application.StageProvider:
-			label = "provider catalog"
-		case application.StageGraph:
-			label = "provider graph"
-		case application.StageLifecycle:
-			label = "lifecycle hook"
-		case application.StageSchedule:
-			label = "scheduled method"
-		case application.StageTransaction:
-			label = "transaction boundary"
-		case application.StageCache:
-			label = "cache boundary"
-		case application.StageEvent:
-			label = "event contract"
-		case application.StageModule:
-			label = "module architecture"
-		case application.StageConfiguration:
-			label = "configuration declaration"
-		case application.StageController:
-			label = "HTTP controller"
-		case application.StageBootstrap:
-			label = "application bootstrap"
-		case application.StageApplication:
-		}
+		label = verificationStageLabel(diagnostics[0].Stage)
 	}
 	return fmt.Sprintf("Spice verification failed: %d %s error(s).", len(diagnostics), label)
+}
+
+func verificationStageLabel(stage application.Stage) string {
+	labels := map[application.Stage]string{
+		application.StageResolution:    "annotation resolution",
+		application.StageProvider:      "provider catalog",
+		application.StageGraph:         "provider graph",
+		application.StageLifecycle:     "lifecycle hook",
+		application.StageSchedule:      "scheduled method",
+		application.StageAsync:         "asynchronous method",
+		application.StageTransaction:   "transaction boundary",
+		application.StageCache:         "cache boundary",
+		application.StageEvent:         "event contract",
+		application.StageModule:        "module architecture",
+		application.StageConfiguration: "configuration declaration",
+		application.StageController:    "HTTP controller",
+		application.StageBootstrap:     "application bootstrap",
+		application.StageApplication:   "application model",
+	}
+	if label, found := labels[stage]; found {
+		return label
+	}
+	return "application model"
 }
 
 func annotations(patterns []string, stdout, stderr io.Writer, options load.Options, loader programLoader) int {

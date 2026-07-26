@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	compilerasync "github.com/StevenBuglione/spice/compiler/async"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	compilercache "github.com/StevenBuglione/spice/compiler/cache"
 	"github.com/StevenBuglione/spice/compiler/configuration"
@@ -41,6 +42,8 @@ const (
 	StageLifecycle Stage = "lifecycle"
 	// StageSchedule identifies scheduled-method validation.
 	StageSchedule Stage = "schedule"
+	// StageAsync identifies asynchronous-method validation.
+	StageAsync Stage = "async"
 	// StageTransaction identifies generated transaction-boundary validation.
 	StageTransaction Stage = "transaction"
 	// StageEvent identifies typed event topic and listener validation.
@@ -125,6 +128,7 @@ type Model struct {
 	edges        []graph.Edge
 	components   []lifecycle.Component
 	jobs         []compilerschedule.Job
+	asyncTasks   []compilerasync.Task
 	events       []compilerevent.Topic
 	transactions []compilertransaction.Boundary
 	caches       []compilercache.Boundary
@@ -172,6 +176,12 @@ func (m Model) Components() []lifecycle.Component {
 // identity order.
 func (m Model) Jobs() []compilerschedule.Job {
 	return append([]compilerschedule.Job(nil), m.jobs...)
+}
+
+// AsyncTasks returns immutable provider-owned asynchronous method metadata in
+// stable method identity order.
+func (m Model) AsyncTasks() []compilerasync.Task {
+	return append([]compilerasync.Task(nil), m.asyncTasks...)
 }
 
 // Events returns generated typed event topics in stable marker identity order.
@@ -326,11 +336,21 @@ func BuildWithOptions(
 		model.diagnostics = scheduleDiagnostics(diagnostics)
 		return model
 	}
+	asyncCatalog := compilerasync.Build(
+		program,
+		resolution,
+		providerCatalog,
+	)
+	if diagnostics := asyncCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = asyncDiagnostics(diagnostics)
+		return model
+	}
 
 	model.providers = providerGraph.ConstructionOrder()
 	model.edges = providerGraph.Edges()
 	model.components = orderedComponents(model.providers, lifecycleCatalog.Components())
 	model.jobs = scheduleCatalog.Jobs()
+	model.asyncTasks = asyncCatalog.Tasks()
 	model.targets, model.diagnostics = applicationTargets(program, resolution, providerCatalog.Providers())
 	if len(model.diagnostics) != 0 {
 		return model
@@ -1095,6 +1115,24 @@ func scheduleDiagnostics(
 	for index, diagnostic := range diagnostics {
 		result[index] = Diagnostic{
 			Stage:            StageSchedule,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.MethodID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func asyncDiagnostics(
+	diagnostics []compilerasync.Diagnostic,
+) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageAsync,
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.MethodID,
