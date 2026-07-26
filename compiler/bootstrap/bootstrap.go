@@ -28,6 +28,9 @@ const (
 	CapabilityManagement Capability = "management"
 	// CapabilityLogging is structured lifecycle and HTTP logging.
 	CapabilityLogging Capability = "observability.logging"
+	// CapabilityHTTPObservation composes explicitly selected starter outputs
+	// into generated HTTP route observation.
+	CapabilityHTTPObservation Capability = "observability.http-server"
 )
 
 // RuntimeCapability identifies application-graph behavior required by a

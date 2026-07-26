@@ -33,14 +33,15 @@ type modelHashBootstrapEntryPoint struct {
 }
 
 type commandFeatures struct {
-	endpoints     []compilerbootstrap.Endpoint
-	management    bool
-	logging       bool
-	metrics       bool
-	hasMux        bool
-	authorization bool
-	scheduling    bool
-	transactions  bool
+	endpoints       []compilerbootstrap.Endpoint
+	management      bool
+	logging         bool
+	metrics         bool
+	hasMux          bool
+	authorization   bool
+	scheduling      bool
+	transactions    bool
+	httpObservation bool
 }
 
 func commandFeaturesFor(
@@ -50,12 +51,16 @@ func commandFeaturesFor(
 	metadata := target.Bootstrap()
 	management, managementEnabled := metadata.Management()
 	endpoints := management.Endpoints()
+	httpObservation := metadata.Enabled(
+		compilerbootstrap.CapabilityHTTPObservation,
+	)
 	return commandFeatures{
-		endpoints:  endpoints,
-		management: managementEnabled,
-		logging:    metadata.Enabled(compilerbootstrap.CapabilityLogging),
-		metrics:    slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
-		hasMux:     hasControllers || managementEnabled,
+		endpoints:       endpoints,
+		management:      managementEnabled,
+		logging:         metadata.Enabled(compilerbootstrap.CapabilityLogging),
+		metrics:         slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
+		hasMux:          hasControllers || managementEnabled || httpObservation,
+		httpObservation: httpObservation,
 	}
 }
 
@@ -131,6 +136,55 @@ func writeBootstrapObservers(source *bytes.Buffer, features commandFeatures) {
 			source.WriteString("\thttpObservers = append([]spiceweb.HTTPObserver{httpLogs}, httpObservers...)\n")
 		}
 	}
+}
+
+func writeFeatureHTTPObservers(
+	source *bytes.Buffer,
+	target application.Target,
+	providers []provider.Provider,
+	providerVariables map[string]string,
+) error {
+	for _, feature := range target.Bootstrap().Features() {
+		if feature.Capability != compilerbootstrap.CapabilityHTTPObservation {
+			continue
+		}
+		for _, entrypoint := range feature.EntryPoints() {
+			var matches []provider.Provider
+			for _, item := range providers {
+				if item.Source == provider.SourceStarter &&
+					item.SourceID == feature.SourceID &&
+					item.SourceVersion == feature.SourceVersion &&
+					item.PackagePath == entrypoint.Package &&
+					item.Name == entrypoint.Symbol {
+					matches = append(matches, item)
+				}
+			}
+			if len(matches) != 1 {
+				return fmt.Errorf(
+					"HTTP observation feature @%s entrypoint %s.%s has %d selected providers",
+					feature.Annotation,
+					entrypoint.Package,
+					entrypoint.Symbol,
+					len(matches),
+				)
+			}
+			variable := providerVariables[matches[0].SymbolID]
+			if variable == "" {
+				return fmt.Errorf(
+					"HTTP observation feature @%s entrypoint %s.%s has no generated provider variable",
+					feature.Annotation,
+					entrypoint.Package,
+					entrypoint.Symbol,
+				)
+			}
+			fmt.Fprintf(
+				source,
+				"\thttpObservers = append(httpObservers, %s)\n",
+				variable,
+			)
+		}
+	}
+	return nil
 }
 
 func writeAuthorizationSetup(

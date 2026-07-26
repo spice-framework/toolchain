@@ -376,6 +376,16 @@ func renderSource(
 	); providerErr != nil {
 		return nil, providerErr
 	}
+	if features.httpObservation {
+		if observerErr := writeFeatureHTTPObservers(
+			&source,
+			applicationTarget,
+			providers,
+			providerVariables,
+		); observerErr != nil {
+			return nil, observerErr
+		}
+	}
 	writeScheduleSetup(
 		&source,
 		jobs,

@@ -410,10 +410,150 @@ func bootstrapRequirementDiagnostics(
 					),
 				})
 			}
+			diagnostics = append(
+				diagnostics,
+				bootstrapEntrypointRoleDiagnostics(
+					target,
+					feature,
+					providers,
+				)...,
+			)
 		}
 	}
 	sortDiagnostics(diagnostics)
 	return diagnostics
+}
+
+func bootstrapEntrypointRoleDiagnostics(
+	target Target,
+	feature compilerbootstrap.Feature,
+	providers []provider.Provider,
+) []Diagnostic {
+	if feature.Capability != compilerbootstrap.CapabilityHTTPObservation {
+		return nil
+	}
+	var diagnostics []Diagnostic
+	for _, entrypoint := range feature.EntryPoints() {
+		matches := starterEntrypointProviders(feature, entrypoint, providers)
+		switch {
+		case len(matches) != 1:
+			diagnostics = append(
+				diagnostics,
+				bootstrapFeatureDiagnostic(
+					target,
+					feature,
+					"invalid-entrypoint",
+					fmt.Sprintf(
+						"bootstrap annotation @%s requires exactly one selected provider for HTTP observer entrypoint %s.%s, found %d",
+						feature.Annotation,
+						entrypoint.Package,
+						entrypoint.Symbol,
+						len(matches),
+					),
+				),
+			)
+		case !validHTTPObserverType(matches[0].Output):
+			diagnostics = append(
+				diagnostics,
+				bootstrapFeatureDiagnostic(
+					target,
+					feature,
+					"invalid-entrypoint-type",
+					fmt.Sprintf(
+						"bootstrap annotation @%s entrypoint %s.%s returns %s, which does not implement exact web.HTTPObserver",
+						feature.Annotation,
+						entrypoint.Package,
+						entrypoint.Symbol,
+						matches[0].OutputTypeID,
+					),
+				),
+			)
+		}
+	}
+	return diagnostics
+}
+
+func starterEntrypointProviders(
+	feature compilerbootstrap.Feature,
+	entrypoint compilerbootstrap.EntryPoint,
+	providers []provider.Provider,
+) []provider.Provider {
+	var result []provider.Provider
+	for _, item := range providers {
+		if item.Source == provider.SourceStarter &&
+			item.SourceID == feature.SourceID &&
+			item.SourceVersion == feature.SourceVersion &&
+			item.PackagePath == entrypoint.Package &&
+			item.Name == entrypoint.Symbol {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func bootstrapFeatureDiagnostic(
+	target Target,
+	feature compilerbootstrap.Feature,
+	kind string,
+	message string,
+) Diagnostic {
+	return Diagnostic{
+		Stage:            StageBootstrap,
+		Position:         feature.Position,
+		PhysicalPosition: feature.PhysicalPosition,
+		SymbolID:         target.SymbolID,
+		Kind:             kind,
+		Message:          message,
+	}
+}
+
+func validHTTPObserverType(value types.Type) bool {
+	method := types.NewMethodSet(value).Lookup(nil, "BeginHTTP")
+	if method == nil {
+		return false
+	}
+	signature, ok := method.Obj().Type().(*types.Signature)
+	if !ok || signature.Variadic() ||
+		signature.Params().Len() != 2 ||
+		signature.Results().Len() != 2 ||
+		!exactNamedType(
+			signature.Params().At(0).Type(),
+			"context",
+			"Context",
+		) ||
+		!exactNamedType(
+			signature.Params().At(1).Type(),
+			"github.com/StevenBuglione/spice/web",
+			"RouteMetadata",
+		) ||
+		!exactNamedType(
+			signature.Results().At(0).Type(),
+			"context",
+			"Context",
+		) {
+		return false
+	}
+	finish, ok := types.Unalias(
+		signature.Results().At(1).Type(),
+	).(*types.Signature)
+	return ok &&
+		!finish.Variadic() &&
+		finish.Params().Len() == 1 &&
+		finish.Results().Len() == 0 &&
+		exactNamedType(
+			finish.Params().At(0).Type(),
+			"github.com/StevenBuglione/spice/web",
+			"HTTPResult",
+		)
+}
+
+func exactNamedType(value types.Type, packagePath, name string) bool {
+	named, ok := types.Unalias(value).(*types.Named)
+	return ok &&
+		named.Obj() != nil &&
+		named.Obj().Pkg() != nil &&
+		named.Obj().Pkg().Path() == packagePath &&
+		named.Obj().Name() == name
 }
 
 func targetRuntimeCapabilities(
