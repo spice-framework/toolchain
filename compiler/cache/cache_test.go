@@ -144,6 +144,24 @@ func (*API) DuplicateTwo(
 	return ProductResponse{}, nil
 }
 
+// @Get("/environment-one/{id}")
+// @cache.Cacheable(name="environment-one")
+func (*API) EnvironmentOne(
+	context.Context,
+	ProductRequest,
+) (ProductResponse, error) {
+	return ProductResponse{}, nil
+}
+
+// @Get("/environment-two/{id}")
+// @cache.Cacheable(name="environment.one")
+func (*API) EnvironmentTwo(
+	context.Context,
+	ProductRequest,
+) (ProductResponse, error) {
+	return ProductResponse{}, nil
+}
+
 // @cache.Cacheable(name="not-route")
 func (*API) NotRoute(context.Context, ProductRequest) (ProductResponse, error) {
 	return ProductResponse{}, nil
@@ -161,9 +179,9 @@ func (*API) NotRoute(context.Context, ProductRequest) (ProductResponse, error) {
 			controllers,
 		).Diagnostics()
 		got := diagnosticStrings(diagnostics)
-		if len(got) != 9 {
+		if len(got) != 10 {
 			t.Fatalf(
-				"run %d diagnostic count = %d, want 9:\n%s",
+				"run %d diagnostic count = %d, want 10:\n%s",
 				run,
 				len(got),
 				strings.Join(got, "\n"),
@@ -190,6 +208,7 @@ func (*API) NotRoute(context.Context, ProductRequest) (ProductResponse, error) {
 		"cannot use authorization",
 		"must match",
 		"is already owned by route",
+		"same generated environment prefix",
 		"must declare exactly one valid typed @Get route",
 	} {
 		if !strings.Contains(joined, expected) {

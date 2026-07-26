@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/controller"
@@ -104,6 +105,7 @@ func Build(
 	routes := routeIndex(controllers)
 	occurrences := cacheOccurrences(resolution)
 	cacheNames := make(map[string]Boundary)
+	environmentNames := make(map[string]Boundary)
 	for _, routeID := range sortedOccurrenceIDs(occurrences) {
 		routeOccurrences := occurrences[routeID]
 		if len(routeOccurrences) == 0 {
@@ -170,7 +172,26 @@ func Build(
 			)
 			continue
 		}
+		environment := cacheEnvironmentIdentity(boundary.CacheName)
+		if first, duplicate := environmentNames[environment]; duplicate {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"duplicate-cache-environment",
+					fmt.Sprintf(
+						"@%s cache names %q and %q produce the same generated environment prefix %q",
+						Annotation,
+						first.CacheName,
+						boundary.CacheName,
+						environment,
+					),
+				),
+			)
+			continue
+		}
 		cacheNames[boundary.CacheName] = boundary
+		environmentNames[environment] = boundary
 		catalog.boundaries = append(catalog.boundaries, boundary)
 	}
 	sort.SliceStable(catalog.boundaries, func(left, right int) bool {
@@ -179,6 +200,11 @@ func Build(
 	})
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
+}
+
+func cacheEnvironmentIdentity(name string) string {
+	replacer := strings.NewReplacer(".", "_", "-", "_")
+	return "SPICE_CACHE_" + strings.ToUpper(replacer.Replace(name))
 }
 
 func compileBoundary(

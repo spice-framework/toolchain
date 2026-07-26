@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/compiler/application"
+	compilercache "github.com/StevenBuglione/spice/compiler/cache"
 	"github.com/StevenBuglione/spice/compiler/configuration"
 	"github.com/StevenBuglione/spice/compiler/controller"
 	compilerevent "github.com/StevenBuglione/spice/compiler/event"
@@ -44,6 +45,7 @@ const (
 
 	generatedFilename = "zz_spice_gen.go"
 	configPath        = "github.com/StevenBuglione/spice/config"
+	cachePath         = "github.com/StevenBuglione/spice/cache"
 	dataPath          = "github.com/StevenBuglione/spice/data"
 	eventPath         = "github.com/StevenBuglione/spice/event"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
@@ -320,18 +322,20 @@ func renderSource(
 	events := model.Events()
 	transactions := model.Transactions()
 	caches := model.Caches()
-	if len(caches) != 0 {
-		return nil, fmt.Errorf(
-			"cache boundary %s requires generated cache support",
-			caches[0].RouteID,
-		)
-	}
 	features := commandFeaturesFor(applicationTarget, len(controllers) != 0)
 	features.authorization = hasAuthorization(controllers)
 	features.scheduling = len(jobs) != 0
 	features.transactions = len(transactions) != 0
 	features.events = len(events) != 0
-	aliases := importAliases(providers, configTypes, controllers, events, features)
+	features.caching = len(caches) != 0
+	aliases := importAliases(
+		providers,
+		configTypes,
+		controllers,
+		events,
+		caches,
+		features,
+	)
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(model, providers)
 	if err != nil {
@@ -358,7 +362,7 @@ func renderSource(
 	}
 	source.WriteString("}\n\n")
 	writeApplicationOptions(&source, features)
-	writeConfigurationAPI(&source, configTypes)
+	writeConfigurationAPI(&source, configTypes, caches)
 	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
 	source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
 	source.WriteString("}\n\n")
@@ -389,6 +393,11 @@ func renderSource(
 	); providerErr != nil {
 		return nil, providerErr
 	}
+	cacheRuntimes := writeCacheSetup(
+		&source,
+		caches,
+		aliases,
+	)
 	if features.httpObservation {
 		if observerErr := writeFeatureHTTPObservers(
 			&source,
@@ -417,6 +426,7 @@ func renderSource(
 			&source,
 			controllers,
 			transactions,
+			cacheRuntimes,
 			providerVariables,
 			aliases,
 			authorizationMiddleware,
@@ -570,10 +580,121 @@ func writeEventProvider(
 	return nil
 }
 
+type cacheRuntime struct {
+	variable string
+	ttl      string
+}
+
+func writeCacheSetup(
+	source *bytes.Buffer,
+	caches []compilercache.Boundary,
+	aliases map[string]string,
+) map[string]cacheRuntime {
+	result := make(map[string]cacheRuntime, len(caches))
+	for index, boundary := range caches {
+		variable := "generatedCache" + strconv.Itoa(index)
+		capacity := variable + "Capacity"
+		ttl := variable + "TTL"
+		fmt.Fprintf(
+			source,
+			"\t%s, err := configurationSnapshot.Integer(%s)\n",
+			capacity,
+			strconv.Quote(cacheCapacityKey(boundary.CacheName)),
+		)
+		source.WriteString("\tif err != nil {\n")
+		fmt.Fprintf(
+			source,
+			"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
+			strconv.Quote(
+				"decode capacity for cache "+boundary.CacheName+": %w",
+			),
+		)
+		source.WriteString("\t}\n")
+		fmt.Fprintf(
+			source,
+			"\tif %s < 1 || uint64(%s) > uint64(^uint(0)>>1) {\n",
+			capacity,
+			capacity,
+		)
+		fmt.Fprintf(
+			source,
+			"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s))\n",
+			strconv.Quote(
+				"decode capacity for cache "+boundary.CacheName+
+					": value must fit a positive int",
+			),
+		)
+		source.WriteString("\t}\n")
+		fmt.Fprintf(
+			source,
+			"\t%s, err := configurationSnapshot.Duration(%s)\n",
+			ttl,
+			strconv.Quote(cacheTTLKey(boundary.CacheName)),
+		)
+		source.WriteString("\tif err != nil {\n")
+		fmt.Fprintf(
+			source,
+			"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
+			strconv.Quote(
+				"decode TTL for cache "+boundary.CacheName+": %w",
+			),
+		)
+		source.WriteString("\t}\n")
+		fmt.Fprintf(source, "\tif %s < 0 {\n", ttl)
+		fmt.Fprintf(
+			source,
+			"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s))\n",
+			strconv.Quote(
+				"decode TTL for cache "+boundary.CacheName+
+					": duration must not be negative",
+			),
+		)
+		source.WriteString("\t}\n")
+		fmt.Fprintf(
+			source,
+			"\t%s, err := spicecache.NewMemory[%s, %s](\n",
+			variable,
+			renderedType(boundary.Key, aliases),
+			renderedType(boundary.Value, aliases),
+		)
+		source.WriteString("\t\tspicecache.Definition{\n")
+		fmt.Fprintf(
+			source,
+			"\t\t\tID: %s,\n",
+			strconv.Quote(boundary.CacheName),
+		)
+		fmt.Fprintf(
+			source,
+			"\t\t\tModule: %s,\n",
+			strconv.Quote(boundary.Module),
+		)
+		source.WriteString("\t\t},\n")
+		fmt.Fprintf(source, "\t\tint(%s),\n", capacity)
+		source.WriteString("\t\toptions.CacheClock,\n")
+		source.WriteString("\t\toptions.CacheObservers...,\n")
+		source.WriteString("\t)\n")
+		source.WriteString("\tif err != nil {\n")
+		fmt.Fprintf(
+			source,
+			"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
+			strconv.Quote(
+				"construct generated cache "+boundary.CacheName+": %w",
+			),
+		)
+		source.WriteString("\t}\n")
+		result[boundary.RouteID] = cacheRuntime{
+			variable: variable,
+			ttl:      ttl,
+		}
+	}
+	return result
+}
+
 func writeControllerRoutes(
 	source *bytes.Buffer,
 	controllers []controller.Controller,
 	transactions []compilertransaction.Boundary,
+	caches map[string]cacheRuntime,
 	providerVariables map[string]string,
 	aliases map[string]string,
 	authorizationMiddleware map[string]string,
@@ -630,6 +751,7 @@ func writeControllerRoutes(
 				source,
 				route,
 				transactionIndex,
+				caches,
 				providerVariables,
 				receiver,
 				pattern,
@@ -641,6 +763,35 @@ func writeControllerRoutes(
 		}
 	}
 	return nil
+}
+
+func writeCacheableRouteCall(
+	source *bytes.Buffer,
+	route controller.Route,
+	cache cacheRuntime,
+	receiver string,
+) {
+	fmt.Fprintf(
+		source,
+		"\t\tresponseValue, cacheHit, routeErr := %s.Get(httpRequest.Context(), requestValue)\n",
+		cache.variable,
+	)
+	source.WriteString("\t\tif routeErr == nil && !cacheHit {\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tresponseValue, routeErr = %s.%s(httpRequest.Context(), requestValue)\n",
+		receiver,
+		route.Name,
+	)
+	source.WriteString("\t\t\tif routeErr == nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\t\trouteErr = %s.Put(httpRequest.Context(), requestValue, responseValue, %s)\n",
+		cache.variable,
+		cache.ttl,
+	)
+	source.WriteString("\t\t\t}\n")
+	source.WriteString("\t\t}\n")
 }
 
 func hasAuthorization(controllers []controller.Controller) bool {
@@ -809,6 +960,7 @@ func writeTypedRoute(
 	source *bytes.Buffer,
 	route controller.Route,
 	transactions map[string]compilertransaction.Boundary,
+	caches map[string]cacheRuntime,
 	providerVariables map[string]string,
 	receiver string,
 	pattern string,
@@ -846,6 +998,7 @@ func writeTypedRoute(
 		source.WriteString("\t\t}\n")
 	}
 	boundary, transactional := transactions[route.SymbolID]
+	cache, cacheable := caches[route.SymbolID]
 	switch {
 	case transactional:
 		writeTransactionalRouteCall(
@@ -855,6 +1008,13 @@ func writeTypedRoute(
 			providerVariables[boundary.ManagerProviderID],
 			receiver,
 			aliases,
+		)
+	case cacheable:
+		writeCacheableRouteCall(
+			source,
+			route,
+			cache,
+			receiver,
 		)
 	case route.NoContent:
 		fmt.Fprintf(
@@ -1141,11 +1301,19 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 	if features.events {
 		source.WriteString("\tEventObservers []spiceevent.Observer\n")
 	}
+	if features.caching {
+		source.WriteString("\tCacheClock func() time.Time\n")
+		source.WriteString("\tCacheObservers []spicecache.Observer\n")
+	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
 	source.WriteString("}\n\n")
 }
 
-func writeConfigurationAPI(source *bytes.Buffer, configTypes []configuration.Type) {
+func writeConfigurationAPI(
+	source *bytes.Buffer,
+	configTypes []configuration.Type,
+	caches []compilercache.Boundary,
+) {
 	source.WriteString("func ConfigurationSchema() (spiceconfig.Schema, error) {\n")
 	source.WriteString("\treturn spiceconfig.NewSchema(\n")
 	for _, configType := range configTypes {
@@ -1172,6 +1340,9 @@ func writeConfigurationAPI(source *bytes.Buffer, configTypes []configuration.Typ
 			source.WriteString("\t\t},\n")
 		}
 	}
+	for _, boundary := range caches {
+		writeCacheConfigurationProperties(source, boundary)
+	}
 	source.WriteString("\t\tspiceconfig.Property{\n")
 	fmt.Fprintf(source, "\t\t\tKey: %s,\n", strconv.Quote(shutdownConfigurationKey))
 	source.WriteString("\t\t\tKind: spiceconfig.KindDuration,\n")
@@ -1181,6 +1352,77 @@ func writeConfigurationAPI(source *bytes.Buffer, configTypes []configuration.Typ
 	source.WriteString("\t\t},\n")
 	source.WriteString("\t)\n")
 	source.WriteString("}\n\n")
+}
+
+func writeCacheConfigurationProperties(
+	source *bytes.Buffer,
+	boundary compilercache.Boundary,
+) {
+	source.WriteString("\t\tspiceconfig.Property{\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tKey: %s,\n",
+		strconv.Quote(cacheCapacityKey(boundary.CacheName)),
+	)
+	source.WriteString("\t\t\tKind: spiceconfig.KindInteger,\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tDescription: %s,\n",
+		strconv.Quote("Maximum entries for cache "+boundary.CacheName),
+	)
+	fmt.Fprintf(
+		source,
+		"\t\t\tModule: %s,\n",
+		strconv.Quote(boundary.Module),
+	)
+	fmt.Fprintf(
+		source,
+		"\t\t\tEnvironment: %s,\n",
+		strconv.Quote(cacheEnvironment(boundary.CacheName, "CAPACITY")),
+	)
+	source.WriteString("\t\t\tDefault: \"256\",\n")
+	source.WriteString("\t\t\tHasDefault: true,\n")
+	source.WriteString("\t\t},\n")
+	source.WriteString("\t\tspiceconfig.Property{\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tKey: %s,\n",
+		strconv.Quote(cacheTTLKey(boundary.CacheName)),
+	)
+	source.WriteString("\t\t\tKind: spiceconfig.KindDuration,\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tDescription: %s,\n",
+		strconv.Quote("Entry lifetime for cache "+boundary.CacheName),
+	)
+	fmt.Fprintf(
+		source,
+		"\t\t\tModule: %s,\n",
+		strconv.Quote(boundary.Module),
+	)
+	fmt.Fprintf(
+		source,
+		"\t\t\tEnvironment: %s,\n",
+		strconv.Quote(cacheEnvironment(boundary.CacheName, "TTL")),
+	)
+	source.WriteString("\t\t\tDefault: \"5m\",\n")
+	source.WriteString("\t\t\tHasDefault: true,\n")
+	source.WriteString("\t\t},\n")
+}
+
+func cacheCapacityKey(name string) string {
+	return "spice.cache." + name + ".capacity"
+}
+
+func cacheTTLKey(name string) string {
+	return "spice.cache." + name + ".ttl"
+}
+
+func cacheEnvironment(name, suffix string) string {
+	replacer := strings.NewReplacer(".", "_", "-", "_")
+	return "SPICE_CACHE_" +
+		strings.ToUpper(replacer.Replace(name)) +
+		"_" + suffix
 }
 
 func configurationKindName(kind runtimeconfig.Kind) string {
@@ -1596,6 +1838,7 @@ func importAliases(
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
 	events []compilerevent.Topic,
+	caches []compilercache.Boundary,
 	features commandFeatures,
 ) map[string]string {
 	aliases := map[string]string{
@@ -1634,6 +1877,9 @@ func importAliases(
 	if features.events {
 		aliases[eventPath] = "spiceevent"
 	}
+	if features.caching {
+		aliases[cachePath] = "spicecache"
+	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
@@ -1657,6 +1903,7 @@ func importAliases(
 		"slog":                      {},
 		"sql":                       {},
 		"spiceconfig":               {},
+		"spicecache":                {},
 		"spicedata":                 {},
 		"spiceevent":                {},
 		"spicelifecycle":            {},
@@ -1668,7 +1915,14 @@ func importAliases(
 		"syscall":                   {},
 		"time":                      {},
 	}
-	names := importNames(providers, configTypes, controllers, events, aliases)
+	names := importNames(
+		providers,
+		configTypes,
+		controllers,
+		events,
+		caches,
+		aliases,
+	)
 	paths := make([]string, 0, len(names))
 	for importPath := range names {
 		paths = append(paths, importPath)
@@ -1694,6 +1948,7 @@ func importNames(
 	configTypes []configuration.Type,
 	controllers []controller.Controller,
 	events []compilerevent.Topic,
+	caches []compilercache.Boundary,
 	aliases map[string]string,
 ) map[string]string {
 	names := make(map[string]string)
@@ -1721,6 +1976,10 @@ func importNames(
 	}
 	for _, topic := range events {
 		addTypeImportName(names, aliases, topic.Payload)
+	}
+	for _, boundary := range caches {
+		addTypeImportName(names, aliases, boundary.Key)
+		addTypeImportName(names, aliases, boundary.Value)
 	}
 	return names
 }
@@ -1934,9 +2193,42 @@ func reservedConfigurationDiagnostics(
 	applicationTarget application.Target,
 ) []Diagnostic {
 	var diagnostics []Diagnostic
+	reservedKeys := map[string]struct{}{
+		shutdownConfigurationKey: {},
+	}
+	reservedEnvironments := map[string]struct{}{
+		"SPICE_SHUTDOWN_TIMEOUT": {},
+	}
+	for _, boundary := range model.Caches() {
+		reservedKeys[cacheCapacityKey(boundary.CacheName)] = struct{}{}
+		reservedKeys[cacheTTLKey(boundary.CacheName)] = struct{}{}
+		reservedEnvironments[cacheEnvironment(
+			boundary.CacheName,
+			"CAPACITY",
+		)] = struct{}{}
+		reservedEnvironments[cacheEnvironment(
+			boundary.CacheName,
+			"TTL",
+		)] = struct{}{}
+	}
 	for _, configType := range model.Configurations() {
 		for _, field := range configType.Fields() {
-			if field.Key != shutdownConfigurationKey {
+			if _, reserved := reservedKeys[field.Key]; reserved {
+				diagnostics = append(diagnostics, Diagnostic{
+					Position:         field.Position,
+					PhysicalPosition: field.PhysicalPosition,
+					TargetID:         applicationTarget.SymbolID,
+					Kind:             "reserved-configuration",
+					Message: fmt.Sprintf(
+						"configuration field %s.%s uses framework-owned key %q; choose a different prefix or field key",
+						configType.TypeID,
+						field.Name,
+						field.Key,
+					),
+				})
+				continue
+			}
+			if _, reserved := reservedEnvironments[field.Environment]; !reserved {
 				continue
 			}
 			diagnostics = append(diagnostics, Diagnostic{
@@ -1945,10 +2237,10 @@ func reservedConfigurationDiagnostics(
 				TargetID:         applicationTarget.SymbolID,
 				Kind:             "reserved-configuration",
 				Message: fmt.Sprintf(
-					"configuration field %s.%s uses framework-owned key %q; choose a different prefix or field key",
+					"configuration field %s.%s uses framework-owned environment variable %q; choose a different environment mapping",
 					configType.TypeID,
 					field.Name,
-					shutdownConfigurationKey,
+					field.Environment,
 				),
 			})
 		}
@@ -1979,6 +2271,14 @@ type modelHashEventTopic struct {
 	Publisher string                   `json:"publisher"`
 	Payload   string                   `json:"payload"`
 	Listeners []modelHashEventListener `json:"listeners"`
+}
+
+type modelHashCache struct {
+	Route  string `json:"route"`
+	Name   string `json:"name"`
+	Module string `json:"module"`
+	Key    string `json:"key"`
+	Value  string `json:"value"`
 }
 
 type modelHashDependency struct {
@@ -2100,6 +2400,7 @@ type modelHashInput struct {
 	Components     []modelHashComponent        `json:"components"`
 	Jobs           []modelHashScheduleJob      `json:"jobs"`
 	Events         []modelHashEventTopic       `json:"events,omitempty"`
+	Caches         []modelHashCache            `json:"caches,omitempty"`
 	Roots          []modelHashRoot             `json:"roots"`
 	Bootstrap      []modelHashBootstrapFeature `json:"bootstrap"`
 }
@@ -2223,6 +2524,7 @@ func modelHash(
 	}
 	value.Jobs = modelHashScheduleJobs(model.Jobs(), providerModules)
 	value.Events = modelHashEvents(model.Events())
+	value.Caches = modelHashCaches(model.Caches())
 	for _, root := range applicationTarget.Roots() {
 		value.Roots = append(value.Roots, modelHashRoot{
 			Index:    root.Index,
@@ -2256,6 +2558,20 @@ func modelHashEvents(topics []compilerevent.Topic) []modelHashEventTopic {
 			})
 		}
 		result[index] = item
+	}
+	return result
+}
+
+func modelHashCaches(boundaries []compilercache.Boundary) []modelHashCache {
+	result := make([]modelHashCache, len(boundaries))
+	for index, boundary := range boundaries {
+		result[index] = modelHashCache{
+			Route:  boundary.RouteID,
+			Name:   boundary.CacheName,
+			Module: boundary.Module,
+			Key:    boundary.KeyTypeID,
+			Value:  boundary.ValueTypeID,
+		}
 	}
 	return result
 }
