@@ -102,13 +102,16 @@ type Request struct {
 
 // Annotation is one resolved declaration annotation summary.
 type Annotation struct {
-	Name        string
-	Raw         string
-	Target      annotation.Target
-	Declaration string
-	SymbolID    string
-	PackagePath string
-	Location    diagnostic.Location
+	Name              string
+	Spelling          string
+	Raw               string
+	Target            annotation.Target
+	Declaration       string
+	SymbolID          string
+	PackagePath       string
+	DefinitionPackage string
+	DefinitionSymbol  string
+	Location          diagnostic.Location
 }
 
 // ProviderDependency is one exact provider input.
@@ -213,16 +216,62 @@ type AnnotationArgument struct {
 	Kinds            []annotation.Kind
 	ListElementKinds []annotation.Kind
 	AllowedStrings   []string
+	Description      string
+	Default          string
 	Required         bool
 	Positional       bool
 }
 
+// AnnotationExample is one descriptor-owned editor example.
+type AnnotationExample struct {
+	Title string
+	Code  string
+}
+
+// AnnotationCompatibility records the declared lifecycle of one descriptor.
+type AnnotationCompatibility struct {
+	Since        string
+	MinimumSpice string
+}
+
+// AnnotationProvenance is the exact Go-selected descriptor module identity.
+type AnnotationProvenance struct {
+	Module             string
+	Version            string
+	ReplacementModule  string
+	ReplacementVersion string
+	ReplacementDir     string
+	LocalReplacement   bool
+}
+
+// AnnotationImplementation identifies the trusted Go tool handler and its
+// inspectable implementation symbol.
+type AnnotationImplementation struct {
+	Tool        string
+	Handler     string
+	Protocol    string
+	Package     string
+	Symbol      string
+	Location    diagnostic.Location
+	HasLocation bool
+}
+
 // AnnotationDefinition is one available built-in or selected extension.
 type AnnotationDefinition struct {
-	Name       string
-	Targets    []annotation.Target
-	Repeatable bool
-	Arguments  []AnnotationArgument
+	Name                  string
+	Summary               string
+	Documentation         string
+	DescriptorPackage     string
+	DescriptorSymbol      string
+	DescriptorLocation    diagnostic.Location
+	HasDescriptorLocation bool
+	Targets               []annotation.Target
+	Repeatable            bool
+	Arguments             []AnnotationArgument
+	Examples              []AnnotationExample
+	Compatibility         AnnotationCompatibility
+	Implementation        AnnotationImplementation
+	Provenance            AnnotationProvenance
 }
 
 // Result is an immutable-by-construction compiler analysis result.

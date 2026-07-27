@@ -224,6 +224,199 @@ func TestCompletionAndPositionBoundaries(t *testing.T) {
 	}
 }
 
+func TestFileScopedDefinitionsPreserveAliasesAndRichDocumentation(
+	t *testing.T,
+) {
+	t.Parallel()
+	definitions := []compilerservice.AnnotationDefinition{
+		{
+			Name:              "core.Application",
+			Summary:           "Defines the application.",
+			Documentation:     "Application owns generated lifecycle behavior.",
+			DescriptorPackage: "example.com/sdk/core",
+			DescriptorSymbol:  "Application",
+			Targets:           []annotation.Target{annotation.TargetFunction},
+			Examples: []compilerservice.AnnotationExample{{
+				Title: "Application",
+				Code:  "// @App\nfunc main() {}",
+			}},
+			Compatibility: compilerservice.AnnotationCompatibility{
+				Since:        "0.1.0",
+				MinimumSpice: "0.1.0",
+			},
+			Implementation: compilerservice.AnnotationImplementation{
+				Tool:     "example.com/sdk/cmd/annotations",
+				Handler:  "core/application",
+				Protocol: "spice.annotation/v1alpha1",
+				Package:  "example.com/sdk/internal/handlers",
+				Symbol:   "ApplicationHandler",
+			},
+			Provenance: compilerservice.AnnotationProvenance{
+				Module:  "example.com/sdk",
+				Version: "v1.2.3",
+			},
+		},
+		{
+			Name:              "web.Get",
+			DescriptorPackage: "example.com/sdk/web",
+			DescriptorSymbol:  "Get",
+		},
+	}
+	content := []byte(
+		"// @spice.import { Application as App } from \"example.com/sdk/core\"\n" +
+			"// @spice.import * as http from \"example.com/sdk/web\"\n",
+	)
+	scoped := fileScopedDefinitions(content, definitions)
+	if got := []string{scoped[0].Name, scoped[1].Name}; !slices.Equal(
+		got,
+		[]string{"App", "http.Get"},
+	) {
+		t.Fatalf("fileScopedDefinitions() names = %v", got)
+	}
+	documentation := annotationDocumentation(scoped[0])
+	for _, expected := range []string{
+		"Defines the application.",
+		"generated lifecycle",
+		"example.com/sdk/core.Application",
+		"example.com/sdk@v1.2.3",
+		"go tool example.com/sdk/cmd/annotations",
+		"ApplicationHandler",
+		"since Spice `0.1.0`",
+	} {
+		if !strings.Contains(documentation, expected) {
+			t.Fatalf(
+				"annotationDocumentation() missing %q:\n%s",
+				expected,
+				documentation,
+			)
+		}
+	}
+}
+
+func TestAnnotationCompletionAddsExplicitImportsWithoutMagicResolution(
+	t *testing.T,
+) {
+	t.Parallel()
+	definition := compilerservice.AnnotationDefinition{
+		Name:              "core.Application",
+		DescriptorPackage: "example.com/sdk/core",
+		DescriptorSymbol:  "Application",
+		Targets:           []annotation.Target{annotation.TargetFunction},
+	}
+	content := []byte("package main\n\n@App")
+	items := completionItems(content, len(content), metadataView{
+		definitions: []compilerservice.AnnotationDefinition{definition},
+	})
+	if len(items) != 1 ||
+		items[0].Label != "@Application" ||
+		items[0].TextEdit.NewText != "// @Application" ||
+		len(items[0].AdditionalEdits) != 1 ||
+		!strings.Contains(
+			items[0].AdditionalEdits[0].NewText,
+			`// @spice.import { Application } from "example.com/sdk/core"`,
+		) {
+		t.Fatalf("annotation completion = %+v", items)
+	}
+	edited := items[0].AdditionalEdits[0]
+	if edited.Range.Start != (protocolPosition{Line: 1, Character: 0}) ||
+		edited.Range.Start != edited.Range.End {
+		t.Fatalf("annotation import edit = %+v", edited)
+	}
+
+	imported := []byte(
+		"package main\n\n" +
+			"// @spice.import { Application as App } from \"example.com/sdk/core\"\n\n" +
+			"// @A",
+	)
+	items = completionItems(imported, len(imported), metadataView{
+		definitions: []compilerservice.AnnotationDefinition{definition},
+	})
+	if len(items) != 1 ||
+		items[0].Label != "@App" ||
+		len(items[0].AdditionalEdits) != 0 {
+		t.Fatalf("imported annotation completion = %+v", items)
+	}
+}
+
+func TestAnnotationImportCompletionShowsDescriptorProvenance(t *testing.T) {
+	t.Parallel()
+	definition := compilerservice.AnnotationDefinition{
+		Name:              "web.Controller",
+		DescriptorPackage: "example.com/sdk/annotation/web",
+		DescriptorSymbol:  "Controller",
+		Implementation: compilerservice.AnnotationImplementation{
+			Tool: "example.com/sdk/cmd/annotations",
+		},
+		Provenance: compilerservice.AnnotationProvenance{
+			Module:  "example.com/sdk",
+			Version: "v1.4.0",
+		},
+	}
+	symbolSource := []byte("// @spice.import { Cont")
+	symbols := completionItems(
+		symbolSource,
+		len(symbolSource),
+		metadataView{
+			definitions: []compilerservice.AnnotationDefinition{definition},
+		},
+	)
+	if len(symbols) != 1 ||
+		symbols[0].Label != "Controller" ||
+		symbols[0].Detail != definition.DescriptorPackage {
+		t.Fatalf("annotation import symbol completions = %+v", symbols)
+	}
+
+	pathSource := []byte(`// @spice.import { Controller } from "example.com/s`)
+	paths := completionItems(pathSource, len(pathSource), metadataView{
+		definitions: []compilerservice.AnnotationDefinition{definition},
+	})
+	if len(paths) != 1 ||
+		paths[0].Label != definition.DescriptorPackage ||
+		!strings.Contains(paths[0].Detail, "example.com/sdk@v1.4.0") ||
+		!strings.Contains(paths[0].Detail, "go tool example.com/sdk/cmd/annotations") {
+		t.Fatalf("annotation import path completions = %+v", paths)
+	}
+}
+
+func TestSignatureHelpUsesImportedAliasAndArgumentDocumentation(t *testing.T) {
+	t.Parallel()
+	source := []byte(
+		"// @spice.import { Configuration as Config } from \"example.com/sdk/core\"\n" +
+			"// @Config(prefix=\"orders\")\n" +
+			"type Settings struct{}\n",
+	)
+	offset := strings.Index(string(source), `prefix="orders"`) + len("prefix")
+	result, found := signatureHelpAt(
+		source,
+		offset,
+		[]compilerservice.AnnotationDefinition{{
+			Name:              "core.Configuration",
+			Summary:           "Declares typed configuration.",
+			DescriptorPackage: "example.com/sdk/core",
+			DescriptorSymbol:  "Configuration",
+			Arguments: []compilerservice.AnnotationArgument{{
+				Name:        "prefix",
+				Kinds:       []annotation.Kind{annotation.KindString},
+				Description: "Optional property-key prefix.",
+				Default:     "application",
+			}},
+		}},
+	)
+	if !found ||
+		len(result.Signatures) != 1 ||
+		result.Signatures[0].Label != "@Config(prefix: string?)" ||
+		!strings.Contains(
+			result.Signatures[0].Parameters[0].Documentation.Value,
+			"Optional property-key prefix.",
+		) ||
+		!strings.Contains(
+			result.Signatures[0].Parameters[0].Documentation.Value,
+			"Default: `application`",
+		) {
+		t.Fatalf("signatureHelpAt() = %+v, %t", result, found)
+	}
+}
+
 func labels(items []completionItem) []string {
 	result := make([]string, len(items))
 	for index, item := range items {

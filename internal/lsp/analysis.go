@@ -425,6 +425,11 @@ func (server *Server) publicationsLocked(
 		)
 	}
 	uris := mapKeys(workspace.published)
+	for uri := range workspace.documents {
+		if !slices.Contains(uris, uri) {
+			uris = append(uris, uri)
+		}
+	}
 	for uri := range grouped {
 		if !slices.Contains(uris, uri) {
 			uris = append(uris, uri)

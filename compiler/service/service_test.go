@@ -235,6 +235,22 @@ func main() {
 	})
 	result, err := compiler.Analyze(context.Background(), Request{
 		WorkspaceRoot: root,
+		Overlay: map[string]Document{
+			filepath.Join(root, "main.go"): {
+				Version: 1,
+				Content: []byte(`package main
+
+import "os"
+
+// @spice.import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @SpiceApplication
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`),
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("Analyze() error = %v", err)
@@ -254,6 +270,38 @@ func main() {
 	}
 	if imported == nil || imported.Raw != "// @SpiceApplication" {
 		t.Fatalf("annotations = %+v", result.Annotations())
+	}
+	if imported.Spelling != "SpiceApplication" ||
+		imported.DefinitionPackage !=
+			"github.com/StevenBuglione/spice/annotation/core" ||
+		imported.DefinitionSymbol != "Application" {
+		t.Fatalf("imported annotation metadata = %+v", imported)
+	}
+	var definition *AnnotationDefinition
+	for index := range result.definitions {
+		if result.definitions[index].Name == "core.Application" {
+			definition = &result.definitions[index]
+			break
+		}
+	}
+	if definition == nil ||
+		definition.Summary == "" ||
+		!strings.Contains(definition.Documentation, "Application marks") ||
+		definition.DescriptorPackage != imported.DefinitionPackage ||
+		definition.DescriptorSymbol != imported.DefinitionSymbol ||
+		!definition.HasDescriptorLocation ||
+		definition.Implementation.Tool !=
+			"github.com/StevenBuglione/spice/cmd/spice-annotation-core" ||
+		definition.Implementation.Handler != "core/application" ||
+		!definition.Implementation.HasLocation ||
+		!strings.HasSuffix(
+			definition.Implementation.Location.Path,
+			"/internal/annotationcore/application.go",
+		) ||
+		definition.Provenance.Module !=
+			"github.com/StevenBuglione/spice" ||
+		!definition.Provenance.LocalReplacement {
+		t.Fatalf("descriptor definition metadata = %+v", definition)
 	}
 }
 

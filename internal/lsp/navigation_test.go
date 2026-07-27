@@ -8,6 +8,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 )
 
@@ -99,5 +100,75 @@ func TestBuiltInDefinitionsHaveExactReferenceRows(t *testing.T) {
 				definition.Name,
 			)
 		}
+	}
+}
+
+func TestDefinitionForOccurrenceUsesExactImportedDescriptor(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "main.go")
+	source := []byte(
+		"package main\n\n" +
+			"// @spice.import { Application as App } from \"example.com/sdk/core\"\n" +
+			"// @App\n" +
+			"func main() {}\n",
+	)
+	descriptorPath := filepath.Join(root, "descriptor.go")
+	var occurrence annotationOccurrence
+	for _, candidate := range annotationOccurrences(source) {
+		if candidate.name == "App" {
+			occurrence = candidate
+			break
+		}
+	}
+	if occurrence.name == "" {
+		t.Fatal("annotationOccurrences() omitted @App")
+	}
+	location := diagnostic.SourceLocation(
+		root,
+		sourcePath,
+		sourcePath,
+		4,
+		4,
+		occurrence.start,
+	)
+	definitionLocation := diagnostic.SourceLocation(
+		root,
+		descriptorPath,
+		descriptorPath,
+		12,
+		6,
+		100,
+	)
+	metadata := metadataView{
+		annotations: []compilerservice.Annotation{{
+			Name:              "core.Application",
+			Spelling:          "App",
+			DefinitionPackage: "example.com/sdk/core",
+			DefinitionSymbol:  "Application",
+			Location:          location,
+		}},
+		definitions: []compilerservice.AnnotationDefinition{{
+			Name:                  "core.Application",
+			DescriptorPackage:     "example.com/sdk/core",
+			DescriptorSymbol:      "Application",
+			DescriptorLocation:    definitionLocation,
+			HasDescriptorLocation: true,
+		}},
+	}
+	got, found := definitionForOccurrence(
+		document{path: sourcePath, content: source},
+		metadata,
+		occurrence,
+	)
+	if !found ||
+		got.DescriptorLocation.Path != filepath.ToSlash(descriptorPath) {
+		t.Fatalf("definitionForOccurrence() = %+v, %t", got, found)
+	}
+	link := locationLink(source, occurrence, got.DescriptorLocation)
+	if !strings.HasSuffix(link.TargetURI, "/descriptor.go") ||
+		link.TargetSelectionRange.Start !=
+			(protocolPosition{Line: 11, Character: 5}) {
+		t.Fatalf("locationLink() = %+v", link)
 	}
 }

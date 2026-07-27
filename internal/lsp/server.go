@@ -298,8 +298,12 @@ func (server *Server) handleRequest(message rpcMessage) error {
 		return server.completion(message)
 	case "textDocument/hover":
 		return server.hover(message)
+	case "textDocument/signatureHelp":
+		return server.signatureHelp(message)
 	case "textDocument/definition":
 		return server.definition(message)
+	case "textDocument/implementation":
+		return server.implementation(message)
 	case "textDocument/codeAction":
 		return server.codeAction(message)
 	case "textDocument/documentLink":
@@ -412,8 +416,13 @@ func initializeResult() map[string]any {
 			"completionProvider": map[string]any{
 				"triggerCharacters": []string{"@", ".", "(", ",", "\""},
 			},
-			"hoverProvider":      true,
-			"definitionProvider": true,
+			"hoverProvider": true,
+			"signatureHelpProvider": map[string]any{
+				"triggerCharacters":   []string{"(", ","},
+				"retriggerCharacters": []string{","},
+			},
+			"definitionProvider":     true,
+			"implementationProvider": true,
 			"codeActionProvider": map[string]any{
 				"codeActionKinds": []string{"quickfix"},
 				"resolveProvider": false,

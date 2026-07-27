@@ -55,6 +55,7 @@ func cloneDefinitions(items []AnnotationDefinition) []AnnotationDefinition {
 			[]AnnotationArgument,
 			len(item.Arguments),
 		)
+		result[index].Examples = slices.Clone(item.Examples)
 		for argumentIndex, argument := range item.Arguments {
 			result[index].Arguments[argumentIndex] = argument
 			result[index].Arguments[argumentIndex].Kinds = slices.Clone(

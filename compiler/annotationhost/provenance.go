@@ -6,16 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 )
 
-const maximumGoCommandStderr = 256 << 10
+const (
+	maximumGoCommandStderr           = 256 << 10
+	maximumImplementationSourceBytes = 4 << 20
+)
 
 // ModuleIdentity is one selected Go module and its visible replacement.
 type ModuleIdentity struct {
@@ -33,6 +42,9 @@ type PackageIdentity struct {
 
 type goListPackage struct {
 	ImportPath string        `json:"ImportPath"`
+	Dir        string        `json:"Dir"`
+	GoFiles    []string      `json:"GoFiles"`
+	CgoFiles   []string      `json:"CgoFiles"`
 	Error      *goListError  `json:"Error"`
 	Module     *goListModule `json:"Module"`
 }
@@ -61,37 +73,9 @@ func ResolvePackage(
 			"resolve annotation package context must not be nil",
 		)
 	}
-	mode := moduleMode(module.Root)
-	command := exec.CommandContext( // #nosec G204 -- executable and flags are fixed; packagePath is one argument.
-		ctx,
-		"go",
-		"list",
-		"-json",
-		"-mod="+mode,
-		packagePath,
-	)
-	command.Dir = module.Root
-	command.Env = offlineEnvironment(environment, mode)
-	var stdout bytes.Buffer
-	stderr := newBoundedBuffer(maximumGoCommandStderr)
-	command.Stdout = &stdout
-	command.Stderr = stderr
-	if err := command.Run(); err != nil {
-		return PackageIdentity{}, fmt.Errorf(
-			"resolve annotation package %q with offline go list: %w%s",
-			packagePath,
-			err,
-			renderStderr(stderr.String()),
-		)
-	}
-	var listed goListPackage
-	decoder := json.NewDecoder(&stdout)
-	if err := decoder.Decode(&listed); err != nil {
-		return PackageIdentity{}, fmt.Errorf(
-			"decode go list provenance for %q: %w",
-			packagePath,
-			err,
-		)
+	listed, err := listPackage(ctx, module, packagePath, environment)
+	if err != nil {
+		return PackageIdentity{}, err
 	}
 	if listed.Error != nil {
 		return PackageIdentity{}, fmt.Errorf(
@@ -111,6 +95,238 @@ func ResolvePackage(
 		Path:   listed.ImportPath,
 		Module: moduleIdentity(listed.Module),
 	}, nil
+}
+
+// ResolveSourceSymbols locates real package-level Go declarations through the
+// target module's offline standard Go resolution. It never executes package
+// code and never edits module files.
+func ResolveSourceSymbols(
+	ctx context.Context,
+	module TargetModule,
+	symbols []sdk.Symbol,
+	environment []string,
+) (map[sdk.Symbol]token.Position, error) {
+	if ctx == nil {
+		return nil, errors.New(
+			"resolve annotation implementation context must not be nil",
+		)
+	}
+	requested := make(map[string][]sdk.Symbol)
+	for _, symbol := range symbols {
+		requested[symbol.Package] = append(
+			requested[symbol.Package],
+			symbol,
+		)
+	}
+	packages := make([]string, 0, len(requested))
+	for packagePath := range requested {
+		packages = append(packages, packagePath)
+	}
+	slices.Sort(packages)
+	result := make(map[sdk.Symbol]token.Position, len(symbols))
+	for _, packagePath := range packages {
+		listed, err := listPackage(
+			ctx,
+			module,
+			packagePath,
+			environment,
+		)
+		if err != nil {
+			return nil, err
+		}
+		positions, err := sourceSymbolPositions(
+			listed,
+			requested[packagePath],
+		)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(result, positions)
+	}
+	return result, nil
+}
+
+func listPackage(
+	ctx context.Context,
+	module TargetModule,
+	packagePath string,
+	environment []string,
+) (goListPackage, error) {
+	mode := moduleMode(module.Root)
+	command := exec.CommandContext( // #nosec G204 -- executable and flags are fixed; packagePath is one argument.
+		ctx,
+		"go",
+		"list",
+		"-json",
+		"-mod="+mode,
+		packagePath,
+	)
+	command.Dir = module.Root
+	command.Env = offlineEnvironment(environment, mode)
+	var stdout bytes.Buffer
+	stderr := newBoundedBuffer(maximumGoCommandStderr)
+	command.Stdout = &stdout
+	command.Stderr = stderr
+	if err := command.Run(); err != nil {
+		return goListPackage{}, fmt.Errorf(
+			"resolve annotation package %q with offline go list: %w%s",
+			packagePath,
+			err,
+			renderStderr(stderr.String()),
+		)
+	}
+	var listed goListPackage
+	decoder := json.NewDecoder(&stdout)
+	if err := decoder.Decode(&listed); err != nil {
+		return goListPackage{}, fmt.Errorf(
+			"decode go list provenance for %q: %w",
+			packagePath,
+			err,
+		)
+	}
+	return listed, nil
+}
+
+func sourceSymbolPositions(
+	listed goListPackage,
+	symbols []sdk.Symbol,
+) (map[sdk.Symbol]token.Position, error) {
+	if listed.Error != nil {
+		return nil, fmt.Errorf(
+			"go list could not resolve annotation implementation package %q: %s",
+			listed.ImportPath,
+			listed.Error.Err,
+		)
+	}
+	if listed.Dir == "" {
+		return nil, fmt.Errorf(
+			"annotation implementation package %q has no source directory",
+			listed.ImportPath,
+		)
+	}
+	requested, err := requestedSymbolIndex(listed.ImportPath, symbols)
+	if err != nil {
+		return nil, err
+	}
+	files := append(
+		append([]string(nil), listed.GoFiles...),
+		listed.CgoFiles...,
+	)
+	slices.Sort(files)
+	result := make(map[sdk.Symbol]token.Position, len(symbols))
+	fileSet := token.NewFileSet()
+	for _, file := range files {
+		positions, err := parseSourceSymbolPositions(
+			fileSet,
+			listed.Dir,
+			file,
+			requested,
+		)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(result, positions)
+	}
+	for _, symbol := range symbols {
+		if _, found := result[symbol]; !found {
+			return nil, fmt.Errorf(
+				"annotation implementation symbol %s.%s was not found",
+				symbol.Package,
+				symbol.Name,
+			)
+		}
+	}
+	return result, nil
+}
+
+func requestedSymbolIndex(
+	packagePath string,
+	symbols []sdk.Symbol,
+) (map[string]sdk.Symbol, error) {
+	requested := make(map[string]sdk.Symbol, len(symbols))
+	for _, symbol := range symbols {
+		if symbol.Package != packagePath {
+			return nil, fmt.Errorf(
+				"annotation implementation symbol %s.%s resolved as package %q",
+				symbol.Package,
+				symbol.Name,
+				packagePath,
+			)
+		}
+		requested[symbol.Name] = symbol
+	}
+	return requested, nil
+}
+
+func parseSourceSymbolPositions(
+	fileSet *token.FileSet,
+	directory string,
+	file string,
+	requested map[string]sdk.Symbol,
+) (map[sdk.Symbol]token.Position, error) {
+	path, err := safeSourcePath(directory, file)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"inspect annotation implementation source %q: %w",
+			path,
+			err,
+		)
+	}
+	if !info.Mode().IsRegular() ||
+		info.Size() > maximumImplementationSourceBytes {
+		return nil, fmt.Errorf(
+			"annotation implementation source %q must be a regular file no larger than %d bytes",
+			path,
+			maximumImplementationSourceBytes,
+		)
+	}
+	source, err := parser.ParseFile(
+		fileSet,
+		path,
+		nil,
+		parser.SkipObjectResolution,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"parse annotation implementation source %q: %w",
+			path,
+			err,
+		)
+	}
+	result := make(map[sdk.Symbol]token.Position)
+	for _, declaration := range source.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv != nil {
+			continue
+		}
+		symbol, found := requested[function.Name.Name]
+		if found {
+			result[symbol] = fileSet.Position(function.Name.Pos())
+		}
+	}
+	return result, nil
+}
+
+func safeSourcePath(directory, file string) (string, error) {
+	if !filepath.IsLocal(file) || filepath.Ext(file) != ".go" {
+		return "", fmt.Errorf(
+			"annotation implementation source name %q is unsafe",
+			file,
+		)
+	}
+	path := filepath.Join(directory, file)
+	relative, err := filepath.Rel(directory, path)
+	if err != nil || !filepath.IsLocal(relative) {
+		return "", fmt.Errorf(
+			"annotation implementation source %q escapes package directory",
+			file,
+		)
+	}
+	return filepath.Clean(path), nil
 }
 
 func moduleIdentity(module *goListModule) ModuleIdentity {

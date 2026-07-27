@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -404,6 +405,140 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	if err := client.wait(); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
+}
+
+func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
+	t.Parallel()
+	root, mainPath, source := writeImportedLSPModule(t)
+	server, err := New(Config{
+		NewService: func(string) (*compilerservice.Service, error) {
+			return compilerservice.New(compilerservice.Config{})
+		},
+		AnalysisDelay: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	client := startTestClient(t, server)
+	finished := false
+	t.Cleanup(func() {
+		if finished {
+			return
+		}
+		if closeErr := client.input.Close(); closeErr != nil {
+			t.Errorf("close test client input: %v", closeErr)
+		}
+		select {
+		case <-client.done:
+		case <-time.After(10 * time.Second):
+		}
+	})
+	rootURI, err := fileURI(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainURI, err := fileURI(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"workspaceFolders": []map[string]any{{
+				"uri":  rootURI,
+				"name": "imported",
+			}},
+		},
+	})
+	if response := client.waitForID("1"); response.Error != nil {
+		t.Fatalf("initialize response = %+v", response)
+	}
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        mainURI,
+			"languageId": "go",
+			"version":    1,
+			"text":       source,
+		},
+	})
+	if diagnostics := client.waitForDiagnostics(
+		mainURI,
+		1,
+	); len(diagnostics.Diagnostics) != 0 {
+		t.Fatalf("diagnostics = %+v", diagnostics.Diagnostics)
+	}
+	usageOffset := strings.Index(source, "// @App") + len("// @")
+	position := protocolPositionAtOffset([]byte(source), usageOffset)
+	for id, method := range map[int]string{
+		2: "textDocument/definition",
+		3: "textDocument/implementation",
+	} {
+		client.send(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"method":  method,
+			"params": map[string]any{
+				"textDocument": map[string]any{"uri": mainURI},
+				"position":     position,
+			},
+		})
+		response := client.waitForID(strconv.Itoa(id))
+		var links []protocolLocationLink
+		if unmarshalErr := json.Unmarshal(response.Result, &links); unmarshalErr != nil {
+			t.Fatalf("Unmarshal(%s) error = %v", method, unmarshalErr)
+		}
+		expected := "/annotation/core/application.go"
+		if method == "textDocument/implementation" {
+			expected = "/internal/annotationcore/application.go"
+		}
+		if len(links) != 1 ||
+			!strings.HasSuffix(links[0].TargetURI, expected) ||
+			links[0].OriginSelectionRange.Start.Line != position.Line ||
+			links[0].OriginSelectionRange.Start.Character >
+				position.Character ||
+			links[0].OriginSelectionRange.End.Character <
+				position.Character {
+			t.Fatalf("%s links = %+v", method, links)
+		}
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      4,
+		"method":  "textDocument/hover",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     position,
+		},
+	})
+	hover := client.waitForID("4")
+	for _, expected := range []string{
+		"Application marks",
+		"go tool github.com/StevenBuglione/spice/cmd/spice-annotation-core",
+		"core/application",
+		"internal/annotationcore.ApplicationHandler",
+		"local",
+	} {
+		if !strings.Contains(string(hover.Result), expected) {
+			t.Fatalf("hover missing %q: %s", expected, hover.Result)
+		}
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      5,
+		"method":  "shutdown",
+		"params":  nil,
+	})
+	if response := client.waitForID("5"); response.Error != nil {
+		t.Fatalf("shutdown response = %+v", response)
+	}
+	client.notify("exit", nil)
+	client.closeInput()
+	if err := client.wait(); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	finished = true
 }
 
 func writeAnnotationReference(t *testing.T, root string) {
@@ -914,6 +1049,45 @@ type Settings struct {
 		}
 	}
 	return root, filepath.Join(root, "main.go"), original
+}
+
+func writeImportedLSPModule(t *testing.T) (string, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	repository, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("Abs(repository) error = %v", err)
+	}
+	source := `package main
+
+import "os"
+
+// @spice.import { Application as App } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @App
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`
+	mod := "module example.com/importedlsp\n\ngo 1.26.0\n\n" +
+		"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n" +
+		"require github.com/StevenBuglione/spice v0.0.0\n\n" +
+		"replace github.com/StevenBuglione/spice => " +
+		filepath.ToSlash(repository) + "\n"
+	for relative, content := range map[string]string{
+		"go.mod":  mod,
+		"main.go": source,
+	} {
+		path := filepath.Join(root, relative)
+		if writeErr := os.WriteFile(
+			path,
+			[]byte(content),
+			0o600,
+		); writeErr != nil {
+			t.Fatalf("WriteFile(%s) error = %v", relative, writeErr)
+		}
+	}
+	return root, filepath.Join(root, "main.go"), source
 }
 
 func sourcePosition(content, search string) (int, int) {

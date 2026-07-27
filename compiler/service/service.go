@@ -18,6 +18,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/annotationhost"
 	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/application"
@@ -262,8 +263,12 @@ func (service *Service) analyze(
 		workspaceRoot: request.root,
 		sequence:      request.sequence,
 		definitions: summarizeDefinitions(
+			request.root,
 			service.config.registry,
 			service.config.bootstrapDefinitions,
+			nil,
+			nil,
+			nil,
 		),
 	}
 	if preflight := rawAnnotationDiagnostics(
@@ -300,9 +305,27 @@ func (service *Service) analyze(
 		)
 		return result, nil
 	}
+	implementationPositions, err := resolveImplementationPositions(
+		ctx,
+		request.root,
+		service.config.loadOptions.Env,
+		descriptorState.items,
+	)
+	if err != nil {
+		result.diagnostics = diagnosticadapt.Failure(
+			"annotation",
+			"implementation-source",
+			err.Error(),
+		)
+		return result, nil
+	}
 	result.definitions = summarizeDefinitions(
+		request.root,
 		descriptorState.registry,
 		service.config.bootstrapDefinitions,
+		descriptorState.items,
+		program,
+		implementationPositions,
 	)
 	resolution := resolve.AnnotationsWithDefinitions(
 		program,
@@ -853,9 +876,47 @@ func descriptorDefinitionIndex(
 	return result
 }
 
+func resolveImplementationPositions(
+	ctx context.Context,
+	root string,
+	environment []string,
+	descriptors []descriptor.Descriptor,
+) (map[sdk.Symbol]token.Position, error) {
+	if len(descriptors) == 0 {
+		return map[sdk.Symbol]token.Position{}, nil
+	}
+	symbols := make([]sdk.Symbol, 0, len(descriptors))
+	seen := make(map[sdk.Symbol]struct{}, len(descriptors))
+	for _, item := range descriptors {
+		symbol := item.Definition.Implementation.Source
+		if _, duplicate := seen[symbol]; duplicate {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		symbols = append(symbols, symbol)
+	}
+	sort.Slice(symbols, func(left, right int) bool {
+		if symbols[left].Package != symbols[right].Package {
+			return symbols[left].Package < symbols[right].Package
+		}
+		return symbols[left].Name < symbols[right].Name
+	})
+	module, err := annotationhost.ReadTargetModule(root)
+	if err != nil {
+		return nil, err
+	}
+	return annotationhost.ResolveSourceSymbols(
+		ctx,
+		module,
+		symbols,
+		environment,
+	)
+}
+
 type preparedDescriptors struct {
 	index       resolve.DefinitionIndex
 	registry    annotation.Registry
+	items       []descriptor.Descriptor
 	descriptors map[annotation.DefinitionReference]descriptor.Descriptor
 }
 
@@ -875,6 +936,7 @@ func prepareDescriptors(
 	return preparedDescriptors{
 		index:       descriptorDefinitionIndex(descriptors),
 		registry:    registry,
+		items:       descriptors,
 		descriptors: descriptorIndex(descriptors),
 	}, nil
 }

@@ -9,9 +9,12 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
+	"github.com/StevenBuglione/spice/compiler/descriptor"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
+	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
@@ -30,12 +33,15 @@ func summarizeAnnotations(
 			}
 		}
 		result[index] = Annotation{
-			Name:        occurrence.Annotation.Name,
-			Raw:         occurrence.Annotation.Raw,
-			Target:      occurrence.Target,
-			Declaration: occurrence.Name,
-			SymbolID:    occurrence.SymbolID,
-			PackagePath: occurrence.PackagePath,
+			Name:              occurrence.Annotation.Name,
+			Spelling:          occurrence.Spelling,
+			Raw:               occurrence.Annotation.Raw,
+			Target:            occurrence.Target,
+			Declaration:       occurrence.Name,
+			SymbolID:          occurrence.SymbolID,
+			PackagePath:       occurrence.PackagePath,
+			DefinitionPackage: occurrence.Definition.Package,
+			DefinitionSymbol:  occurrence.Definition.Symbol,
 			Location: diagnostic.SourceMappedLocation(
 				workspaceRoot,
 				occurrence.DisplayPosition.Filename,
@@ -184,8 +190,12 @@ func summarizeConfigurations(model application.Model) []Configuration {
 }
 
 func summarizeDefinitions(
+	workspaceRoot string,
 	registry annotation.Registry,
 	extensions []compilerbootstrap.Definition,
+	descriptors []descriptor.Descriptor,
+	program *load.Program,
+	implementationPositions map[sdk.Symbol]token.Position,
 ) []AnnotationDefinition {
 	bootstrapDefinitions := append(
 		compilerbootstrap.Builtins(),
@@ -201,6 +211,16 @@ func summarizeDefinitions(
 	}
 	items := registry.Definitions()
 	result := make([]AnnotationDefinition, len(items))
+	descriptorByName := make(map[string]descriptor.Descriptor, len(descriptors))
+	for _, item := range descriptors {
+		descriptorByName[item.Definition.Name] = item
+	}
+	implementationLocations := implementationSymbolLocations(
+		workspaceRoot,
+		program,
+		descriptors,
+		implementationPositions,
+	)
 	for index, item := range items {
 		arguments := make([]AnnotationArgument, len(item.Arguments))
 		for argumentIndex, argument := range item.Arguments {
@@ -221,8 +241,152 @@ func summarizeDefinitions(
 			Repeatable: item.Repeatable,
 			Arguments:  arguments,
 		}
+		decoded, found := descriptorByName[item.Name]
+		if found {
+			enrichDefinition(
+				workspaceRoot,
+				&result[index],
+				decoded,
+				implementationLocations,
+			)
+		}
 	}
 	return result
+}
+
+func enrichDefinition(
+	workspaceRoot string,
+	result *AnnotationDefinition,
+	decoded descriptor.Descriptor,
+	implementationLocations map[string]diagnostic.Location,
+) {
+	definition := decoded.Definition
+	result.Summary = definition.Summary
+	result.Documentation = decoded.Documentation
+	result.DescriptorPackage = decoded.Package
+	result.DescriptorSymbol = decoded.Symbol
+	result.DescriptorLocation = symbolLocation(
+		workspaceRoot,
+		decoded.Position,
+		decoded.Symbol,
+	)
+	result.HasDescriptorLocation = result.DescriptorLocation.Path != ""
+	result.Examples = make([]AnnotationExample, len(definition.Examples))
+	for index, example := range definition.Examples {
+		result.Examples[index] = AnnotationExample{
+			Title: example.Title,
+			Code:  example.Code,
+		}
+	}
+	result.Compatibility = AnnotationCompatibility{
+		Since:        definition.Compatibility.Since,
+		MinimumSpice: definition.Compatibility.MinimumSpice,
+	}
+	implementation := definition.Implementation
+	implementationKey := implementation.Source.Package + "\x00" +
+		implementation.Source.Name
+	location, found := implementationLocations[implementationKey]
+	result.Implementation = AnnotationImplementation{
+		Tool:        implementation.Tool,
+		Handler:     implementation.Handler,
+		Protocol:    string(implementation.Protocol),
+		Package:     implementation.Source.Package,
+		Symbol:      implementation.Source.Name,
+		Location:    location,
+		HasLocation: found,
+	}
+	provenance := decoded.Provenance
+	result.Provenance = AnnotationProvenance{
+		Module:             provenance.Path,
+		Version:            provenance.Version,
+		ReplacementModule:  provenance.ReplacementPath,
+		ReplacementVersion: provenance.ReplacementVersion,
+		ReplacementDir:     provenance.ReplacementDir,
+		LocalReplacement:   provenance.LocalReplacement,
+	}
+	arguments := make(map[string]int, len(result.Arguments))
+	for index, argument := range result.Arguments {
+		arguments[argument.Name] = index
+	}
+	for _, argument := range definition.Arguments {
+		index, found := arguments[argument.Name]
+		if !found {
+			continue
+		}
+		result.Arguments[index].AllowedStrings = slices.Clone(
+			argument.AllowedValues,
+		)
+		result.Arguments[index].Description = argument.Description
+		result.Arguments[index].Default = argument.Default
+	}
+}
+
+func implementationSymbolLocations(
+	workspaceRoot string,
+	program *load.Program,
+	descriptors []descriptor.Descriptor,
+	fallback map[sdk.Symbol]token.Position,
+) map[string]diagnostic.Location {
+	requested := make(map[string]struct{}, len(descriptors))
+	for _, item := range descriptors {
+		source := item.Definition.Implementation.Source
+		requested[source.Package+"\x00"+source.Name] = struct{}{}
+	}
+	result := make(map[string]diagnostic.Location, len(requested))
+	if program != nil {
+		for _, symbol := range program.Symbols() {
+			key := symbol.PackagePath + "\x00" + symbol.Name
+			if _, found := requested[key]; !found || symbol.Receiver != "" {
+				continue
+			}
+			location := symbolLocation(
+				workspaceRoot,
+				symbol.PhysicalPosition,
+				symbol.Name,
+			)
+			if location.Path != "" {
+				result[key] = location
+			}
+		}
+	}
+	for symbol, position := range fallback {
+		key := symbol.Package + "\x00" + symbol.Name
+		if _, found := requested[key]; !found {
+			continue
+		}
+		if _, found := result[key]; found {
+			continue
+		}
+		location := symbolLocation(workspaceRoot, position, symbol.Name)
+		if location.Path != "" {
+			result[key] = location
+		}
+	}
+	return result
+}
+
+func symbolLocation(
+	workspaceRoot string,
+	position token.Position,
+	symbol string,
+) diagnostic.Location {
+	if position.Filename == "" {
+		return diagnostic.Location{}
+	}
+	location := diagnostic.SourceLocation(
+		workspaceRoot,
+		position.Filename,
+		position.Filename,
+		position.Line,
+		position.Column,
+		position.Offset,
+	)
+	length := len(symbol)
+	if length > 1 {
+		location.Range.End.Column += length - 1
+		location.Range.End.Offset += length - 1
+	}
+	return location
 }
 
 func overlaySafeFixes(

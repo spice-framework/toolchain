@@ -1,7 +1,10 @@
 package lsp
 
 import (
+	"bytes"
 	"fmt"
+	"go/token"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
+	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 )
 
@@ -36,6 +40,7 @@ type completionItem struct {
 	FilterText       string         `json:"filterText,omitempty"`
 	InsertTextFormat int            `json:"insertTextFormat,omitempty"`
 	TextEdit         protocolEdit   `json:"textEdit"`
+	AdditionalEdits  []protocolEdit `json:"additionalTextEdits,omitempty"`
 }
 
 type markupContent struct {
@@ -56,6 +61,23 @@ type completionList struct {
 type hoverResult struct {
 	Contents markupContent  `json:"contents"`
 	Range    *protocolRange `json:"range,omitempty"`
+}
+
+type signatureHelpResult struct {
+	Signatures      []signatureInformation `json:"signatures"`
+	ActiveSignature int                    `json:"activeSignature,omitempty"`
+	ActiveParameter int                    `json:"activeParameter,omitempty"`
+}
+
+type signatureInformation struct {
+	Label         string                 `json:"label"`
+	Documentation *markupContent         `json:"documentation,omitempty"`
+	Parameters    []parameterInformation `json:"parameters,omitempty"`
+}
+
+type parameterInformation struct {
+	Label         string         `json:"label"`
+	Documentation *markupContent `json:"documentation,omitempty"`
 }
 
 type protocolCodeAction struct {
@@ -81,6 +103,7 @@ type protocolOptionalVersionedDocument struct {
 
 type metadataView struct {
 	definitions    []compilerservice.AnnotationDefinition
+	annotations    []compilerservice.Annotation
 	modules        []compilerservice.Module
 	configurations []compilerservice.Configuration
 	actions        []diagnostic.SuggestedFix
@@ -134,9 +157,25 @@ func completionItems(
 	case completionAnnotation:
 		return annotationCompletionItems(context, metadata.definitions, content)
 	case completionArgument:
+		metadata.definitions = fileScopedDefinitions(
+			content,
+			metadata.definitions,
+		)
 		return argumentCompletionItems(context, metadata, content)
 	case completionConfiguration:
 		return configurationCompletionItems(context, metadata, content)
+	case completionImportSymbol:
+		return annotationImportSymbolItems(
+			context,
+			metadata.definitions,
+			content,
+		)
+	case completionImportPath:
+		return annotationImportPathItems(
+			context,
+			metadata.definitions,
+			content,
+		)
 	default:
 		return []completionItem{}
 	}
@@ -149,6 +188,8 @@ const (
 	completionAnnotation
 	completionArgument
 	completionConfiguration
+	completionImportSymbol
+	completionImportPath
 )
 
 type completionContext struct {
@@ -168,6 +209,13 @@ func inspectCompletionContext(content []byte, offset int) completionContext {
 		return completionContext{kind: completionNone, start: offset, end: offset}
 	}
 	prefix := content[lineStart:offset]
+	if importContext, found := inspectAnnotationImportContext(
+		content,
+		lineStart,
+		offset,
+	); found {
+		return importContext
+	}
 	at := strings.LastIndexByte(string(prefix), '@')
 	if at >= 0 {
 		absoluteAt := lineStart + at
@@ -215,6 +263,44 @@ func inspectCompletionContext(content []byte, offset int) completionContext {
 		existingPrefix: string(content[start:offset]),
 		insideString:   insideStringLiteral(content[lineStart:offset]),
 	}
+}
+
+func inspectAnnotationImportContext(
+	content []byte,
+	lineStart int,
+	offset int,
+) (completionContext, bool) {
+	prefix := string(content[lineStart:offset])
+	directive := strings.Index(prefix, "@spice.import")
+	if directive < 0 {
+		return completionContext{}, false
+	}
+	after := prefix[directive+len("@spice.import"):]
+	if from := strings.LastIndex(after, `from "`); from >= 0 {
+		valueStart := lineStart + directive + len("@spice.import") +
+			from + len(`from "`)
+		if !strings.Contains(string(content[valueStart:offset]), `"`) {
+			return completionContext{
+				kind:           completionImportPath,
+				start:          valueStart,
+				end:            offset,
+				existingPrefix: string(content[valueStart:offset]),
+				insideString:   true,
+			}, true
+		}
+	}
+	open := strings.LastIndexByte(after, '{')
+	closingBrace := strings.LastIndexByte(after, '}')
+	if open >= 0 && closingBrace < open {
+		start := wordStart(content, offset, annotationCharacter)
+		return completionContext{
+			kind:           completionImportSymbol,
+			start:          start,
+			end:            offset,
+			existingPrefix: string(content[start:offset]),
+		}, true
+	}
+	return completionContext{}, true
 }
 
 func annotationPrefix(prefix []byte) (raw bool, valid bool) {
@@ -269,8 +355,10 @@ func annotationCompletionItems(
 	content []byte,
 ) []completionItem {
 	itemRange := protocolRangeAtOffsets(content, context.start, context.end)
-	items := make([]completionItem, 0, len(definitions))
-	for _, definition := range definitions {
+	candidates := annotationCompletionCandidates(content, definitions)
+	items := make([]completionItem, 0, len(candidates))
+	for _, candidate := range candidates {
+		definition := candidate.definition
 		if context.existingPrefix != "" &&
 			!strings.HasPrefix(
 				strings.ToLower(definition.Name),
@@ -286,7 +374,7 @@ func annotationCompletionItems(
 			Kind:  "markdown",
 			Value: annotationDocumentation(definition),
 		}
-		items = append(items, completionItem{
+		item := completionItem{
 			Label:            "@" + definition.Name,
 			Kind:             14,
 			Detail:           annotationTargetDetail(definition),
@@ -298,9 +386,250 @@ func annotationCompletionItems(
 				Range:   itemRange,
 				NewText: insert,
 			},
-		})
+		}
+		if candidate.importDirective != "" {
+			item.AdditionalEdits = []protocolEdit{
+				annotationImportEdit(content, candidate.importDirective),
+			}
+			item.Detail += " · " + definition.DescriptorPackage
+		}
+		items = append(items, item)
 	}
 	return items
+}
+
+type annotationCompletionCandidate struct {
+	definition      compilerservice.AnnotationDefinition
+	importDirective string
+}
+
+func annotationCompletionCandidates(
+	content []byte,
+	definitions []compilerservice.AnnotationDefinition,
+) []annotationCompletionCandidate {
+	directives := importDirectives(content)
+	var scoped []compilerservice.AnnotationDefinition
+	if len(directives) != 0 {
+		scoped = fileScopedDefinitions(content, definitions)
+	}
+	result := make(
+		[]annotationCompletionCandidate,
+		0,
+		len(definitions)+len(scoped),
+	)
+	imported := make(map[string]struct{}, len(scoped))
+	localNames := make(map[string]struct{}, len(scoped))
+	for _, definition := range scoped {
+		key := definition.DescriptorPackage + "\x00" +
+			definition.DescriptorSymbol
+		imported[key] = struct{}{}
+		localNames[definition.Name] = struct{}{}
+		result = append(result, annotationCompletionCandidate{
+			definition: definition,
+		})
+	}
+	for _, definition := range definitions {
+		if definition.DescriptorPackage == "" ||
+			definition.DescriptorSymbol == "" {
+			if len(directives) == 0 {
+				result = append(result, annotationCompletionCandidate{
+					definition: definition,
+				})
+			}
+			continue
+		}
+		key := definition.DescriptorPackage + "\x00" +
+			definition.DescriptorSymbol
+		if _, found := imported[key]; found {
+			continue
+		}
+		local := definition.DescriptorSymbol
+		directive := fmt.Sprintf(
+			`// @spice.import { %s } from "%s"`,
+			definition.DescriptorSymbol,
+			definition.DescriptorPackage,
+		)
+		if _, collision := localNames[local]; collision {
+			namespace := path.Base(definition.DescriptorPackage)
+			local = namespace + "." + definition.DescriptorSymbol
+			directive = fmt.Sprintf(
+				`// @spice.import * as %s from "%s"`,
+				namespace,
+				definition.DescriptorPackage,
+			)
+		}
+		definition.Name = local
+		localNames[local] = struct{}{}
+		result = append(result, annotationCompletionCandidate{
+			definition:      definition,
+			importDirective: directive,
+		})
+	}
+	return result
+}
+
+func annotationImportEdit(
+	content []byte,
+	directive string,
+) protocolEdit {
+	offset, existing := annotationImportInsertionOffset(content)
+	prefix := ""
+	if !existing {
+		prefix = "\n"
+	}
+	return protocolEdit{
+		Range:   protocolRangeAtOffsets(content, offset, offset),
+		NewText: prefix + directive + "\n",
+	}
+}
+
+func annotationImportInsertionOffset(content []byte) (int, bool) {
+	lastDirectiveEnd := -1
+	packageEnd := 0
+	lastGoImportEnd := 0
+	inImportBlock := false
+	for start := 0; start <= len(content); {
+		relativeEnd := bytes.IndexByte(content[start:], '\n')
+		last := relativeEnd < 0
+		end := len(content)
+		next := end
+		if !last {
+			end = start + relativeEnd
+			next = end + 1
+		}
+		line := strings.TrimSpace(
+			string(bytes.TrimSuffix(content[start:end], []byte{'\r'})),
+		)
+		switch {
+		case strings.HasPrefix(line, "// @spice.import "):
+			lastDirectiveEnd = next
+		case strings.HasPrefix(line, "package "):
+			packageEnd = next
+		case line == "import (":
+			inImportBlock = true
+			lastGoImportEnd = next
+		case inImportBlock:
+			lastGoImportEnd = next
+			if line == ")" {
+				inImportBlock = false
+			}
+		case strings.HasPrefix(line, "import "):
+			lastGoImportEnd = next
+		}
+		if last {
+			break
+		}
+		start = next
+	}
+	if lastDirectiveEnd >= 0 {
+		return lastDirectiveEnd, true
+	}
+	if lastGoImportEnd > packageEnd {
+		return lastGoImportEnd, false
+	}
+	return packageEnd, false
+}
+
+func annotationImportSymbolItems(
+	context completionContext,
+	definitions []compilerservice.AnnotationDefinition,
+	content []byte,
+) []completionItem {
+	itemRange := protocolRangeAtOffsets(content, context.start, context.end)
+	var items []completionItem
+	seen := make(map[string]struct{})
+	for _, definition := range definitions {
+		if definition.DescriptorSymbol == "" ||
+			definition.DescriptorPackage == "" ||
+			context.existingPrefix != "" &&
+				!strings.HasPrefix(
+					strings.ToLower(definition.DescriptorSymbol),
+					strings.ToLower(context.existingPrefix),
+				) {
+			continue
+		}
+		key := definition.DescriptorPackage + "\x00" +
+			definition.DescriptorSymbol
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		documentation := markupContent{
+			Kind:  "markdown",
+			Value: annotationDocumentation(definition),
+		}
+		items = append(items, completionItem{
+			Label:         definition.DescriptorSymbol,
+			Kind:          3,
+			Detail:        definition.DescriptorPackage,
+			Documentation: &documentation,
+			SortText: definition.DescriptorSymbol + "\x00" +
+				definition.DescriptorPackage,
+			TextEdit: protocolEdit{
+				Range:   itemRange,
+				NewText: definition.DescriptorSymbol,
+			},
+		})
+	}
+	sort.SliceStable(items, func(left, right int) bool {
+		return items[left].SortText < items[right].SortText
+	})
+	return items
+}
+
+func annotationImportPathItems(
+	context completionContext,
+	definitions []compilerservice.AnnotationDefinition,
+	content []byte,
+) []completionItem {
+	itemRange := protocolRangeAtOffsets(content, context.start, context.end)
+	packages := make(map[string]compilerservice.AnnotationDefinition)
+	for _, definition := range definitions {
+		packagePath := definition.DescriptorPackage
+		if packagePath == "" ||
+			context.existingPrefix != "" &&
+				!strings.HasPrefix(packagePath, context.existingPrefix) {
+			continue
+		}
+		if _, found := packages[packagePath]; !found {
+			packages[packagePath] = definition
+		}
+	}
+	paths := make([]string, 0, len(packages))
+	for packagePath := range packages {
+		paths = append(paths, packagePath)
+	}
+	slices.Sort(paths)
+	items := make([]completionItem, len(paths))
+	for index, packagePath := range paths {
+		definition := packages[packagePath]
+		items[index] = completionItem{
+			Label:    packagePath,
+			Kind:     9,
+			Detail:   annotationProvenanceDetail(definition),
+			SortText: packagePath,
+			TextEdit: protocolEdit{
+				Range:   itemRange,
+				NewText: packagePath,
+			},
+		}
+	}
+	return items
+}
+
+func annotationProvenanceDetail(
+	definition compilerservice.AnnotationDefinition,
+) string {
+	version := definition.Provenance.Version
+	if version == "" {
+		version = "local"
+	}
+	return fmt.Sprintf(
+		"%s@%s · go tool %s",
+		definition.Provenance.Module,
+		version,
+		definition.Implementation.Tool,
+	)
 }
 
 func annotationSnippet(
@@ -504,11 +833,18 @@ func (server *Server) hover(message rpcMessage) error {
 		return server.writer.response(message.ID, nil)
 	}
 	value, start, end := tokenAt(source.content, offset)
-	annotationName := strings.TrimPrefix(value, "@")
-	if definition, found := annotationDefinition(
-		metadata.definitions,
-		annotationName,
-	); found {
+	if occurrence, occurrenceFound := annotationOccurrenceAt(
+		source.content,
+		offset,
+	); occurrenceFound {
+		definition, found := definitionForOccurrence(
+			source,
+			metadata,
+			occurrence,
+		)
+		if !found {
+			return server.writer.response(message.ID, nil)
+		}
 		return server.writer.response(message.ID, hoverResult{
 			Contents: markupContent{
 				Kind:  "markdown",
@@ -558,6 +894,119 @@ func (server *Server) hover(message rpcMessage) error {
 		}
 	}
 	return server.writer.response(message.ID, nil)
+}
+
+func (server *Server) signatureHelp(message rpcMessage) error {
+	if !message.request() {
+		return nil
+	}
+	var params textDocumentPositionParams
+	if err := decodeParams(message.Params, &params); err != nil {
+		return server.writer.failure(message.ID, invalidParamsCode, err.Error())
+	}
+	source, metadata, found := server.featureSnapshot(params.TextDocument.URI)
+	if !found {
+		return server.writer.response(message.ID, nil)
+	}
+	offset, valid := byteOffset(source.content, params.Position)
+	if !valid {
+		return server.writer.response(message.ID, nil)
+	}
+	result, found := signatureHelpAt(
+		source.content,
+		offset,
+		metadata.definitions,
+	)
+	if !found {
+		return server.writer.response(message.ID, nil)
+	}
+	return server.writer.response(message.ID, result)
+}
+
+func signatureHelpAt(
+	content []byte,
+	offset int,
+	definitions []compilerservice.AnnotationDefinition,
+) (signatureHelpResult, bool) {
+	context := inspectCompletionContext(content, offset)
+	if context.kind != completionArgument {
+		return signatureHelpResult{}, false
+	}
+	definitions = fileScopedDefinitions(content, definitions)
+	definition, found := annotationDefinition(
+		definitions,
+		context.annotation,
+	)
+	if !found {
+		return signatureHelpResult{}, false
+	}
+	parameters := make(
+		[]parameterInformation,
+		len(definition.Arguments),
+	)
+	active := 0
+	for index, argument := range definition.Arguments {
+		documentation := markupContent{
+			Kind:  "markdown",
+			Value: argumentDocumentation(argument),
+		}
+		parameters[index] = parameterInformation{
+			Label:         annotationArgumentLabel(argument),
+			Documentation: &documentation,
+		}
+		if context.argument == argument.Name {
+			active = index
+		}
+	}
+	documentation := markupContent{
+		Kind:  "markdown",
+		Value: annotationDocumentation(definition),
+	}
+	return signatureHelpResult{
+		Signatures: []signatureInformation{{
+			Label: "@" + definition.Name + "(" +
+				strings.Join(parameterLabels(parameters), ", ") + ")",
+			Documentation: &documentation,
+			Parameters:    parameters,
+		}},
+		ActiveParameter: active,
+	}, true
+}
+
+func parameterLabels(values []parameterInformation) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = value.Label
+	}
+	return result
+}
+
+func annotationArgumentLabel(
+	argument compilerservice.AnnotationArgument,
+) string {
+	label := argument.Name + ": " + argumentKinds(argument)
+	if !argument.Required {
+		label += "?"
+	}
+	return label
+}
+
+func argumentDocumentation(
+	argument compilerservice.AnnotationArgument,
+) string {
+	var content strings.Builder
+	content.WriteString(argument.Description)
+	if argument.Default != "" {
+		fmt.Fprintf(&content, "\n\nDefault: `%s`.", argument.Default)
+	}
+	if len(argument.AllowedStrings) != 0 {
+		fmt.Fprintf(
+			&content,
+			"\n\nAllowed values: `%s`.",
+			strings.Join(argument.AllowedStrings, "`, `"),
+		)
+	}
+	return content.String()
 }
 
 func (server *Server) codeAction(message rpcMessage) error {
@@ -695,6 +1144,7 @@ func (server *Server) featureSnapshot(
 	latest := workspace.latest
 	view := metadataView{
 		definitions:    latest.AnnotationDefinitions(),
+		annotations:    latest.Annotations(),
 		modules:        latest.ModuleGraph().Modules,
 		configurations: latest.Configurations(),
 		actions:        latest.CodeActions(),
@@ -702,6 +1152,9 @@ func (server *Server) featureSnapshot(
 	if workspace.hasGood {
 		if len(view.definitions) == 0 {
 			view.definitions = workspace.lastGood.AnnotationDefinitions()
+		}
+		if len(view.annotations) == 0 {
+			view.annotations = workspace.lastGood.Annotations()
 		}
 		if len(view.modules) == 0 {
 			view.modules = workspace.lastGood.ModuleGraph().Modules
@@ -734,26 +1187,243 @@ func annotationDocumentation(
 	definition compilerservice.AnnotationDefinition,
 ) string {
 	var content strings.Builder
-	fmt.Fprintf(&content, "`@%s`\n\n", definition.Name)
-	fmt.Fprintf(&content, "Valid targets: %s.", annotationTargetDetail(definition))
+	writeAnnotationOverview(&content, definition)
+	writeAnnotationArguments(&content, definition.Arguments)
+	writeAnnotationExamples(&content, definition.Examples)
+	writeAnnotationDescriptor(&content, definition)
+	writeAnnotationProvenance(&content, definition.Provenance)
+	writeAnnotationImplementation(&content, definition.Implementation)
+	writeAnnotationCompatibility(&content, definition.Compatibility)
+	return content.String()
+}
+
+func writeAnnotationOverview(
+	content *strings.Builder,
+	definition compilerservice.AnnotationDefinition,
+) {
+	fmt.Fprintf(content, "`@%s`\n\n", definition.Name)
+	if definition.Summary != "" {
+		content.WriteString(definition.Summary)
+		content.WriteString("\n\n")
+	}
+	if definition.Documentation != "" {
+		content.WriteString(definition.Documentation)
+		content.WriteString("\n\n")
+	}
+	fmt.Fprintf(content, "Valid targets: %s.", annotationTargetDetail(definition))
 	if definition.Repeatable {
 		content.WriteString(" Repeatable.")
 	}
-	if len(definition.Arguments) != 0 {
-		content.WriteString("\n\nArguments:\n")
-		for _, argument := range definition.Arguments {
-			fmt.Fprintf(
-				&content,
-				"\n- `%s`: %s",
-				argument.Name,
-				argumentKinds(argument),
-			)
-			if argument.Required {
-				content.WriteString(" (required)")
+}
+
+func writeAnnotationArguments(
+	content *strings.Builder,
+	arguments []compilerservice.AnnotationArgument,
+) {
+	if len(arguments) == 0 {
+		return
+	}
+	content.WriteString("\n\nArguments:\n")
+	for _, argument := range arguments {
+		fmt.Fprintf(
+			content,
+			"\n- `%s`: %s",
+			argument.Name,
+			argumentKinds(argument),
+		)
+		if argument.Required {
+			content.WriteString(" (required)")
+		}
+		if argument.Description != "" {
+			fmt.Fprintf(content, " — %s", argument.Description)
+		}
+		if argument.Default != "" {
+			fmt.Fprintf(content, " Default: `%s`.", argument.Default)
+		}
+	}
+}
+
+func writeAnnotationExamples(
+	content *strings.Builder,
+	examples []compilerservice.AnnotationExample,
+) {
+	if len(examples) == 0 {
+		return
+	}
+	content.WriteString("\n\nExamples:\n")
+	for _, example := range examples {
+		fmt.Fprintf(
+			content,
+			"\n**%s**\n\n```go\n%s\n```\n",
+			example.Title,
+			example.Code,
+		)
+	}
+}
+
+func writeAnnotationDescriptor(
+	content *strings.Builder,
+	definition compilerservice.AnnotationDefinition,
+) {
+	if definition.DescriptorPackage != "" {
+		fmt.Fprintf(
+			content,
+			"\n\nDescriptor: `%s.%s`.",
+			definition.DescriptorPackage,
+			definition.DescriptorSymbol,
+		)
+	}
+}
+
+func writeAnnotationProvenance(
+	content *strings.Builder,
+	provenance compilerservice.AnnotationProvenance,
+) {
+	if provenance.Module == "" {
+		return
+	}
+	version := provenance.Version
+	if version == "" {
+		version = "local"
+	}
+	fmt.Fprintf(
+		content,
+		"\n\nModule: `%s@%s`.",
+		provenance.Module,
+		version,
+	)
+	if provenance.ReplacementModule != "" ||
+		provenance.ReplacementDir != "" {
+		replacement := provenance.ReplacementModule
+		if replacement == "" {
+			replacement = provenance.ReplacementDir
+		}
+		fmt.Fprintf(
+			content,
+			" Replaced by `%s`.",
+			replacement,
+		)
+	}
+}
+
+func writeAnnotationImplementation(
+	content *strings.Builder,
+	implementation compilerservice.AnnotationImplementation,
+) {
+	if implementation.Tool != "" {
+		fmt.Fprintf(
+			content,
+			"\n\nImplementation: `go tool %s` handler `%s` (`%s.%s`, protocol `%s`).",
+			implementation.Tool,
+			implementation.Handler,
+			implementation.Package,
+			implementation.Symbol,
+			implementation.Protocol,
+		)
+	}
+}
+
+func writeAnnotationCompatibility(
+	content *strings.Builder,
+	compatibility compilerservice.AnnotationCompatibility,
+) {
+	if compatibility.Since != "" {
+		fmt.Fprintf(
+			content,
+			"\n\nCompatibility: since Spice `%s`; minimum Spice `%s`.",
+			compatibility.Since,
+			compatibility.MinimumSpice,
+		)
+	}
+}
+
+func fileScopedDefinitions(
+	content []byte,
+	definitions []compilerservice.AnnotationDefinition,
+) []compilerservice.AnnotationDefinition {
+	directives := importDirectives(content)
+	if len(directives) == 0 {
+		return definitions
+	}
+	bySource := make(map[string]compilerservice.AnnotationDefinition)
+	for _, definition := range definitions {
+		if definition.DescriptorPackage == "" ||
+			definition.DescriptorSymbol == "" {
+			continue
+		}
+		key := definition.DescriptorPackage + "\x00" +
+			definition.DescriptorSymbol
+		bySource[key] = definition
+	}
+	result := make(
+		[]compilerservice.AnnotationDefinition,
+		0,
+		len(definitions),
+	)
+	seen := make(map[string]struct{})
+	for _, directive := range directives {
+		switch directive.Kind {
+		case annotation.ImportNamed:
+			for _, binding := range directive.Bindings {
+				key := directive.Package + "\x00" + binding.Imported
+				definition, found := bySource[key]
+				if !found {
+					continue
+				}
+				definition.Name = binding.Local
+				if _, duplicate := seen[definition.Name]; duplicate {
+					continue
+				}
+				seen[definition.Name] = struct{}{}
+				result = append(result, definition)
+			}
+		case annotation.ImportNamespace:
+			for _, definition := range definitions {
+				if definition.DescriptorPackage != directive.Package {
+					continue
+				}
+				definition.Name = directive.Namespace + "." +
+					definition.DescriptorSymbol
+				if _, duplicate := seen[definition.Name]; duplicate {
+					continue
+				}
+				seen[definition.Name] = struct{}{}
+				result = append(result, definition)
 			}
 		}
 	}
-	return content.String()
+	sort.SliceStable(result, func(left, right int) bool {
+		return result[left].Name < result[right].Name
+	})
+	return result
+}
+
+func importDirectives(content []byte) []annotation.ImportDirective {
+	var result []annotation.ImportDirective
+	lineNumber := 1
+	for start := 0; start <= len(content); lineNumber++ {
+		relativeEnd := bytes.IndexByte(content[start:], '\n')
+		last := relativeEnd < 0
+		end := len(content)
+		if !last {
+			end = start + relativeEnd
+		}
+		line := strings.TrimSpace(
+			string(bytes.TrimSuffix(content[start:end], []byte{'\r'})),
+		)
+		directive, recognized, err := annotationparser.ParseImportComment(
+			line,
+			token.Position{Line: lineNumber, Column: 1, Offset: start},
+		)
+		if recognized && err == nil {
+			result = append(result, directive)
+		}
+		if last {
+			break
+		}
+		start = end + 1
+	}
+	return result
 }
 
 func annotationTargetDetail(
