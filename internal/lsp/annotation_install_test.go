@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/StevenBuglione/spice/compiler/annotationinstall"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
@@ -91,6 +92,76 @@ func TestAnnotationToolQuickFixRequiresPreviewBeforeHashGuardedApply(
 			applied,
 			output.String(),
 		)
+	}
+}
+
+func TestAnnotationToolPreviewRequestCanBeCanceledWhileRunning(
+	t *testing.T,
+) {
+	t.Parallel()
+	root, _ := writeAnnotationInstallModule(t)
+	server, err := New(Config{NewService: testServiceFactory})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	started := make(chan struct{})
+	server.previewTool = func(
+		ctx context.Context,
+		_ string,
+		_ string,
+		_ string,
+		_ []string,
+	) (annotationinstall.Preview, error) {
+		close(started)
+		<-ctx.Done()
+		return annotationinstall.Preview{}, ctx.Err()
+	}
+	client := startTestClient(t, server)
+	rootURI, err := fileURI(root)
+	if err != nil {
+		t.Fatalf("fileURI(root) error = %v", err)
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params":  map[string]any{"rootUri": rootURI},
+	})
+	_ = client.waitForID("1")
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "workspace/executeCommand",
+		"params": map[string]any{
+			"command": annotationToolPreviewCommand,
+			"arguments": []any{annotationToolCommandArguments{
+				Root:    root,
+				Tool:    lspFixtureTool,
+				Version: "v0.0.0",
+			}},
+		},
+	})
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for annotation tool preview")
+	}
+	client.notify("$/cancelRequest", map[string]any{"id": 2})
+	response := client.waitForID("2")
+	if response.Error == nil ||
+		response.Error.Code != requestCancelledCode {
+		t.Fatalf("canceled preview response = %+v", response)
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "shutdown",
+	})
+	_ = client.waitForID("3")
+	client.notify("exit", nil)
+	client.closeInput()
+	if err := client.wait(); err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
 }
 

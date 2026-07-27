@@ -30,6 +30,19 @@ type annotationToolCommandArguments struct {
 	Token   string `json:"token,omitempty"`
 }
 
+type annotationToolPreviewer func(
+	context.Context,
+	string,
+	string,
+	string,
+	[]string,
+) (annotationinstall.Preview, error)
+
+type annotationToolApplier func(
+	context.Context,
+	annotationinstall.Preview,
+) error
+
 func (server *Server) annotationToolCodeActions(
 	source document,
 	requestRange protocolRange,
@@ -117,7 +130,48 @@ func occurrenceOverlappingRange(
 	return annotationOccurrence{}, false
 }
 
+func (server *Server) startExecuteCommand(message rpcMessage) error {
+	key := string(message.ID)
+	ctx, cancel := context.WithCancel(context.Background())
+	server.mu.Lock()
+	if _, active := server.requests[key]; active {
+		server.mu.Unlock()
+		cancel()
+		return server.writer.failure(
+			message.ID,
+			invalidRequestCode,
+			"an LSP request with this ID is already active",
+		)
+	}
+	server.requests[key] = cancel
+	server.requestWait.Add(1)
+	server.mu.Unlock()
+	go func() {
+		defer server.requestWait.Done()
+		err := server.executeCommandContext(ctx, message)
+		cancel()
+		server.mu.Lock()
+		delete(server.requests, key)
+		if err != nil {
+			server.asyncErr = errors.Join(server.asyncErr, err)
+		}
+		runCancel := server.cancel
+		server.mu.Unlock()
+		if err != nil && runCancel != nil {
+			runCancel()
+		}
+	}()
+	return nil
+}
+
 func (server *Server) executeCommand(message rpcMessage) error {
+	return server.executeCommandContext(context.Background(), message)
+}
+
+func (server *Server) executeCommandContext(
+	parent context.Context,
+	message rpcMessage,
+) error {
 	if !message.request() {
 		return nil
 	}
@@ -138,7 +192,7 @@ func (server *Server) executeCommand(message rpcMessage) error {
 		)
 	}
 	ctx, cancel := context.WithTimeout(
-		context.Background(),
+		parent,
 		annotationToolCommandTimeout,
 	)
 	defer cancel()
@@ -199,7 +253,7 @@ func (server *Server) previewAnnotationTool(
 	}
 	catalog, err := compiler.AnnotationCatalog(ctx, arguments.Root)
 	if err != nil {
-		return server.writer.failure(id, internalErrorCode, err.Error())
+		return server.annotationToolCommandFailure(id, err)
 	}
 	if !unauthorizedCatalogTool(catalog, arguments) {
 		return server.writer.failure(
@@ -208,7 +262,11 @@ func (server *Server) previewAnnotationTool(
 			"annotation tool preview no longer matches an unauthorized catalog descriptor",
 		)
 	}
-	preview, err := annotationinstall.PreviewTool(
+	previewTool := server.previewTool
+	if previewTool == nil {
+		previewTool = annotationinstall.PreviewTool
+	}
+	preview, err := previewTool(
 		ctx,
 		arguments.Root,
 		arguments.Tool,
@@ -216,7 +274,7 @@ func (server *Server) previewAnnotationTool(
 		nil,
 	)
 	if err != nil {
-		return server.writer.failure(id, internalErrorCode, err.Error())
+		return server.annotationToolCommandFailure(id, err)
 	}
 	key := annotationToolPreviewKey(arguments.Root, arguments.Tool)
 	server.mu.Lock()
@@ -286,8 +344,12 @@ func (server *Server) applyAnnotationTool(
 			"annotation tool apply does not match an active preview",
 		)
 	}
-	if err := annotationinstall.Apply(ctx, preview); err != nil {
-		return server.writer.failure(id, internalErrorCode, err.Error())
+	applyTool := server.applyTool
+	if applyTool == nil {
+		applyTool = annotationinstall.Apply
+	}
+	if err := applyTool(ctx, preview); err != nil {
+		return server.annotationToolCommandFailure(id, err)
 	}
 	if err := compiler.InvalidateAnnotationCatalog(arguments.Root); err != nil {
 		return server.writer.failure(id, internalErrorCode, err.Error())
@@ -314,6 +376,17 @@ func (server *Server) applyAnnotationTool(
 		"status":  "applied",
 		"command": preview.Command(),
 	})
+}
+
+func (server *Server) annotationToolCommandFailure(
+	id json.RawMessage,
+	err error,
+) error {
+	code := internalErrorCode
+	if errors.Is(err, context.Canceled) {
+		code = requestCancelledCode
+	}
+	return server.writer.failure(id, code, err.Error())
 }
 
 func (server *Server) annotationToolWorkspace(

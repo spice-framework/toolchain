@@ -31,6 +31,7 @@ const (
 	invalidParamsCode        = -32602
 	internalErrorCode        = -32603
 	serverNotInitializedCode = -32002
+	requestCancelledCode     = -32800
 )
 
 // ErrExitWithoutShutdown reports a protocol exit notification that was not
@@ -69,6 +70,10 @@ type Server struct {
 	toolPreviews     map[string]annotationinstall.Preview
 	toolPreviewByKey map[string]string
 	analysisWait     sync.WaitGroup
+	requestWait      sync.WaitGroup
+	asyncErr         error
+	previewTool      annotationToolPreviewer
+	applyTool        annotationToolApplier
 }
 
 type serverConfig struct {
@@ -133,6 +138,8 @@ func New(config Config) (*Server, error) {
 			map[string]annotationinstall.Preview,
 		),
 		toolPreviewByKey: make(map[string]string),
+		previewTool:      annotationinstall.PreviewTool,
+		applyTool:        annotationinstall.Apply,
 	}, nil
 }
 
@@ -268,6 +275,9 @@ func (server *Server) handleInitialized(
 	if !message.request() {
 		return false, server.handleNotification(message)
 	}
+	if message.Method == "workspace/executeCommand" {
+		return false, server.startExecuteCommand(message)
+	}
 	return false, server.handleRequest(message)
 }
 
@@ -317,8 +327,6 @@ func (server *Server) handleRequest(message rpcMessage) error {
 		return server.documentLinks(message)
 	case "textDocument/semanticTokens/full":
 		return server.semanticTokens(message)
-	case "workspace/executeCommand":
-		return server.executeCommand(message)
 	default:
 		return server.writer.failure(
 			message.ID,
@@ -505,6 +513,7 @@ func (server *Server) stop() error {
 	}
 	server.mu.Unlock()
 	server.analysisWait.Wait()
+	server.requestWait.Wait()
 	closeCtx, cancel := context.WithTimeout(
 		context.Background(),
 		10*time.Second,
@@ -514,7 +523,10 @@ func (server *Server) stop() error {
 	for _, service := range services {
 		result = errors.Join(result, service.Close(closeCtx))
 	}
-	return result
+	server.mu.Lock()
+	asyncErr := server.asyncErr
+	server.mu.Unlock()
+	return errors.Join(result, asyncErr)
 }
 
 func (server *Server) cancelAnalysesLocked() {
@@ -547,10 +559,8 @@ func (server *Server) cancelRequest(raw json.RawMessage) {
 	if json.Unmarshal(raw, &params) != nil {
 		return
 	}
-	key := string(params.ID)
 	server.mu.Lock()
-	cancel := server.requests[key]
-	delete(server.requests, key)
+	cancel := server.requests[string(params.ID)]
 	server.mu.Unlock()
 	if cancel != nil {
 		cancel()
