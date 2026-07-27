@@ -36,7 +36,7 @@ func TestDiscoverFindsModuleGraphDescriptorsOffline(t *testing.T) {
 		if !exists ||
 			candidate.Tool == "" ||
 			candidate.Handler == "" ||
-			candidate.Protocol != "spice.annotation/v1alpha1" ||
+			candidate.Protocol != "spice.annotation/v1alpha2" ||
 			!candidate.ToolAuthorized ||
 			candidate.DescriptorPosition.Filename == "" {
 			t.Fatalf("candidate %q = %+v, found = %t", identity, candidate, exists)
@@ -82,8 +82,8 @@ func Controller() sdk.Definition {
 		Summary: "Vendored controller.",
 		Implementation: sdk.Implementation{
 			Tool: "example.com/plugin/cmd/spice-annotations",
-			Handler: "web/controller",
-			Protocol: sdk.ProtocolV1Alpha1,
+			Handler: ControllerHandler,
+			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
 }
@@ -141,8 +141,8 @@ func Send() sdk.Definition {
 		Summary: "Sends mail.",
 		Implementation: sdk.Implementation{
 			Tool: "example.com/mail/cmd/spice-annotations",
-			Handler: "mail/send",
-			Protocol: sdk.ProtocolV1Alpha1,
+			Handler: SendHandler,
+			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
 }
@@ -171,8 +171,8 @@ func Hidden() sdk.Definition {
 		Name: "nested.Hidden",
 		Implementation: sdk.Implementation{
 			Tool: "example.com/nested/cmd/annotations",
-			Handler: "nested/hidden",
-			Protocol: sdk.ProtocolV1Alpha1,
+			Handler: HiddenHandler,
+			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
 }

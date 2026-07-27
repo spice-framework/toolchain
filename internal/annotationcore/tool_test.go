@@ -14,7 +14,7 @@ func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
 	identity, err := tool.Initialize(
 		context.Background(),
 		protocol.InitializeParams{
-			Protocol: sdk.ProtocolV1Alpha1,
+			Protocol: sdk.ProtocolV1Alpha2,
 			ToolPath: toolPath,
 		},
 	)
@@ -37,8 +37,9 @@ func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
 	}
 	foundApplication := false
 	for _, item := range description.Handlers {
-		if item.ID == applicationHandlerID &&
-			item.Source.Name == "ApplicationHandler" {
+		if item.Descriptor.Package ==
+			"github.com/StevenBuglione/spice/annotation/core" &&
+			item.Descriptor.Name == "Application" {
 			foundApplication = true
 		}
 	}
@@ -48,7 +49,10 @@ func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
 	result, err := tool.Analyze(
 		context.Background(),
 		protocol.AnalyzeParams{
-			Handler: applicationHandlerID,
+			Descriptor: sdk.Symbol{
+				Package: "github.com/StevenBuglione/spice/annotation/core",
+				Name:    "Application",
+			},
 			Invocation: protocol.Invocation{
 				DescriptorPackage: "github.com/StevenBuglione/spice/annotation/core",
 				DescriptorSymbol:  "Application",
@@ -97,11 +101,15 @@ func TestToolFailsClosedOnInvalidStateAndNegotiation(t *testing.T) {
 	tool := New()
 	for _, params := range []protocol.InitializeParams{
 		{
+			Protocol: sdk.ProtocolVersion("spice.annotation/v1alpha1"),
+			ToolPath: toolPath,
+		},
+		{
 			Protocol: sdk.ProtocolVersion("unsupported"),
 			ToolPath: toolPath,
 		},
 		{
-			Protocol: sdk.ProtocolV1Alpha1,
+			Protocol: sdk.ProtocolV1Alpha2,
 			ToolPath: "example.com/wrong",
 		},
 	} {
@@ -114,7 +122,16 @@ func TestToolFailsClosedOnInvalidStateAndNegotiation(t *testing.T) {
 	}
 	if _, err := tool.Analyze(
 		context.Background(),
-		protocol.AnalyzeParams{Handler: "missing"},
+		protocol.AnalyzeParams{
+			Descriptor: sdk.Symbol{
+				Package: "example.com/missing",
+				Name:    "Missing",
+			},
+			Invocation: sdk.Invocation{
+				DescriptorPackage: "example.com/missing",
+				DescriptorSymbol:  "Missing",
+			},
+		},
 	); err == nil {
 		t.Fatal("Analyze(missing) error = nil")
 	}

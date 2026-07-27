@@ -9,12 +9,25 @@ import (
 	"runtime/debug"
 	"strings"
 
+	asyncannotation "github.com/StevenBuglione/spice/annotation/async"
+	cacheannotation "github.com/StevenBuglione/spice/annotation/cache"
+	coreannotation "github.com/StevenBuglione/spice/annotation/core"
+	"github.com/StevenBuglione/spice/annotation/coretool"
+	dataannotation "github.com/StevenBuglione/spice/annotation/data"
+	eventannotation "github.com/StevenBuglione/spice/annotation/event"
+	lifecycleannotation "github.com/StevenBuglione/spice/annotation/lifecycle"
+	managementannotation "github.com/StevenBuglione/spice/annotation/management"
+	modulithannotation "github.com/StevenBuglione/spice/annotation/modulith"
+	observabilityannotation "github.com/StevenBuglione/spice/annotation/observability"
+	scheduleannotation "github.com/StevenBuglione/spice/annotation/schedule"
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	securityannotation "github.com/StevenBuglione/spice/annotation/security"
+	webannotation "github.com/StevenBuglione/spice/annotation/web"
 )
 
 const (
-	toolPath   = "github.com/StevenBuglione/spice/cmd/spice-annotation-core"
+	toolPath   = coretool.Path
 	modulePath = "github.com/StevenBuglione/spice"
 )
 
@@ -33,15 +46,10 @@ var descriptorPackages = []string{
 	modulePath + "/annotation/web",
 }
 
-type handler func(
-	context.Context,
-	protocol.Invocation,
-) (protocol.AnalyzeResult, error)
-
 // Tool is the official deterministic annotation protocol implementation.
 type Tool struct {
 	moduleVersion string
-	handlers      map[string]handler
+	handlers      map[string]sdk.Handler
 	descriptions  []protocol.Handler
 }
 
@@ -50,11 +58,11 @@ func New() *Tool {
 	registrations := handlerRegistrations()
 	tool := &Tool{
 		moduleVersion: selectedModuleVersion(),
-		handlers:      make(map[string]handler, len(registrations)),
+		handlers:      make(map[string]sdk.Handler, len(registrations)),
 		descriptions:  make([]protocol.Handler, len(registrations)),
 	}
 	for index, registration := range registrations {
-		tool.handlers[registration.description.ID] = registration.handle
+		tool.handlers[symbolKey(registration.description.Descriptor)] = registration.handle
 		tool.descriptions[index] = registration.description
 	}
 	return tool
@@ -70,10 +78,10 @@ func (tool *Tool) Initialize(
 			"annotation core tool is nil",
 		)
 	}
-	if params.Protocol != sdk.ProtocolV1Alpha1 {
+	if params.Protocol != sdk.ProtocolV1Alpha2 {
 		return protocol.InitializeResult{}, errors.New(
 			"annotation core tool requires protocol " +
-				string(sdk.ProtocolV1Alpha1),
+				string(sdk.ProtocolV1Alpha2),
 		)
 	}
 	if params.ToolPath != toolPath {
@@ -82,7 +90,7 @@ func (tool *Tool) Initialize(
 		)
 	}
 	return protocol.InitializeResult{
-		Protocol:      sdk.ProtocolV1Alpha1,
+		Protocol:      sdk.ProtocolV1Alpha2,
 		ToolPath:      toolPath,
 		ModulePath:    modulePath,
 		ModuleVersion: tool.moduleVersion,
@@ -120,13 +128,23 @@ func (tool *Tool) Analyze(
 			"annotation core tool is nil",
 		)
 	}
-	selected, found := tool.handlers[params.Handler]
+	if params.Descriptor.Package != params.Invocation.DescriptorPackage ||
+		params.Descriptor.Name != params.Invocation.DescriptorSymbol {
+		return protocol.AnalyzeResult{}, errors.New(
+			"annotation descriptor dispatch does not match invocation",
+		)
+	}
+	selected, found := tool.handlers[symbolKey(params.Descriptor)]
 	if !found {
 		return protocol.AnalyzeResult{}, errors.New(
 			"annotation core handler is not declared",
 		)
 	}
-	return selected(ctx, params.Invocation)
+	result, err := selected(ctx, params.Invocation)
+	if err != nil {
+		return protocol.AnalyzeResult{}, err
+	}
+	return encodeHandlerResult(result)
 }
 
 // Shutdown releases no global resources because Tool owns none.
@@ -154,149 +172,150 @@ func selectedModuleVersion() string {
 
 type handlerRegistration struct {
 	description protocol.Handler
-	handle      handler
+	handle      sdk.Handler
 }
 
 func handlerRegistrations() []handlerRegistration {
 	return []handlerRegistration{
 		newHandlerRegistration(
-			applicationHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Application"},
 			sdk.ContributionApplication,
-			"ApplicationHandler",
-			ApplicationHandler,
+			coreannotation.Application,
 		),
 		newHandlerRegistration(
-			serviceHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Service"},
 			sdk.ContributionStereotype,
-			"ServiceHandler",
-			ServiceHandler,
+			coreannotation.Service,
 		),
 		newHandlerRegistration(
-			beanHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Bean"},
 			sdk.ContributionProvider,
-			"BeanHandler",
-			BeanHandler,
+			coreannotation.Bean,
 		),
 		newHandlerRegistration(
-			configurationHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Configuration"},
 			sdk.ContributionConfiguration,
-			"ConfigurationHandler",
-			ConfigurationHandler,
+			coreannotation.Configuration,
 		),
 		newHandlerRegistration(
-			controllerHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Controller"},
 			sdk.ContributionController,
-			"ControllerHandler",
-			ControllerHandler,
+			webannotation.Controller,
 		),
 		newHandlerRegistration(
-			getHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Get"},
 			sdk.ContributionRoute,
-			"GetHandler",
-			GetHandler,
+			webannotation.Get,
 		),
 		newHandlerRegistration(
-			postHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Post"},
 			sdk.ContributionRoute,
-			"PostHandler",
-			PostHandler,
+			webannotation.Post,
 		),
 		newHandlerRegistration(
-			moduleHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/modulith", Name: "Module"},
 			sdk.ContributionModule,
-			"ModuleHandler",
-			ModuleHandler,
+			modulithannotation.Module,
 		),
 		newHandlerRegistration(
-			namedInterfaceHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/modulith", Name: "NamedInterface"},
 			sdk.ContributionNamedInterface,
-			"NamedInterfaceHandler",
-			NamedInterfaceHandler,
+			modulithannotation.NamedInterface,
 		),
 		newHandlerRegistration(
-			onStartHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/lifecycle", Name: "OnStart"},
 			sdk.ContributionLifecycle,
-			"OnStartHandler",
-			OnStartHandler,
+			lifecycleannotation.OnStart,
 		),
 		newHandlerRegistration(
-			onStopHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/lifecycle", Name: "OnStop"},
 			sdk.ContributionLifecycle,
-			"OnStopHandler",
-			OnStopHandler,
+			lifecycleannotation.OnStop,
 		),
 		newHandlerRegistration(
-			asyncExecuteHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/async", Name: "Execute"},
 			sdk.ContributionAsync,
-			"AsyncExecuteHandler",
-			AsyncExecuteHandler,
+			asyncannotation.Execute,
 		),
 		newHandlerRegistration(
-			cacheableHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/cache", Name: "Cacheable"},
 			sdk.ContributionCache,
-			"CacheableHandler",
-			CacheableHandler,
+			cacheannotation.Cacheable,
 		),
 		newHandlerRegistration(
-			transactionalHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/data", Name: "Transactional"},
 			sdk.ContributionTransaction,
-			"TransactionalHandler",
-			TransactionalHandler,
+			dataannotation.Transactional,
 		),
 		newHandlerRegistration(
-			eventTopicHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/event", Name: "Topic"},
 			sdk.ContributionEventTopic,
-			"EventTopicHandler",
-			EventTopicHandler,
+			eventannotation.Topic,
 		),
 		newHandlerRegistration(
-			eventListenerHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/event", Name: "Listener"},
 			sdk.ContributionEventListener,
-			"EventListenerHandler",
-			EventListenerHandler,
+			eventannotation.Listener,
 		),
 		newHandlerRegistration(
-			fixedDelayHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/schedule", Name: "FixedDelay"},
 			sdk.ContributionSchedule,
-			"FixedDelayHandler",
-			FixedDelayHandler,
+			scheduleannotation.FixedDelay,
 		),
 		newHandlerRegistration(
-			authorizeHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/security", Name: "Authorize"},
 			sdk.ContributionAuthorization,
-			"AuthorizeHandler",
-			AuthorizeHandler,
+			securityannotation.Authorize,
 		),
 		newHandlerRegistration(
-			managementEnableHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/management", Name: "Enable"},
 			sdk.ContributionBootstrap,
-			"ManagementEnableHandler",
-			ManagementEnableHandler,
+			managementannotation.Enable,
 		),
 		newHandlerRegistration(
-			observabilityLoggingHandlerID,
+			sdk.Symbol{Package: modulePath + "/annotation/observability", Name: "Logging"},
 			sdk.ContributionBootstrap,
-			"ObservabilityLoggingHandler",
-			ObservabilityLoggingHandler,
+			observabilityannotation.Logging,
 		),
 	}
 }
 
 func newHandlerRegistration(
-	id string,
+	descriptor sdk.Symbol,
 	capability sdk.ContributionKind,
-	name string,
-	handle handler,
+	definition func() sdk.Definition,
 ) handlerRegistration {
+	value := definition()
 	return handlerRegistration{
 		description: protocol.Handler{
-			ID:           id,
+			Descriptor:   descriptor,
 			Capabilities: []string{string(capability)},
-			Source: sdk.Symbol{
-				Package: "github.com/StevenBuglione/spice/internal/annotationcore",
-				Name:    name,
-			},
 		},
-		handle: handle,
+		handle: value.Implementation.Handler,
 	}
+}
+
+func symbolKey(symbol sdk.Symbol) string {
+	return symbol.Package + "\x00" + symbol.Name
+}
+
+func encodeHandlerResult(value sdk.Result) (protocol.AnalyzeResult, error) {
+	result := protocol.AnalyzeResult{
+		Contributions: make(
+			[]protocol.Contribution,
+			len(value.Contributions),
+		),
+		Diagnostics: append(
+			[]protocol.Diagnostic(nil),
+			value.Diagnostics...,
+		),
+	}
+	for index, contribution := range value.Contributions {
+		encoded, err := protocol.EncodeContribution(contribution)
+		if err != nil {
+			return protocol.AnalyzeResult{}, err
+		}
+		result.Contributions[index] = encoded
+	}
+	return result, nil
 }

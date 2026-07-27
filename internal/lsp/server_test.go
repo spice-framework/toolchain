@@ -545,9 +545,6 @@ func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
 			t.Fatalf("Unmarshal(%s) error = %v", method, unmarshalErr)
 		}
 		expected := "/annotation/core/application.go"
-		if method == "textDocument/implementation" {
-			expected = "/internal/annotationcore/application.go"
-		}
 		if len(links) != 1 ||
 			!strings.HasSuffix(links[0].TargetURI, expected) ||
 			links[0].OriginSelectionRange.Start.Line != position.Line ||
@@ -571,8 +568,8 @@ func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
 	for _, expected := range []string{
 		"Application marks",
 		"go tool github.com/StevenBuglione/spice/cmd/spice-annotation-core",
-		"core/application",
-		"internal/annotationcore.ApplicationHandler",
+		"annotation/core.ApplicationHandler",
+		"spice.annotation/v1alpha2",
 		"local",
 	} {
 		if !strings.Contains(string(hover.Result), expected) {

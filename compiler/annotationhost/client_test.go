@@ -15,6 +15,11 @@ import (
 
 const fixtureTool = "example.com/annotationfixture/cmd/annotations"
 
+var fixtureDescriptor = sdk.Symbol{
+	Package: "example.com/annotationfixture/annotation",
+	Name:    "Echo",
+}
+
 func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 	root := writeToolFixture(t)
 	client, err := Start(context.Background(), Config{
@@ -30,7 +35,8 @@ func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 		t.Fatalf("Provenance() = %#v", got)
 	}
 	handlers := client.Handlers()
-	if len(handlers) != 1 || handlers[0].ID != "fixture/echo" {
+	if len(handlers) != 1 ||
+		handlers[0].Descriptor != fixtureDescriptor {
 		t.Fatalf("Handlers() = %#v", handlers)
 	}
 	packages := client.DescriptorPackages()
@@ -39,9 +45,11 @@ func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 		t.Fatalf("DescriptorPackages() = %#v", packages)
 	}
 	result, err := client.Analyze(context.Background(), protocol.AnalyzeParams{
-		Handler: "fixture/echo",
+		Descriptor: fixtureDescriptor,
 		Invocation: protocol.Invocation{
-			CanonicalName: "fixture.Echo",
+			DescriptorPackage: fixtureDescriptor.Package,
+			DescriptorSymbol:  fixtureDescriptor.Name,
+			CanonicalName:     "fixture.Echo",
 		},
 	})
 	if err != nil {
@@ -102,11 +110,9 @@ func TestValidateDescriptorRejectsPackageNotDeclaredByTool(t *testing.T) {
 	}
 	err := client.ValidateDescriptor(
 		"example.com/annotationfixture/other",
+		"Undeclared",
 		sdk.Definition{
 			Name: "Undeclared",
-			Implementation: sdk.Implementation{
-				Handler: "fixture/echo",
-			},
 		},
 		annotation.ModuleProvenance{
 			Path:    "example.com/annotationfixture",
@@ -189,13 +195,13 @@ func TestClientCancelsHungAnalysisAndDoesNotReplay(t *testing.T) {
 	}
 	client.config.CallTimeout = 200 * time.Millisecond
 	_, err = client.Analyze(context.Background(), protocol.AnalyzeParams{
-		Handler: "fixture/echo",
+		Descriptor: fixtureDescriptor,
 	})
 	if err == nil || !strings.Contains(err.Error(), "deadline exceeded") {
 		t.Fatalf("Analyze() error = %v", err)
 	}
 	_, err = client.Analyze(context.Background(), protocol.AnalyzeParams{
-		Handler: "fixture/echo",
+		Descriptor: fixtureDescriptor,
 	})
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("Analyze(after timeout) error = %v", err)
@@ -272,7 +278,7 @@ func main() {
 				modulePath = "example.com/wrong"
 			}
 			result = protocol.InitializeResult{
-				Protocol: sdk.ProtocolV1Alpha1,
+				Protocol: sdk.ProtocolV1Alpha2,
 				ToolPath: "example.com/annotationfixture/cmd/annotations",
 				ModulePath: modulePath,
 			}
@@ -282,12 +288,11 @@ func main() {
 					"example.com/annotationfixture/annotation",
 				},
 				Handlers: []protocol.Handler{{
-				ID: "fixture/echo",
-				Capabilities: []string{"diagnostics"},
-				Source: sdk.Symbol{
-					Package: "example.com/annotationfixture/internal/handler",
+				Descriptor: sdk.Symbol{
+					Package: "example.com/annotationfixture/annotation",
 					Name: "Echo",
 				},
+				Capabilities: []string{"diagnostics"},
 				}},
 			}
 		case "analyze":

@@ -292,11 +292,12 @@ func main() {
 		!definition.HasDescriptorLocation ||
 		definition.Implementation.Tool !=
 			"github.com/StevenBuglione/spice/cmd/spice-annotation-core" ||
-		definition.Implementation.Handler != "core/application" ||
+		definition.Implementation.Handler !=
+			"github.com/StevenBuglione/spice/annotation/core.ApplicationHandler" ||
 		!definition.Implementation.HasLocation ||
 		!strings.HasSuffix(
 			definition.Implementation.Location.Path,
-			"/internal/annotationcore/application.go",
+			"/annotation/core/application.go",
 		) ||
 		definition.Provenance.Module !=
 			"github.com/StevenBuglione/spice" ||

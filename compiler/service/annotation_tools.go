@@ -140,6 +140,7 @@ func (service *Service) annotationToolClient(
 	}
 	if err := client.ValidateDescriptor(
 		item.Package,
+		item.Symbol,
 		item.Definition,
 		item.Provenance,
 	); err != nil {
@@ -191,7 +192,10 @@ func toolAnalyzeParams(
 		facts["receiver"] = symbol.Receiver
 	}
 	return protocol.AnalyzeParams{
-		Handler: item.Definition.Implementation.Handler,
+		Descriptor: sdk.Symbol{
+			Package: item.Package,
+			Name:    item.Symbol,
+		},
 		Invocation: protocol.Invocation{
 			DescriptorPackage: item.Package,
 			DescriptorSymbol:  item.Symbol,

@@ -283,15 +283,15 @@ func enrichDefinition(
 		MinimumSpice: definition.Compatibility.MinimumSpice,
 	}
 	implementation := definition.Implementation
-	implementationKey := implementation.Source.Package + "\x00" +
-		implementation.Source.Name
+	implementationKey := decoded.Handler.Package + "\x00" +
+		decoded.Handler.Name
 	location, found := implementationLocations[implementationKey]
 	result.Implementation = AnnotationImplementation{
 		Tool:        implementation.Tool,
-		Handler:     implementation.Handler,
+		Handler:     decoded.Handler.Package + "." + decoded.Handler.Name,
 		Protocol:    string(implementation.Protocol),
-		Package:     implementation.Source.Package,
-		Symbol:      implementation.Source.Name,
+		Package:     decoded.Handler.Package,
+		Symbol:      decoded.Handler.Name,
 		Location:    location,
 		HasLocation: found,
 	}
@@ -329,7 +329,7 @@ func implementationSymbolLocations(
 ) map[string]diagnostic.Location {
 	requested := make(map[string]struct{}, len(descriptors))
 	for _, item := range descriptors {
-		source := item.Definition.Implementation.Source
+		source := item.Handler
 		requested[source.Package+"\x00"+source.Name] = struct{}{}
 	}
 	result := make(map[string]diagnostic.Location, len(requested))

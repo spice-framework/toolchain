@@ -12,6 +12,7 @@ import (
 // declared handler belong to this client's standard Go-resolved tool.
 func (client *Client) ValidateDescriptor(
 	descriptorPackage string,
+	descriptorSymbol string,
 	definition sdk.Definition,
 	provenance annotation.ModuleProvenance,
 ) error {
@@ -37,27 +38,17 @@ func (client *Client) ValidateDescriptor(
 			descriptorPackage,
 		)
 	}
-	expected := definition.Implementation
 	for _, handler := range client.Handlers() {
-		if handler.ID != expected.Handler {
+		if handler.Descriptor.Package != descriptorPackage ||
+			handler.Descriptor.Name != descriptorSymbol {
 			continue
-		}
-		if handler.Source != expected.Source {
-			return fmt.Errorf(
-				"annotation descriptor %q handler %q source is %s.%s, tool reports %s.%s",
-				definition.Name,
-				expected.Handler,
-				expected.Source.Package,
-				expected.Source.Name,
-				handler.Source.Package,
-				handler.Source.Name,
-			)
 		}
 		return nil
 	}
 	return fmt.Errorf(
-		"annotation descriptor %q requires missing handler %q",
+		"annotation descriptor %q requires a missing tool registration for %s.%s",
 		definition.Name,
-		expected.Handler,
+		descriptorPackage,
+		descriptorSymbol,
 	)
 }

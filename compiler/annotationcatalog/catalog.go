@@ -26,6 +26,8 @@ import (
 
 const (
 	sdkPackagePath         = "github.com/StevenBuglione/spice/annotation/sdk"
+	coreToolPackagePath    = "github.com/StevenBuglione/spice/annotation/coretool"
+	coreToolPath           = "github.com/StevenBuglione/spice/cmd/spice-annotation-core"
 	maximumCatalogModules  = 512
 	maximumCatalogFiles    = 100_000
 	maximumCatalogBytes    = 64 << 20
@@ -498,7 +500,7 @@ func descriptorCandidates(
 		if !ok || !descriptorDeclaration(function, sdkAlias) {
 			continue
 		}
-		candidate := decodeCandidateLiteral(function)
+		candidate := decodeCandidateLiteral(source, function)
 		candidate.Package = packagePath
 		candidate.Symbol = function.Name.Name
 		candidate.Module = module.path
@@ -577,7 +579,10 @@ func descriptorFunctionShape(function *ast.FuncDecl) bool {
 		function.Type.Results.NumFields() == 1
 }
 
-func decodeCandidateLiteral(function *ast.FuncDecl) Candidate {
+func decodeCandidateLiteral(
+	source *ast.File,
+	function *ast.FuncDecl,
+) Candidate {
 	if function == nil || function.Body == nil ||
 		len(function.Body.List) != 1 {
 		return Candidate{}
@@ -594,10 +599,52 @@ func decodeCandidateLiteral(function *ast.FuncDecl) Candidate {
 	return Candidate{
 		CanonicalName: stringField(literal, "Name"),
 		Summary:       stringField(literal, "Summary"),
-		Tool:          stringField(implementation, "Tool"),
-		Handler:       stringField(implementation, "Handler"),
+		Tool:          toolField(source, implementation),
+		Handler:       symbolField(implementation, "Handler"),
 		Protocol:      protocolField(implementation),
 	}
+}
+
+func toolField(source *ast.File, literal *ast.CompositeLit) string {
+	if value := stringField(literal, "Tool"); value != "" {
+		return value
+	}
+	selector, ok := keyedField(literal, "Tool").(*ast.SelectorExpr)
+	if !ok || selector.Sel == nil || selector.Sel.Name != "Path" {
+		return ""
+	}
+	qualifier, ok := selector.X.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	for _, imported := range source.Imports {
+		pathValue, err := strconv.Unquote(imported.Path.Value)
+		if err != nil || pathValue != coreToolPackagePath {
+			continue
+		}
+		alias := "coretool"
+		if imported.Name != nil {
+			alias = imported.Name.Name
+		}
+		if qualifier.Name == alias {
+			return coreToolPath
+		}
+	}
+	return ""
+}
+
+func symbolField(literal *ast.CompositeLit, name string) string {
+	switch expression := keyedField(literal, name).(type) {
+	case *ast.Ident:
+		if expression != nil {
+			return expression.Name
+		}
+	case *ast.SelectorExpr:
+		if expression != nil && expression.Sel != nil {
+			return expression.Sel.Name
+		}
+	}
+	return ""
 }
 
 func compositeField(
@@ -627,8 +674,8 @@ func stringField(literal *ast.CompositeLit, name string) string {
 func protocolField(literal *ast.CompositeLit) string {
 	selector, ok := keyedField(literal, "Protocol").(*ast.SelectorExpr)
 	if ok && selector.Sel != nil &&
-		selector.Sel.Name == "ProtocolV1Alpha1" {
-		return "spice.annotation/v1alpha1"
+		selector.Sel.Name == "ProtocolV1Alpha2" {
+		return "spice.annotation/v1alpha2"
 	}
 	return ""
 }

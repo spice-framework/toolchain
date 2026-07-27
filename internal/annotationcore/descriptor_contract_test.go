@@ -23,27 +23,30 @@ import (
 
 func TestEveryOfficialDescriptorHasOneDeclaredToolHandler(t *testing.T) {
 	t.Parallel()
-	definitions := []sdk.Definition{
-		asyncannotation.Execute(),
-		cacheannotation.Cacheable(),
-		coreannotation.Application(),
-		coreannotation.Bean(),
-		coreannotation.Configuration(),
-		coreannotation.Service(),
-		dataannotation.Transactional(),
-		eventannotation.Listener(),
-		eventannotation.Topic(),
-		lifecycleannotation.OnStart(),
-		lifecycleannotation.OnStop(),
-		managementannotation.Enable(),
-		modulithannotation.Module(),
-		modulithannotation.NamedInterface(),
-		observabilityannotation.Logging(),
-		scheduleannotation.FixedDelay(),
-		securityannotation.Authorize(),
-		webannotation.Controller(),
-		webannotation.Get(),
-		webannotation.Post(),
+	definitions := []struct {
+		descriptor sdk.Symbol
+		definition sdk.Definition
+	}{
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/async", Name: "Execute"}, asyncannotation.Execute()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/cache", Name: "Cacheable"}, cacheannotation.Cacheable()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Application"}, coreannotation.Application()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Bean"}, coreannotation.Bean()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Configuration"}, coreannotation.Configuration()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Service"}, coreannotation.Service()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/data", Name: "Transactional"}, dataannotation.Transactional()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/event", Name: "Listener"}, eventannotation.Listener()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/event", Name: "Topic"}, eventannotation.Topic()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/lifecycle", Name: "OnStart"}, lifecycleannotation.OnStart()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/lifecycle", Name: "OnStop"}, lifecycleannotation.OnStop()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/management", Name: "Enable"}, managementannotation.Enable()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/modulith", Name: "Module"}, modulithannotation.Module()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/modulith", Name: "NamedInterface"}, modulithannotation.NamedInterface()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/observability", Name: "Logging"}, observabilityannotation.Logging()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/schedule", Name: "FixedDelay"}, scheduleannotation.FixedDelay()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/security", Name: "Authorize"}, securityannotation.Authorize()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/web", Name: "Controller"}, webannotation.Controller()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/web", Name: "Get"}, webannotation.Get()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/web", Name: "Post"}, webannotation.Post()},
 	}
 	described, err := annotationcore.New().Describe(
 		context.Background(),
@@ -54,10 +57,11 @@ func TestEveryOfficialDescriptorHasOneDeclaredToolHandler(t *testing.T) {
 	}
 	handlers := make(map[string]protocol.Handler, len(described.Handlers))
 	for _, handler := range described.Handlers {
-		if _, duplicate := handlers[handler.ID]; duplicate {
-			t.Fatalf("Describe() repeats handler %q", handler.ID)
+		key := handler.Descriptor.Package + "." + handler.Descriptor.Name
+		if _, duplicate := handlers[key]; duplicate {
+			t.Fatalf("Describe() repeats descriptor %q", key)
 		}
-		handlers[handler.ID] = handler
+		handlers[key] = handler
 	}
 	if len(handlers) != len(definitions) {
 		t.Fatalf(
@@ -66,24 +70,16 @@ func TestEveryOfficialDescriptorHasOneDeclaredToolHandler(t *testing.T) {
 			len(definitions),
 		)
 	}
-	for _, definition := range definitions {
-		if err := definition.Validate(); err != nil {
-			t.Fatalf("descriptor %q: %v", definition.Name, err)
+	for _, item := range definitions {
+		if err := item.definition.Validate(); err != nil {
+			t.Fatalf("descriptor %q: %v", item.definition.Name, err)
 		}
-		handler, found := handlers[definition.Implementation.Handler]
+		key := item.descriptor.Package + "." + item.descriptor.Name
+		_, found := handlers[key]
 		if !found {
 			t.Fatalf(
-				"descriptor %q handler %q is not declared",
-				definition.Name,
-				definition.Implementation.Handler,
-			)
-		}
-		if handler.Source != definition.Implementation.Source {
-			t.Fatalf(
-				"descriptor %q source = %+v, handler source = %+v",
-				definition.Name,
-				definition.Implementation.Source,
-				handler.Source,
+				"descriptor %q is not registered",
+				key,
 			)
 		}
 	}

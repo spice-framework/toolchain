@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 )
 
@@ -15,7 +16,10 @@ func TestDecodeStaticDescriptor(t *testing.T) {
 	program := loadDescriptorProgram(t, map[string]string{
 		"defs/controller.go": `package defs
 
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import (
+	"context"
+	"github.com/StevenBuglione/spice/annotation/sdk"
+)
 
 // Controller marks an HTTP controller and documents its generated behavior.
 func Controller() sdk.Definition {
@@ -38,14 +42,13 @@ func Controller() sdk.Definition {
 		},
 		Implementation: sdk.Implementation{
 			Tool: "example.com/plugin/cmd/annotations",
-			Handler: "web/controller",
-			Protocol: sdk.ProtocolV1Alpha1,
-			Source: sdk.Symbol{
-				Package: "example.com/plugin/internal/web",
-				Name: "ControllerHandler",
-			},
+			Handler: ControllerHandler,
+			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
+}
+func ControllerHandler(context.Context, sdk.Invocation) (sdk.Result, error) {
+	return sdk.Result{}, nil
 }
 `,
 	})
@@ -56,7 +59,10 @@ func Controller() sdk.Definition {
 	}
 	if got.Definition.Name != "web.Controller" ||
 		got.Definition.Arguments[0].Name != "prefix" ||
-		got.Definition.Implementation.Handler != "web/controller" ||
+		got.Handler != (sdk.Symbol{
+			Package: "example.com/plugin/defs",
+			Name:    "ControllerHandler",
+		}) ||
 		!strings.Contains(got.Documentation, "generated behavior") ||
 		got.Package != "example.com/plugin/defs" ||
 		got.Symbol != "Controller" ||
@@ -120,8 +126,7 @@ func TestDecodeAllOfficialDescriptors(t *testing.T) {
 		if item.Documentation == "" ||
 			item.Definition.Implementation.Tool !=
 				"github.com/StevenBuglione/spice/cmd/spice-annotation-core" ||
-			item.Definition.Implementation.Source.Package !=
-				"github.com/StevenBuglione/spice/internal/annotationcore" {
+			item.Handler.Package != item.Package {
 			t.Fatalf("official descriptor = %+v", item)
 		}
 	}
@@ -145,7 +150,7 @@ func Controller() sdk.Definition {
 }
 `,
 			symbol:  "Controller",
-			message: "string literal or exported SDK string constant",
+			message: "string literal or exported Go string constant",
 		},
 		{
 			name: "local constant",
@@ -158,7 +163,7 @@ func Controller() sdk.Definition {
 }
 `,
 			symbol:  "Controller",
-			message: "string literal or exported SDK string constant",
+			message: "string literal or exported Go string constant",
 		},
 		{
 			name: "computed Boolean constant",
@@ -263,6 +268,84 @@ func TestDecodeRejectsMissingProgramPackageAndSymbol(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsHandlerIndirectionAndSeparateFiles(t *testing.T) {
+	t.Parallel()
+	const descriptorSource = `package defs
+import (
+	"context"
+	"github.com/StevenBuglione/spice/annotation/sdk"
+)
+var _ context.Context
+// Controller documents the annotation.
+func Controller() sdk.Definition {
+	return sdk.Definition{
+		Name: "web.Controller",
+		Summary: "Test annotation.",
+		Targets: []sdk.Target{sdk.TargetType},
+		Examples: []sdk.Example{{Title: "Use", Code: "// @Controller"}},
+		Compatibility: sdk.Compatibility{
+			Since: "0.1.0",
+			MinimumSpice: "0.1.0",
+		},
+		Implementation: sdk.Implementation{
+			Tool: "example.com/plugin/cmd/annotations",
+			Handler: ControllerHandler,
+			Protocol: sdk.ProtocolV1Alpha2,
+		},
+	}
+}
+`
+	tests := []struct {
+		name    string
+		files   map[string]string
+		message string
+	}{
+		{
+			name: "handler variable",
+			files: map[string]string{
+				"defs/controller.go": descriptorSource +
+					`var ControllerHandler sdk.Handler = func(
+	context.Context,
+	sdk.Invocation,
+) (sdk.Result, error) { return sdk.Result{}, nil }
+`,
+			},
+			message: "package-level handler function reference",
+		},
+		{
+			name: "separate source file",
+			files: map[string]string{
+				"defs/controller.go": descriptorSource,
+				"defs/handler.go": `package defs
+import (
+	"context"
+	"github.com/StevenBuglione/spice/annotation/sdk"
+)
+func ControllerHandler(
+	context.Context,
+	sdk.Invocation,
+) (sdk.Result, error) { return sdk.Result{}, nil }
+`,
+			},
+			message: "descriptor's Go file",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			program := loadDescriptorProgram(t, test.files)
+			_, err := Decode(
+				program,
+				"example.com/plugin/defs",
+				"Controller",
+			)
+			if err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("Decode() error = %v, want %q", err, test.message)
+			}
+		})
+	}
+}
+
 func TestDecodeAllBuildsGenericDefinitionsAndRejectsCanonicalCollisions(
 	t *testing.T,
 ) {
@@ -307,7 +390,10 @@ func TestDecodeAllBuildsGenericDefinitionsAndRejectsCanonicalCollisions(
 
 func validDescriptorSource(symbol, name string) string {
 	return `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import (
+	"context"
+	"github.com/StevenBuglione/spice/annotation/sdk"
+)
 // ` + symbol + ` documents the annotation.
 func ` + symbol + `() sdk.Definition {
 	return sdk.Definition{
@@ -321,14 +407,13 @@ func ` + symbol + `() sdk.Definition {
 		},
 		Implementation: sdk.Implementation{
 			Tool: "example.com/plugin/cmd/annotations",
-			Handler: "web/` + strings.ToLower(symbol) + `",
-			Protocol: sdk.ProtocolV1Alpha1,
-			Source: sdk.Symbol{
-				Package: "example.com/plugin/internal/web",
-				Name: "` + symbol + `Handler",
-			},
+			Handler: ` + symbol + `Handler,
+			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
+}
+func ` + symbol + `Handler(context.Context, sdk.Invocation) (sdk.Result, error) {
+	return sdk.Result{}, nil
 }
 `
 }

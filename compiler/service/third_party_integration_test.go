@@ -141,13 +141,13 @@ func assertThirdPartyDefinitions(
 			name:           "fixture.Factory",
 			symbol:         "Factory",
 			descriptorFile: "/annotation/wiring/factory.go",
-			implementation: "/internal/handler/factory.go",
+			implementation: "/annotation/wiring/factory.go",
 		},
 		{
 			name:           "fixture.Policy",
 			symbol:         "Policy",
 			descriptorFile: "/annotation/policy/policy.go",
-			implementation: "/internal/handler/policy.go",
+			implementation: "/annotation/policy/policy.go",
 		},
 	} {
 		definition, found := selected[expected.name]

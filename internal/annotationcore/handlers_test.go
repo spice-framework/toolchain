@@ -5,38 +5,44 @@ import (
 	"encoding/json"
 	"testing"
 
+	asyncannotation "github.com/StevenBuglione/spice/annotation/async"
+	cacheannotation "github.com/StevenBuglione/spice/annotation/cache"
+	coreannotation "github.com/StevenBuglione/spice/annotation/core"
+	dataannotation "github.com/StevenBuglione/spice/annotation/data"
+	eventannotation "github.com/StevenBuglione/spice/annotation/event"
+	lifecycleannotation "github.com/StevenBuglione/spice/annotation/lifecycle"
+	managementannotation "github.com/StevenBuglione/spice/annotation/management"
+	modulithannotation "github.com/StevenBuglione/spice/annotation/modulith"
+	observabilityannotation "github.com/StevenBuglione/spice/annotation/observability"
+	scheduleannotation "github.com/StevenBuglione/spice/annotation/schedule"
 	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	securityannotation "github.com/StevenBuglione/spice/annotation/security"
+	webannotation "github.com/StevenBuglione/spice/annotation/web"
 )
 
 func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name       string
-		handle     handler
-		invocation protocol.Invocation
-		kind       sdk.ContributionKind
-	}{
-		handlerCase("application", ApplicationHandler, "core", "Application", sdk.ContributionApplication),
-		handlerCase("bean", BeanHandler, "core", "Bean", sdk.ContributionProvider),
-		handlerCase("service", ServiceHandler, "core", "Service", sdk.ContributionStereotype),
-		handlerCaseWithArguments("configuration", ConfigurationHandler, "core", "Configuration", sdk.ContributionConfiguration, stringToolArgument("prefix", "server")),
-		handlerCaseWithArguments("controller", ControllerHandler, "web", "Controller", sdk.ContributionController, stringToolArgument("prefix", "/api")),
-		handlerCaseWithArguments("get", GetHandler, "web", "Get", sdk.ContributionRoute, positionalToolArgument("/orders")),
-		handlerCaseWithArguments("post", PostHandler, "web", "Post", sdk.ContributionRoute, stringToolArgument("path", "/orders")),
-		handlerCaseWithArguments("module", ModuleHandler, "modulith", "Module", sdk.ContributionModule, toolArgument("allowedDependencies", sdk.KindList, []string{"example.com/inventory"})),
-		handlerCaseWithArguments("named interface", NamedInterfaceHandler, "modulith", "NamedInterface", sdk.ContributionNamedInterface, positionalToolArgument("api")),
-		handlerCase("on start", OnStartHandler, "lifecycle", "OnStart", sdk.ContributionLifecycle),
-		handlerCase("on stop", OnStopHandler, "lifecycle", "OnStop", sdk.ContributionLifecycle),
-		handlerCase("async", AsyncExecuteHandler, "async", "Execute", sdk.ContributionAsync),
-		handlerCaseWithArguments("cache", CacheableHandler, "cache", "Cacheable", sdk.ContributionCache, stringToolArgument("name", "orders.by-id")),
-		handlerCaseWithArguments("transaction", TransactionalHandler, "data", "Transactional", sdk.ContributionTransaction, stringToolArgument("isolation", "serializable"), toolArgument("readOnly", sdk.KindBoolean, true)),
-		handlerCase("event topic", EventTopicHandler, "event", "Topic", sdk.ContributionEventTopic),
-		handlerCaseWithArguments("event listener", EventListenerHandler, "event", "Listener", sdk.ContributionEventListener, toolArgument("order", sdk.KindInteger, int64(3))),
-		handlerCaseWithArguments("fixed delay", FixedDelayHandler, "schedule", "FixedDelay", sdk.ContributionSchedule, stringToolArgument("delay", "5m"), stringToolArgument("initialDelay", "1s"), toolArgument("continueOnError", sdk.KindBoolean, true)),
-		handlerCaseWithArguments("authorize", AuthorizeHandler, "security", "Authorize", sdk.ContributionAuthorization, toolArgument("authenticated", sdk.KindBoolean, true), toolArgument("anyRoles", sdk.KindList, []string{"operator"}), toolArgument("allRoles", sdk.KindList, []string{"member"}), toolArgument("allScopes", sdk.KindList, []string{"orders.read"})),
-		handlerCaseWithArguments("management", ManagementEnableHandler, "management", "Enable", sdk.ContributionBootstrap, toolArgument("expose", sdk.KindList, []string{"health", "info"})),
-		handlerCase("logging", ObservabilityLoggingHandler, "observability", "Logging", sdk.ContributionBootstrap),
+	tests := []handlerTestCase{
+		handlerCase("application", coreannotation.ApplicationHandler, "core", "Application", sdk.ContributionApplication),
+		handlerCase("bean", coreannotation.BeanHandler, "core", "Bean", sdk.ContributionProvider),
+		handlerCase("service", coreannotation.ServiceHandler, "core", "Service", sdk.ContributionStereotype),
+		handlerCaseWithArguments("configuration", coreannotation.ConfigurationHandler, "core", "Configuration", sdk.ContributionConfiguration, stringToolArgument("prefix", "server")),
+		handlerCaseWithArguments("controller", webannotation.ControllerHandler, "web", "Controller", sdk.ContributionController, stringToolArgument("prefix", "/api")),
+		handlerCaseWithArguments("get", webannotation.GetHandler, "web", "Get", sdk.ContributionRoute, positionalToolArgument("/orders")),
+		handlerCaseWithArguments("post", webannotation.PostHandler, "web", "Post", sdk.ContributionRoute, stringToolArgument("path", "/orders")),
+		handlerCaseWithArguments("module", modulithannotation.ModuleHandler, "modulith", "Module", sdk.ContributionModule, toolArgument("allowedDependencies", sdk.KindList, []string{"example.com/inventory"})),
+		handlerCaseWithArguments("named interface", modulithannotation.NamedInterfaceHandler, "modulith", "NamedInterface", sdk.ContributionNamedInterface, positionalToolArgument("api")),
+		handlerCase("on start", lifecycleannotation.OnStartHandler, "lifecycle", "OnStart", sdk.ContributionLifecycle),
+		handlerCase("on stop", lifecycleannotation.OnStopHandler, "lifecycle", "OnStop", sdk.ContributionLifecycle),
+		handlerCase("async", asyncannotation.AsyncExecuteHandler, "async", "Execute", sdk.ContributionAsync),
+		handlerCaseWithArguments("cache", cacheannotation.CacheableHandler, "cache", "Cacheable", sdk.ContributionCache, stringToolArgument("name", "orders.by-id")),
+		handlerCaseWithArguments("transaction", dataannotation.TransactionalHandler, "data", "Transactional", sdk.ContributionTransaction, stringToolArgument("isolation", "serializable"), toolArgument("readOnly", sdk.KindBoolean, true)),
+		handlerCase("event topic", eventannotation.EventTopicHandler, "event", "Topic", sdk.ContributionEventTopic),
+		handlerCaseWithArguments("event listener", eventannotation.EventListenerHandler, "event", "Listener", sdk.ContributionEventListener, toolArgument("order", sdk.KindInteger, int64(3))),
+		handlerCaseWithArguments("fixed delay", scheduleannotation.FixedDelayHandler, "schedule", "FixedDelay", sdk.ContributionSchedule, stringToolArgument("delay", "5m"), stringToolArgument("initialDelay", "1s"), toolArgument("continueOnError", sdk.KindBoolean, true)),
+		handlerCaseWithArguments("authorize", securityannotation.AuthorizeHandler, "security", "Authorize", sdk.ContributionAuthorization, toolArgument("authenticated", sdk.KindBoolean, true), toolArgument("anyRoles", sdk.KindList, []string{"operator"}), toolArgument("allRoles", sdk.KindList, []string{"member"}), toolArgument("allScopes", sdk.KindList, []string{"orders.read"})),
+		handlerCaseWithArguments("management", managementannotation.ManagementEnableHandler, "management", "Enable", sdk.ContributionBootstrap, toolArgument("expose", sdk.KindList, []string{"health", "info"})),
+		handlerCase("logging", observabilityannotation.ObservabilityLoggingHandler, "observability", "Logging", sdk.ContributionBootstrap),
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,19 +51,11 @@ func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("handler error = %v", err)
 			}
-			if len(result.Contributions) != 1 {
-				t.Fatalf("contributions = %+v", result.Contributions)
-			}
-			contribution, err := protocol.DecodeContribution(
-				result.Contributions[0],
-			)
-			if err != nil {
-				t.Fatalf("DecodeContribution() error = %v", err)
-			}
-			if contribution.Kind != test.kind {
+			if len(result.Contributions) != 1 ||
+				result.Contributions[0].Kind != test.kind {
 				t.Fatalf(
-					"contribution kind = %q, want %q",
-					contribution.Kind,
+					"contributions = %+v, want one %q",
+					result.Contributions,
 					test.kind,
 				)
 			}
@@ -67,34 +65,30 @@ func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 
 func TestHandlerArgumentValidationFailsClosed(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name       string
-		handle     handler
-		invocation protocol.Invocation
-	}{
+	tests := []handlerFailureTestCase{
 		{
 			name:   "descriptor identity",
-			handle: ApplicationHandler,
-			invocation: protocol.Invocation{
+			handle: coreannotation.ApplicationHandler,
+			invocation: sdk.Invocation{
 				DescriptorPackage: "example.com/wrong",
 				DescriptorSymbol:  "Application",
 			},
 		},
-		handlerFailureCase("unsupported positional", BeanHandler, "core", "Bean", positionalToolArgument("value")),
-		handlerFailureCase("unnamed non-positional", ConfigurationHandler, "core", "Configuration", toolArgument("", sdk.KindString, "server")),
-		handlerFailureCase("unsupported name", ConfigurationHandler, "core", "Configuration", stringToolArgument("unknown", "server")),
-		handlerFailureCase("duplicate", ConfigurationHandler, "core", "Configuration", stringToolArgument("prefix", "one"), stringToolArgument("prefix", "two")),
-		handlerFailureCase("required missing", CacheableHandler, "cache", "Cacheable"),
-		handlerFailureCase("required empty", CacheableHandler, "cache", "Cacheable", stringToolArgument("name", " ")),
-		handlerFailureCase("string kind", CacheableHandler, "cache", "Cacheable", toolArgument("name", sdk.KindBoolean, true)),
-		handlerFailureCase("string JSON", CacheableHandler, "cache", "Cacheable", malformedToolArgument("name", sdk.KindString)),
-		handlerFailureCase("list kind", ModuleHandler, "modulith", "Module", stringToolArgument("allowedDependencies", "wrong")),
-		handlerFailureCase("list JSON", ModuleHandler, "modulith", "Module", malformedToolArgument("allowedDependencies", sdk.KindList)),
-		handlerFailureCase("boolean kind", TransactionalHandler, "data", "Transactional", stringToolArgument("readOnly", "wrong")),
-		handlerFailureCase("boolean JSON", TransactionalHandler, "data", "Transactional", malformedToolArgument("readOnly", sdk.KindBoolean)),
-		handlerFailureCase("integer kind", EventListenerHandler, "event", "Listener", stringToolArgument("order", "wrong")),
-		handlerFailureCase("integer JSON", EventListenerHandler, "event", "Listener", malformedToolArgument("order", sdk.KindInteger)),
-		handlerFailureCase("management expose", ManagementEnableHandler, "management", "Enable"),
+		handlerFailureCase("unsupported positional", coreannotation.BeanHandler, "core", "Bean", positionalToolArgument("value")),
+		handlerFailureCase("unnamed non-positional", coreannotation.ConfigurationHandler, "core", "Configuration", toolArgument("", sdk.KindString, "server")),
+		handlerFailureCase("unsupported name", coreannotation.ConfigurationHandler, "core", "Configuration", stringToolArgument("unknown", "server")),
+		handlerFailureCase("duplicate", coreannotation.ConfigurationHandler, "core", "Configuration", stringToolArgument("prefix", "one"), stringToolArgument("prefix", "two")),
+		handlerFailureCase("required missing", cacheannotation.CacheableHandler, "cache", "Cacheable"),
+		handlerFailureCase("required empty", cacheannotation.CacheableHandler, "cache", "Cacheable", stringToolArgument("name", " ")),
+		handlerFailureCase("string kind", cacheannotation.CacheableHandler, "cache", "Cacheable", toolArgument("name", sdk.KindBoolean, true)),
+		handlerFailureCase("string JSON", cacheannotation.CacheableHandler, "cache", "Cacheable", malformedToolArgument("name", sdk.KindString)),
+		handlerFailureCase("list kind", modulithannotation.ModuleHandler, "modulith", "Module", stringToolArgument("allowedDependencies", "wrong")),
+		handlerFailureCase("list JSON", modulithannotation.ModuleHandler, "modulith", "Module", malformedToolArgument("allowedDependencies", sdk.KindList)),
+		handlerFailureCase("boolean kind", dataannotation.TransactionalHandler, "data", "Transactional", stringToolArgument("readOnly", "wrong")),
+		handlerFailureCase("boolean JSON", dataannotation.TransactionalHandler, "data", "Transactional", malformedToolArgument("readOnly", sdk.KindBoolean)),
+		handlerFailureCase("integer kind", eventannotation.EventListenerHandler, "event", "Listener", stringToolArgument("order", "wrong")),
+		handlerFailureCase("integer JSON", eventannotation.EventListenerHandler, "event", "Listener", malformedToolArgument("order", sdk.KindInteger)),
+		handlerFailureCase("management expose", managementannotation.ManagementEnableHandler, "management", "Enable"),
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -109,49 +103,41 @@ func TestHandlerArgumentValidationFailsClosed(t *testing.T) {
 	}
 }
 
+type handlerTestCase struct {
+	name       string
+	handle     sdk.Handler
+	invocation sdk.Invocation
+	kind       sdk.ContributionKind
+}
+
+type handlerFailureTestCase struct {
+	name       string
+	handle     sdk.Handler
+	invocation sdk.Invocation
+}
+
 func handlerCase(
 	name string,
-	handle handler,
+	handle sdk.Handler,
 	domain string,
 	symbol string,
 	kind sdk.ContributionKind,
-) struct {
-	name       string
-	handle     handler
-	invocation protocol.Invocation
-	kind       sdk.ContributionKind
-} {
-	return handlerCaseWithArguments(
-		name,
-		handle,
-		domain,
-		symbol,
-		kind,
-	)
+) handlerTestCase {
+	return handlerCaseWithArguments(name, handle, domain, symbol, kind)
 }
 
 func handlerCaseWithArguments(
 	name string,
-	handle handler,
+	handle sdk.Handler,
 	domain string,
 	symbol string,
 	kind sdk.ContributionKind,
-	arguments ...protocol.Argument,
-) struct {
-	name       string
-	handle     handler
-	invocation protocol.Invocation
-	kind       sdk.ContributionKind
-} {
-	return struct {
-		name       string
-		handle     handler
-		invocation protocol.Invocation
-		kind       sdk.ContributionKind
-	}{
+	arguments ...sdk.InvocationArgument,
+) handlerTestCase {
+	return handlerTestCase{
 		name:   name,
 		handle: handle,
-		invocation: protocol.Invocation{
+		invocation: sdk.Invocation{
 			DescriptorPackage: annotationPackage(domain),
 			DescriptorSymbol:  symbol,
 			CanonicalName:     domain + "." + symbol,
@@ -163,23 +149,15 @@ func handlerCaseWithArguments(
 
 func handlerFailureCase(
 	name string,
-	handle handler,
+	handle sdk.Handler,
 	domain string,
 	symbol string,
-	arguments ...protocol.Argument,
-) struct {
-	name       string
-	handle     handler
-	invocation protocol.Invocation
-} {
-	return struct {
-		name       string
-		handle     handler
-		invocation protocol.Invocation
-	}{
+	arguments ...sdk.InvocationArgument,
+) handlerFailureTestCase {
+	return handlerFailureTestCase{
 		name:   name,
 		handle: handle,
-		invocation: protocol.Invocation{
+		invocation: sdk.Invocation{
 			DescriptorPackage: annotationPackage(domain),
 			DescriptorSymbol:  symbol,
 			CanonicalName:     domain + "." + symbol,
@@ -192,13 +170,16 @@ func annotationPackage(domain string) string {
 	return "github.com/StevenBuglione/spice/annotation/" + domain
 }
 
-func positionalToolArgument(value string) protocol.Argument {
+func positionalToolArgument(value string) sdk.InvocationArgument {
 	argument := stringToolArgument("", value)
 	argument.Positional = true
 	return argument
 }
 
-func stringToolArgument(name string, value string) protocol.Argument {
+func stringToolArgument(
+	name string,
+	value string,
+) sdk.InvocationArgument {
 	return toolArgument(name, sdk.KindString, value)
 }
 
@@ -206,19 +187,19 @@ func toolArgument(
 	name string,
 	kind sdk.Kind,
 	value any,
-) protocol.Argument {
+) sdk.InvocationArgument {
 	content, err := json.Marshal(value)
 	if err != nil {
 		panic(err)
 	}
-	return protocol.Argument{Name: name, Kind: kind, Value: content}
+	return sdk.InvocationArgument{Name: name, Kind: kind, Value: content}
 }
 
 func malformedToolArgument(
 	name string,
 	kind sdk.Kind,
-) protocol.Argument {
-	return protocol.Argument{
+) sdk.InvocationArgument {
+	return sdk.InvocationArgument{
 		Name:  name,
 		Kind:  kind,
 		Value: json.RawMessage(`{`),

@@ -177,7 +177,11 @@ func (client *Client) Handlers() []protocol.Handler {
 		result = append(result, handler)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
+		if result[i].Descriptor.Package != result[j].Descriptor.Package {
+			return result[i].Descriptor.Package <
+				result[j].Descriptor.Package
+		}
+		return result[i].Descriptor.Name < result[j].Descriptor.Name
 	})
 	return result
 }
@@ -203,11 +207,13 @@ func (client *Client) Analyze(
 			"annotation tool client is nil",
 		)
 	}
-	if _, found := client.handlers[params.Handler]; !found {
+	key := handlerKey(params.Descriptor)
+	if _, found := client.handlers[key]; !found {
 		return protocol.AnalyzeResult{}, fmt.Errorf(
-			"annotation tool %q does not declare handler %q",
+			"annotation tool %q does not register descriptor %s.%s",
 			client.config.ToolPath,
-			params.Handler,
+			params.Descriptor.Package,
+			params.Descriptor.Name,
 		)
 	}
 	var result protocol.AnalyzeResult
@@ -237,7 +243,7 @@ func (client *Client) Close(ctx context.Context) error {
 func (client *Client) initialize(ctx context.Context) error {
 	var initialized protocol.InitializeResult
 	if err := client.call(ctx, "initialize", protocol.InitializeParams{
-		Protocol:      sdk.ProtocolV1Alpha1,
+		Protocol:      sdk.ProtocolV1Alpha2,
 		SpiceVersion:  client.config.SpiceVersion,
 		WorkspaceRoot: client.module.Root,
 		ToolPath:      client.config.ToolPath,
@@ -284,7 +290,7 @@ func (client *Client) validateIdentity(
 	identity protocol.InitializeResult,
 ) error {
 	module := client.provenance.Module
-	if identity.Protocol != sdk.ProtocolV1Alpha1 ||
+	if identity.Protocol != sdk.ProtocolV1Alpha2 ||
 		identity.ToolPath != client.config.ToolPath ||
 		identity.ModulePath != module.Path ||
 		identity.ModuleVersion != module.Version {
@@ -294,7 +300,7 @@ func (client *Client) validateIdentity(
 			identity.ToolPath,
 			identity.ModulePath,
 			identity.ModuleVersion,
-			sdk.ProtocolV1Alpha1,
+			sdk.ProtocolV1Alpha2,
 			client.config.ToolPath,
 			module.Path,
 			module.Version,
@@ -531,21 +537,29 @@ func validateHandlers(
 ) (map[string]protocol.Handler, error) {
 	result := make(map[string]protocol.Handler, len(values))
 	for _, handler := range values {
-		if strings.TrimSpace(handler.ID) == "" ||
-			strings.TrimSpace(handler.Source.Package) == "" ||
-			strings.TrimSpace(handler.Source.Name) == "" {
+		if strings.TrimSpace(handler.Descriptor.Package) == "" ||
+			strings.TrimSpace(handler.Descriptor.Name) == "" {
 			return nil, errors.New(
-				"every handler requires an ID and implementation source symbol",
+				"every handler requires a descriptor symbol",
 			)
 		}
-		if _, duplicate := result[handler.ID]; duplicate {
-			return nil, fmt.Errorf("duplicate handler %q", handler.ID)
+		key := handlerKey(handler.Descriptor)
+		if _, duplicate := result[key]; duplicate {
+			return nil, fmt.Errorf(
+				"duplicate descriptor registration %s.%s",
+				handler.Descriptor.Package,
+				handler.Descriptor.Name,
+			)
 		}
 		handler.Capabilities = append([]string(nil), handler.Capabilities...)
 		sort.Strings(handler.Capabilities)
-		result[handler.ID] = handler
+		result[key] = handler
 	}
 	return result, nil
+}
+
+func handlerKey(symbol sdk.Symbol) string {
+	return symbol.Package + "\x00" + symbol.Name
 }
 
 func clonePackageIdentity(value PackageIdentity) PackageIdentity {

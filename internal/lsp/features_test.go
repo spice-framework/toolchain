@@ -248,9 +248,9 @@ func TestFileScopedDefinitionsPreserveAliasesAndRichDocumentation(
 			},
 			Implementation: compilerservice.AnnotationImplementation{
 				Tool:     "example.com/sdk/cmd/annotations",
-				Handler:  "core/application",
-				Protocol: "spice.annotation/v1alpha1",
-				Package:  "example.com/sdk/internal/handlers",
+				Handler:  "example.com/sdk/core.ApplicationHandler",
+				Protocol: "spice.annotation/v1alpha2",
+				Package:  "example.com/sdk/core",
 				Symbol:   "ApplicationHandler",
 			},
 			Provenance: compilerservice.AnnotationProvenance{

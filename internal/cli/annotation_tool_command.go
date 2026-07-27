@@ -170,7 +170,7 @@ func listAnnotationDescriptors(
 			item.Package,
 			item.Symbol,
 			item.Definition.Implementation.Tool,
-			item.Definition.Implementation.Handler,
+			item.Handler.Package+"."+item.Handler.Name,
 			status,
 		); err != nil {
 			return 1
@@ -217,6 +217,7 @@ func doctorAnnotationDescriptors(
 		}
 		if err := client.ValidateDescriptor(
 			item.Package,
+			item.Symbol,
 			item.Definition,
 			item.Provenance,
 		); err != nil {

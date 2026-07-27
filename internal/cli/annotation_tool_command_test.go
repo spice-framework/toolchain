@@ -33,7 +33,10 @@ type Value struct{}
 		"annotations/echo.go",
 		`package annotations
 
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import (
+	"context"
+	"github.com/StevenBuglione/spice/annotation/sdk"
+)
 
 // Echo documents the fixture annotation.
 func Echo() sdk.Definition {
@@ -51,14 +54,13 @@ func Echo() sdk.Definition {
 		},
 		Implementation: sdk.Implementation{
 			Tool: "example.com/fixture/cmd/annotations",
-			Handler: "fixture/echo",
-			Protocol: sdk.ProtocolV1Alpha1,
-			Source: sdk.Symbol{
-				Package: "example.com/fixture/internal/handler",
-				Name: "Echo",
-			},
+			Handler: EchoHandler,
+			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
+}
+func EchoHandler(context.Context, sdk.Invocation) (sdk.Result, error) {
+	return sdk.Result{}, nil
 }
 `,
 	)

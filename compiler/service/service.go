@@ -1035,7 +1035,7 @@ func resolveImplementationPositions(
 	symbols := make([]sdk.Symbol, 0, len(descriptors))
 	seen := make(map[sdk.Symbol]struct{}, len(descriptors))
 	for _, item := range descriptors {
-		symbol := item.Definition.Implementation.Source
+		symbol := item.Handler
 		if _, duplicate := seen[symbol]; duplicate {
 			continue
 		}

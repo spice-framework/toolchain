@@ -3,6 +3,7 @@
 package descriptor
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -23,6 +24,7 @@ const sdkPackagePath = "github.com/StevenBuglione/spice/annotation/sdk"
 // source location.
 type Descriptor struct {
 	Definition    sdk.Definition
+	Handler       sdk.Symbol
 	Package       string
 	Symbol        string
 	Documentation string
@@ -122,7 +124,7 @@ func Decode(
 	if err != nil {
 		return Descriptor{}, descriptorError(symbol, "%v", err)
 	}
-	definition, err := decodeDefinition(pkg.TypesInfo, expression)
+	definition, handler, err := decodeDefinition(pkg.TypesInfo, expression)
 	if err != nil {
 		return Descriptor{}, descriptorError(symbol, "%v", err)
 	}
@@ -141,8 +143,23 @@ func Decode(
 	if err := definition.Validate(); err != nil {
 		return Descriptor{}, descriptorError(symbol, "%v", err)
 	}
+	if handler.Package != packagePath {
+		return Descriptor{}, descriptorError(
+			symbol,
+			"implementation handler must be declared in descriptor package %q",
+			packagePath,
+		)
+	}
+	if err := validateHandlerInDescriptorFile(
+		pkg,
+		declaration,
+		handler.Name,
+	); err != nil {
+		return Descriptor{}, descriptorError(symbol, "%v", err)
+	}
 	return Descriptor{
 		Definition:    definition,
+		Handler:       handler,
 		Package:       packagePath,
 		Symbol:        symbolName,
 		Documentation: strings.TrimSpace(declaration.Doc.Text()),
@@ -296,12 +313,80 @@ func validateSignature(signature *types.Signature) error {
 }
 
 func isSDKDefinition(value types.Type) bool {
+	return isNamedType(value, sdkPackagePath, "Definition")
+}
+
+func isNamedType(value types.Type, packagePath string, name string) bool {
 	named, ok := value.(*types.Named)
 	if !ok || named.Obj() == nil || named.Obj().Pkg() == nil {
 		return false
 	}
-	return named.Obj().Name() == "Definition" &&
-		named.Obj().Pkg().Path() == sdkPackagePath
+	return named.Obj().Name() == name &&
+		named.Obj().Pkg().Path() == packagePath
+}
+
+func validHandlerSignature(signature *types.Signature) bool {
+	if signature == nil ||
+		signature.Recv() != nil ||
+		signature.Variadic() ||
+		signature.TypeParams().Len() != 0 ||
+		signature.Params().Len() != 2 ||
+		signature.Results().Len() != 2 {
+		return false
+	}
+	return isNamedType(
+		signature.Params().At(0).Type(),
+		"context",
+		"Context",
+	) &&
+		isNamedType(
+			signature.Params().At(1).Type(),
+			sdkPackagePath,
+			"Invocation",
+		) &&
+		isNamedType(
+			signature.Results().At(0).Type(),
+			sdkPackagePath,
+			"Result",
+		) &&
+		types.Identical(
+			signature.Results().At(1).Type(),
+			types.Universe.Lookup("error").Type(),
+		)
+}
+
+func validateHandlerInDescriptorFile(
+	pkg load.Package,
+	descriptor *ast.FuncDecl,
+	handlerName string,
+) error {
+	for _, file := range pkg.Syntax {
+		if file == nil ||
+			descriptor.Pos() < file.Pos() ||
+			descriptor.End() > file.End() {
+			continue
+		}
+		for _, item := range file.Decls {
+			function, ok := item.(*ast.FuncDecl)
+			if !ok || function.Name == nil ||
+				function.Name.Name != handlerName {
+				continue
+			}
+			if function.Recv != nil || function.Body == nil ||
+				!token.IsExported(handlerName) {
+				return fmt.Errorf(
+					"implementation handler %q must be an exported package-level function with a body",
+					handlerName,
+				)
+			}
+			return nil
+		}
+		return fmt.Errorf(
+			"implementation handler %q must be declared in the descriptor's Go file",
+			handlerName,
+		)
+	}
+	return fmt.Errorf("source file was not found in the typed program")
 }
 
 func validateOneDescriptorPerFile(
@@ -362,7 +447,7 @@ func descriptorExpression(declaration *ast.FuncDecl) (ast.Expr, error) {
 func decodeDefinition(
 	info *types.Info,
 	expression ast.Expr,
-) (sdk.Definition, error) {
+) (sdk.Definition, sdk.Symbol, error) {
 	fields, err := keyedFields(expression, map[string]struct{}{
 		"Name":           {},
 		"Summary":        {},
@@ -374,46 +459,47 @@ func decodeDefinition(
 		"Implementation": {},
 	})
 	if err != nil {
-		return sdk.Definition{}, fmt.Errorf("decode definition: %w", err)
+		return sdk.Definition{}, sdk.Symbol{}, fmt.Errorf("decode definition: %w", err)
 	}
 	var result sdk.Definition
 	result.Name, err = optionalString(info, fields, "Name")
 	if err != nil {
-		return sdk.Definition{}, err
+		return sdk.Definition{}, sdk.Symbol{}, err
 	}
 	result.Summary, err = optionalString(info, fields, "Summary")
 	if err != nil {
-		return sdk.Definition{}, err
+		return sdk.Definition{}, sdk.Symbol{}, err
 	}
 	result.Targets, err = optionalTargets(info, fields, "Targets")
 	if err != nil {
-		return sdk.Definition{}, err
+		return sdk.Definition{}, sdk.Symbol{}, err
 	}
 	result.Repeatable, err = optionalBool(info, fields, "Repeatable")
 	if err != nil {
-		return sdk.Definition{}, err
+		return sdk.Definition{}, sdk.Symbol{}, err
 	}
 	result.Arguments, err = optionalArguments(info, fields, "Arguments")
 	if err != nil {
-		return sdk.Definition{}, err
+		return sdk.Definition{}, sdk.Symbol{}, err
 	}
 	result.Examples, err = optionalExamples(info, fields, "Examples")
 	if err != nil {
-		return sdk.Definition{}, err
+		return sdk.Definition{}, sdk.Symbol{}, err
 	}
 	if expression, found := fields["Compatibility"]; found {
 		result.Compatibility, err = compatibilityValue(info, expression)
 		if err != nil {
-			return sdk.Definition{}, fieldError("Compatibility", err)
+			return sdk.Definition{}, sdk.Symbol{}, fieldError("Compatibility", err)
 		}
 	}
+	var handler sdk.Symbol
 	if expression, found := fields["Implementation"]; found {
-		result.Implementation, err = implementationValue(info, expression)
+		result.Implementation, handler, err = implementationValue(info, expression)
 		if err != nil {
-			return sdk.Definition{}, fieldError("Implementation", err)
+			return sdk.Definition{}, sdk.Symbol{}, fieldError("Implementation", err)
 		}
 	}
-	return result, nil
+	return result, handler, nil
 }
 
 func optionalString(
@@ -668,23 +754,26 @@ func compatibilityValue(
 func implementationValue(
 	info *types.Info,
 	expression ast.Expr,
-) (sdk.Implementation, error) {
+) (sdk.Implementation, sdk.Symbol, error) {
 	fields, err := keyedFields(expression, map[string]struct{}{
 		"Tool":     {},
 		"Handler":  {},
 		"Protocol": {},
-		"Source":   {},
 	})
 	if err != nil {
-		return sdk.Implementation{}, err
+		return sdk.Implementation{}, sdk.Symbol{}, err
 	}
 	var result sdk.Implementation
+	var handler sdk.Symbol
 	if value, found := fields["Tool"]; found {
 		result.Tool, err = stringValue(info, value)
 	}
 	if err == nil {
 		if value, found := fields["Handler"]; found {
-			result.Handler, err = stringValue(info, value)
+			handler, err = handlerValue(info, value)
+			if err == nil {
+				result.Handler = decodedHandler
+			}
 		}
 	}
 	if err == nil {
@@ -694,32 +783,44 @@ func implementationValue(
 			result.Protocol = sdk.ProtocolVersion(protocol)
 		}
 	}
-	if err == nil {
-		if value, found := fields["Source"]; found {
-			result.Source, err = symbolValue(info, value)
-		}
-	}
-	return result, err
+	return result, handler, err
 }
 
-func symbolValue(info *types.Info, expression ast.Expr) (sdk.Symbol, error) {
-	fields, err := keyedFields(expression, map[string]struct{}{
-		"Package": {},
-		"Name":    {},
-	})
-	if err != nil {
-		return sdk.Symbol{}, err
+func decodedHandler(context.Context, sdk.Invocation) (sdk.Result, error) {
+	panic("statically decoded annotation handler must never execute")
+}
+
+func handlerValue(
+	info *types.Info,
+	expression ast.Expr,
+) (sdk.Symbol, error) {
+	var object types.Object
+	switch value := expression.(type) {
+	case *ast.Ident:
+		object = info.Uses[value]
+	case *ast.SelectorExpr:
+		object = info.Uses[value.Sel]
+	default:
+		return sdk.Symbol{}, fmt.Errorf(
+			"must be a package-level handler function reference",
+		)
 	}
-	var result sdk.Symbol
-	if value, found := fields["Package"]; found {
-		result.Package, err = stringValue(info, value)
+	function, ok := object.(*types.Func)
+	if !ok || function.Pkg() == nil {
+		return sdk.Symbol{}, fmt.Errorf(
+			"must be a package-level handler function reference",
+		)
 	}
-	if err == nil {
-		if value, found := fields["Name"]; found {
-			result.Name, err = stringValue(info, value)
-		}
+	signature, ok := function.Type().(*types.Signature)
+	if !ok || !validHandlerSignature(signature) {
+		return sdk.Symbol{}, fmt.Errorf(
+			"must have exact signature func(context.Context, sdk.Invocation) (sdk.Result, error)",
+		)
 	}
-	return result, err
+	return sdk.Symbol{
+		Package: function.Pkg().Path(),
+		Name:    function.Name(),
+	}, nil
 }
 
 func targetValues(info *types.Info, expression ast.Expr) ([]sdk.Target, error) {
@@ -807,12 +908,12 @@ func keyedFields(
 }
 
 func stringValue(info *types.Info, expression ast.Expr) (string, error) {
-	if !literalOrSDKConstant(info, expression, token.STRING) {
-		return "", fmt.Errorf("must be a string literal or exported SDK string constant")
+	if !literalOrExportedConstant(info, expression, token.STRING) {
+		return "", fmt.Errorf("must be a string literal or exported Go string constant")
 	}
 	value := info.Types[expression].Value
 	if value == nil || value.Kind() != constant.String {
-		return "", fmt.Errorf("must be a string literal or exported SDK string constant")
+		return "", fmt.Errorf("must be a string literal or exported Go string constant")
 	}
 	return constant.StringVal(value), nil
 }
@@ -829,7 +930,7 @@ func boolValue(info *types.Info, expression ast.Expr) (bool, error) {
 	return constant.BoolVal(value), nil
 }
 
-func literalOrSDKConstant(
+func literalOrExportedConstant(
 	info *types.Info,
 	expression ast.Expr,
 	literalKind token.Token,
@@ -842,7 +943,7 @@ func literalOrSDKConstant(
 		return false
 	}
 	object, ok := info.Uses[selector.Sel].(*types.Const)
-	return ok && object.Pkg() != nil && object.Pkg().Path() == sdkPackagePath
+	return ok && object.Pkg() != nil
 }
 
 func fieldError(name string, err error) error {
