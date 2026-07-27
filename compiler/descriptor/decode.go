@@ -8,6 +8,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -26,6 +27,7 @@ type Descriptor struct {
 	Symbol        string
 	Documentation string
 	Position      token.Position
+	Provenance    annotation.ModuleProvenance
 }
 
 // DecodeAll resolves a deterministic reference set and rejects canonical-name
@@ -145,7 +147,27 @@ func Decode(
 		Symbol:        symbolName,
 		Documentation: strings.TrimSpace(declaration.Doc.Text()),
 		Position:      symbol.PhysicalPosition,
+		Provenance:    moduleProvenance(pkg),
 	}, nil
+}
+
+func moduleProvenance(pkg load.Package) annotation.ModuleProvenance {
+	if pkg.Raw == nil || pkg.Raw.Module == nil {
+		return annotation.ModuleProvenance{}
+	}
+	module := pkg.Raw.Module
+	result := annotation.ModuleProvenance{
+		Path:      module.Path,
+		Version:   module.Version,
+		Directory: filepath.Clean(module.Dir),
+	}
+	if module.Replace != nil {
+		result.ReplacementPath = module.Replace.Path
+		result.ReplacementVersion = module.Replace.Version
+		result.ReplacementDir = filepath.Clean(module.Replace.Dir)
+		result.LocalReplacement = module.Replace.Version == ""
+	}
+	return result
 }
 
 func descriptorFunction(

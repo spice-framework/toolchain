@@ -94,7 +94,13 @@ func runWithExecutors(
 	case "verify":
 		return verifyCommand(arguments[1:], stdout, stderr, options, loader)
 	case "annotations":
-		return annotations(packagePatterns(arguments[1:]), stdout, stderr, options, loader)
+		return annotationsCommand(
+			arguments[1:],
+			stdout,
+			stderr,
+			options,
+			loader,
+		)
 	case "modules":
 		return modulesCommand(arguments[1:], stdout, stderr, options, loader)
 	case "test":
@@ -1385,6 +1391,8 @@ Usage:
   spice version
   spice verify [--format text|json] [package-pattern ...]
   spice annotations [package-pattern ...]
+  spice annotations list [package-pattern ...]
+  spice annotations doctor [package-pattern ...]
   spice modules [--format json|mermaid|plantuml] [--focus module] [package-pattern ...]
   spice test --module module [--race] [--count n] [--run regexp] [--timeout duration] [package-pattern ...]
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
@@ -1396,7 +1404,7 @@ Usage:
 Commands:
   version      Print the Spice version.
   verify       Load, resolve, and validate Spice annotations for Go packages.
-  annotations  List annotations and their exact typed declarations.
+  annotations  List occurrences, inspect descriptors, or verify annotation tools.
   modules      Validate and render application-module documentation.
   test         Validate and run one focused application-module test graph.
   generate     Render and safely apply or check generated application code.
