@@ -13,27 +13,27 @@ func TestDiscoverFindsStableImportsAndHonorsOverlays(t *testing.T) {
 	root := t.TempDir()
 	writeDiscoveryFile(t, root, "app/main.go", `package app
 
-const ignored = "// @spice.import { Fake } from \"example.com/fake\""
+const ignored = "// @import { Fake } from \"example.com/fake\""
 
-// @spice.import { Application } from "example.com/core"
+// @import { Application } from "example.com/core"
 `)
 	writeDiscoveryFile(t, root, "app/other.go", `package app
 
-// @spice.import * as web from "example.com/old"
+// @import * as web from "example.com/old"
 `)
 	writeDiscoveryFile(t, root, "app/other_test.go", `package app
 
-// @spice.import { Test } from "example.com/test"
+// @import { Test } from "example.com/test"
 `)
 	writeDiscoveryFile(t, root, "vendor/example.com/x/x.go", `package x
 
-// @spice.import { Vendor } from "example.com/vendor"
+// @import { Vendor } from "example.com/vendor"
 `)
 	other := filepath.Join(root, "app", "other.go")
 	discovery, err := Discover(root, map[string][]byte{
 		other: []byte(`package app
 
-// @spice.import { Controller, Get as GET } from "example.com/web"
+// @import { Controller, Get as GET } from "example.com/web"
 `),
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestDiscoverIncludesNewOverlaySourceInsideRoot(t *testing.T) {
 	file := filepath.Join(root, "new.go")
 	discovery, err := Discover(root, map[string][]byte{
 		file: []byte(`package app
-// @spice.import { Application } from "example.com/core"
+// @import { Application } from "example.com/core"
 `),
 	})
 	if err != nil {

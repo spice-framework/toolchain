@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"go/token"
 	"strconv"
@@ -11,7 +12,21 @@ import (
 	"github.com/StevenBuglione/spice/annotation"
 )
 
-const importDirectiveName = "@spice.import"
+const (
+	importDirectiveName       = "@import"
+	legacyImportDirectiveName = "@spice.import"
+)
+
+var errLegacyImportDirective = errors.New(
+	"@spice.import is no longer supported; replace it with @import",
+)
+
+// IsLegacyImportError reports whether parsing found the retired import
+// spelling. Callers use this to attach the hard-cut diagnostic and exact
+// replacement without accepting the old directive.
+func IsLegacyImportError(err error) bool {
+	return errors.Is(err, errLegacyImportDirective)
+}
 
 // ParseImportComment parses one file-scoped annotation import declaration. The
 // bool distinguishes ordinary comments from malformed import declarations.
@@ -24,9 +39,10 @@ func ParseImportComment(
 	if after, ok := strings.CutPrefix(input, "//"); ok {
 		input = strings.TrimSpace(after)
 	}
-	if !strings.HasPrefix(input, importDirectiveName) ||
-		len(input) > len(importDirectiveName) &&
-			!unicode.IsSpace(rune(input[len(importDirectiveName)])) {
+	if directivePrefix(input, legacyImportDirectiveName) {
+		return annotation.ImportDirective{}, true, errLegacyImportDirective
+	}
+	if !directivePrefix(input, importDirectiveName) {
 		return annotation.ImportDirective{}, false, nil
 	}
 	parser := importParser{
@@ -40,6 +56,12 @@ func ParseImportComment(
 	}
 	directive.Raw = raw
 	return directive, true, nil
+}
+
+func directivePrefix(input, name string) bool {
+	return strings.HasPrefix(input, name) &&
+		(len(input) == len(name) ||
+			unicode.IsSpace(rune(input[len(name)])))
 }
 
 type importParser struct {

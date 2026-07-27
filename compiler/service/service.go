@@ -479,9 +479,12 @@ func (service *Service) analyze(
 	result.annotations = summarizeAnnotations(request.root, resolution)
 	if len(resolution.Diagnostics) != 0 {
 		result.diagnostics = versionDiagnostics(
-			diagnosticadapt.Resolution(
-				request.root,
-				resolution.Diagnostics,
+			legacyImportFixes(
+				diagnosticadapt.Resolution(
+					request.root,
+					resolution.Diagnostics,
+				),
+				request.overlay,
 			),
 			request.overlay,
 		)

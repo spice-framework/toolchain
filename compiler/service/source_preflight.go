@@ -12,7 +12,10 @@ import (
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 )
 
-const annotationCommentFixTitle = "Convert to a valid Spice annotation comment"
+const (
+	annotationCommentFixTitle = "Convert to a valid Spice annotation comment"
+	legacyImportFixTitle      = "Replace @spice.import with @import"
+)
 
 func rawAnnotationDiagnostics(
 	workspaceRoot string,

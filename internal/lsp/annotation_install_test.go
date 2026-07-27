@@ -216,7 +216,7 @@ func writeAnnotationInstallModule(t *testing.T) (string, string) {
 		filepath.ToSlash(repository) + "\n"
 	source := `package main
 
-// @spice.import { Factory } from "example.com/spice-annotation-fixture/annotation/wiring"
+// @import { Factory } from "example.com/spice-annotation-fixture/annotation/wiring"
 
 // @Factory
 func provideValue() int { return 1 }

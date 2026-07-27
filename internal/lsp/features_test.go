@@ -265,8 +265,8 @@ func TestFileScopedDefinitionsPreserveAliasesAndRichDocumentation(
 		},
 	}
 	content := []byte(
-		"// @spice.import { Application as App } from \"example.com/sdk/core\"\n" +
-			"// @spice.import * as http from \"example.com/sdk/web\"\n",
+		"// @import { Application as App } from \"example.com/sdk/core\"\n" +
+			"// @import * as http from \"example.com/sdk/web\"\n",
 	)
 	scoped := fileScopedDefinitions(content, definitions)
 	if got := []string{scoped[0].Name, scoped[1].Name}; !slices.Equal(
@@ -315,7 +315,7 @@ func TestAnnotationCompletionAddsExplicitImportsWithoutMagicResolution(
 		len(items[0].AdditionalEdits) != 1 ||
 		!strings.Contains(
 			items[0].AdditionalEdits[0].NewText,
-			`// @spice.import { Application } from "example.com/sdk/core"`,
+			`// @import { Application } from "example.com/sdk/core"`,
 		) {
 		t.Fatalf("annotation completion = %+v", items)
 	}
@@ -327,7 +327,7 @@ func TestAnnotationCompletionAddsExplicitImportsWithoutMagicResolution(
 
 	imported := []byte(
 		"package main\n\n" +
-			"// @spice.import { Application as App } from \"example.com/sdk/core\"\n\n" +
+			"// @import { Application as App } from \"example.com/sdk/core\"\n\n" +
 			"// @A",
 	)
 	items = completionItems(imported, len(imported), metadataView{
@@ -354,7 +354,7 @@ func TestAnnotationImportCompletionShowsDescriptorProvenance(t *testing.T) {
 			Version: "v1.4.0",
 		},
 	}
-	symbolSource := []byte("// @spice.import { Cont")
+	symbolSource := []byte("// @import { Cont")
 	symbols := completionItems(
 		symbolSource,
 		len(symbolSource),
@@ -368,7 +368,7 @@ func TestAnnotationImportCompletionShowsDescriptorProvenance(t *testing.T) {
 		t.Fatalf("annotation import symbol completions = %+v", symbols)
 	}
 
-	pathSource := []byte(`// @spice.import { Controller } from "example.com/s`)
+	pathSource := []byte(`// @import { Controller } from "example.com/s`)
 	paths := completionItems(pathSource, len(pathSource), metadataView{
 		definitions: []compilerservice.AnnotationDefinition{definition},
 	})
@@ -420,7 +420,7 @@ func TestCompletionDiscoversThirdPartyDescriptorsFromOfflineModuleGraph(
 		len(items[0].AdditionalEdits) != 1 ||
 		!strings.Contains(
 			items[0].AdditionalEdits[0].NewText,
-			`// @spice.import { Factory } from "example.com/spice-annotation-fixture/annotation/wiring"`,
+			`// @import { Factory } from "example.com/spice-annotation-fixture/annotation/wiring"`,
 		) ||
 		!strings.Contains(items[0].Detail, "v0.0.0") ||
 		!strings.Contains(items[0].Detail, "go tool") ||
@@ -441,7 +441,7 @@ func TestCompletionDiscoversThirdPartyDescriptorsFromOfflineModuleGraph(
 func TestSignatureHelpUsesImportedAliasAndArgumentDocumentation(t *testing.T) {
 	t.Parallel()
 	source := []byte(
-		"// @spice.import { Configuration as Config } from \"example.com/sdk/core\"\n" +
+		"// @import { Configuration as Config } from \"example.com/sdk/core\"\n" +
 			"// @Config(prefix=\"orders\")\n" +
 			"type Settings struct{}\n",
 	)

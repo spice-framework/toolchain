@@ -16,7 +16,7 @@ func TestParseImportComment(t *testing.T) {
 	}{
 		{
 			name:  "named",
-			input: `// @spice.import { Application } from "example.com/spice/core"`,
+			input: `// @import { Application } from "example.com/spice/core"`,
 			want: annotation.ImportDirective{
 				Kind:    annotation.ImportNamed,
 				Package: "example.com/spice/core",
@@ -28,7 +28,7 @@ func TestParseImportComment(t *testing.T) {
 		},
 		{
 			name:  "named aliases",
-			input: `// @spice.import { Controller, Get as GET } from "example.com/spice/web"`,
+			input: `// @import { Controller, Get as GET } from "example.com/spice/web"`,
 			want: annotation.ImportDirective{
 				Kind:    annotation.ImportNamed,
 				Package: "example.com/spice/web",
@@ -40,7 +40,7 @@ func TestParseImportComment(t *testing.T) {
 		},
 		{
 			name:  "namespace",
-			input: `// @spice.import * as web from "example.com/spice/web"`,
+			input: `// @import * as web from "example.com/spice/web"`,
 			want: annotation.ImportDirective{
 				Kind:      annotation.ImportNamespace,
 				Package:   "example.com/spice/web",
@@ -65,7 +65,11 @@ func TestParseImportComment(t *testing.T) {
 }
 
 func TestParseImportCommentIgnoresOrdinaryAnnotations(t *testing.T) {
-	for _, input := range []string{"// @Application", "// @spice.imported"} {
+	for _, input := range []string{
+		"// @Application",
+		"// @imported",
+		"// @spice.imported",
+	} {
 		got, ok, err := ParseImportComment(
 			input,
 			token.Position{Filename: "main.go", Line: 1, Column: 1},
@@ -81,16 +85,16 @@ func TestParseImportCommentRejectsMalformedImports(t *testing.T) {
 		input   string
 		message string
 	}{
-		{`// @spice.import`, "binding clause"},
-		{`// @spice.import {}`, "at least one symbol"},
-		{`// @spice.import { private } from "example.com/a"`, "exported"},
-		{`// @spice.import { A, A } from "example.com/a"`, "repeats symbol"},
-		{`// @spice.import { A, } from "example.com/a"`, "trailing commas"},
-		{`// @spice.import * web from "example.com/a"`, "* as alias"},
-		{`// @spice.import * as _ from "example.com/a"`, "usable alias"},
-		{`// @spice.import { A } "example.com/a"`, "requires 'from"},
-		{`// @spice.import { A } from "./a"`, "absolute Go import path"},
-		{`// @spice.import { A } from "example.com/a" trailing`, "unexpected trailing"},
+		{`// @import`, "binding clause"},
+		{`// @import {}`, "at least one symbol"},
+		{`// @import { private } from "example.com/a"`, "exported"},
+		{`// @import { A, A } from "example.com/a"`, "repeats symbol"},
+		{`// @import { A, } from "example.com/a"`, "trailing commas"},
+		{`// @import * web from "example.com/a"`, "* as alias"},
+		{`// @import * as _ from "example.com/a"`, "usable alias"},
+		{`// @import { A } "example.com/a"`, "requires 'from"},
+		{`// @import { A } from "./a"`, "absolute Go import path"},
+		{`// @import { A } from "example.com/a" trailing`, "unexpected trailing"},
 	}
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
@@ -102,6 +106,23 @@ func TestParseImportCommentRejectsMalformedImports(t *testing.T) {
 				t.Fatalf("ParseImportComment() ok = %t, error = %v", ok, err)
 			}
 		})
+	}
+}
+
+func TestParseImportCommentRejectsLegacyDirective(t *testing.T) {
+	_, recognized, err := ParseImportComment(
+		`// @spice.import { Application } from "example.com/spice/core"`,
+		token.Position{Filename: "main.go", Line: 4, Column: 1},
+	)
+	if !recognized || !IsLegacyImportError(err) {
+		t.Fatalf(
+			"ParseImportComment() recognized = %t, error = %v",
+			recognized,
+			err,
+		)
+	}
+	if !strings.Contains(err.Error(), "replace it with @import") {
+		t.Fatalf("ParseImportComment() error = %v", err)
 	}
 }
 

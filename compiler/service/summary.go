@@ -419,6 +419,51 @@ func overlaySafeFixes(
 	return diagnostic.NewSet(items...)
 }
 
+func legacyImportFixes(
+	set diagnostic.Set,
+	overlay map[string]Document,
+) diagnostic.Set {
+	const legacy = "@spice.import"
+	items := set.Items()
+	code := diagnostic.Code("resolution", "annotation-import-legacy")
+	for index := range items {
+		if items[index].Code != code || len(items[index].Fixes) != 0 {
+			continue
+		}
+		filePath := filepathFromSlash(items[index].Location.Path)
+		document, found := overlay[filePath]
+		if !found {
+			continue
+		}
+		start := items[index].Location.Range.Start.Offset
+		end := start + len(legacy)
+		if start < 0 ||
+			end > len(document.Content) ||
+			string(document.Content[start:end]) != legacy {
+			continue
+		}
+		location := items[index].Location
+		location.Range.End = location.Range.Start
+		location.Range.End.Column += len(legacy)
+		location.Range.End.Offset += len(legacy)
+		if location.Display != nil {
+			display := *location.Display
+			display.Range.End = display.Range.Start
+			display.Range.End.Column += len(legacy)
+			display.Range.End.Offset += len(legacy)
+			location.Display = &display
+		}
+		items[index] = items[index].WithFixes(diagnostic.SuggestedFix{
+			Title: legacyImportFixTitle,
+			Edits: []diagnostic.TextEdit{{
+				Location: location,
+				NewText:  "@import",
+			}},
+		})
+	}
+	return diagnostic.NewSet(items...)
+}
+
 func annotationCommentPrefixEdit(
 	location diagnostic.Location,
 	document Document,

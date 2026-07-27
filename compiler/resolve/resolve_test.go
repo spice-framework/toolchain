@@ -179,9 +179,9 @@ type Orders struct{}
 // @GET("/")
 func (Orders) List() {}
 
-// @spice.import { Application } from "example.com/annotations/core"
-// @spice.import { Get as GET } from "example.com/annotations/web"
-// @spice.import * as web from "example.com/annotations/web"
+// @import { Application } from "example.com/annotations/core"
+// @import { Get as GET } from "example.com/annotations/web"
+// @import * as web from "example.com/annotations/web"
 `,
 	})
 	definitions := DefinitionIndex{
@@ -227,8 +227,8 @@ func TestAnnotationsFailClosedForExplicitImports(t *testing.T) {
 		"go.mod": "module example.com/imports\n\ngo 1.26.0\n",
 		"app/app.go": `package app
 
-// @spice.import { Application } from "example.com/annotations/core"
-// @spice.import * as web from "example.com/annotations/web"
+// @import { Application } from "example.com/annotations/core"
+// @import * as web from "example.com/annotations/web"
 
 // @Application
 func Main() {}
@@ -277,8 +277,8 @@ func TestAnnotationsRejectImportCollisionsAtDirective(t *testing.T) {
 		"go.mod": "module example.com/imports\n\ngo 1.26.0\n",
 		"app/app.go": `package app
 
-// @spice.import { Application as App } from "example.com/annotations/core"
-// @spice.import * as App from "example.com/annotations/web"
+// @import { Application as App } from "example.com/annotations/core"
+// @import * as App from "example.com/annotations/web"
 
 // @App
 func Main() {}

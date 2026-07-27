@@ -529,6 +529,7 @@ func occurrence(directive parsedDirective, symbol load.Symbol, target annotation
 type fileImports struct {
 	table    annotationimport.Table
 	explicit bool
+	invalid  bool
 }
 
 func resolveFileImports(
@@ -556,10 +557,20 @@ func resolveFileImports(
 				continue
 			}
 			if err != nil {
+				kind := "annotation-import-parse"
+				if annotationparser.IsLegacyImportError(err) {
+					kind = "annotation-import-legacy"
+					offset := strings.Index(
+						comment.Text,
+						"@spice.import",
+					)
+					display = shiftedPosition(display, offset)
+					physical = shiftedPosition(physical, offset)
+				}
 				diagnostics = append(diagnostics, sourceDiagnostic(
 					display,
 					physical,
-					"annotation-import-parse",
+					kind,
 					err.Error(),
 					err.Error(),
 				))
@@ -583,6 +594,7 @@ func resolveFileImports(
 	return fileImports{
 		table:    table,
 		explicit: len(directives) != 0 || len(diagnostics) != 0,
+		invalid:  len(diagnostics) != 0,
 	}, diagnostics
 }
 
@@ -603,6 +615,9 @@ func bindImports(
 	imports fileImports,
 	definitions DefinitionIndex,
 ) ([]parsedDirective, []Diagnostic) {
+	if imports.invalid {
+		return nil, nil
+	}
 	if !imports.explicit {
 		return directives, nil
 	}
@@ -616,7 +631,7 @@ func bindImports(
 				directive,
 				"annotation-import",
 				fmt.Sprintf(
-					"annotation @%s is not imported in this file; add an explicit // @spice.import declaration",
+					"annotation @%s is not imported in this file; add an explicit // @import declaration",
 					spelling,
 				),
 			))
@@ -653,6 +668,15 @@ func bindImports(
 		resolved = append(resolved, directive)
 	}
 	return resolved, diagnostics
+}
+
+func shiftedPosition(position token.Position, offset int) token.Position {
+	if offset <= 0 {
+		return position
+	}
+	position.Column += offset
+	position.Offset += offset
+	return position
 }
 
 func directiveDiagnostic(

@@ -212,7 +212,7 @@ func TestServiceLoadsAndDecodesExplicitAnnotationImports(t *testing.T) {
 
 import "os"
 
-// @spice.import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
@@ -242,7 +242,7 @@ func main() {
 
 import "os"
 
-// @spice.import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
@@ -314,7 +314,7 @@ func TestServiceExplicitAnnotationFailsClosedWithoutToolAuthorization(
 
 import "os"
 
-// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Application
 func main() {
@@ -367,7 +367,7 @@ func TestServiceBuildsIRFromMultipleToolContributions(t *testing.T) {
 
 import "os"
 
-// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Application
 func main() {
@@ -375,13 +375,13 @@ func main() {
 }
 `)
 	writeServiceFixtureFile(t, root, "orders/doc.go", `// Package orders owns order configuration.
-// @spice.import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
 // @Module
 package orders
 `)
 	writeServiceFixtureFile(t, root, "orders/config.go", `package orders
 
-// @spice.import { Bean, Configuration } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Bean, Configuration } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Configuration(prefix="orders")
 type Settings struct {
@@ -515,6 +515,63 @@ func TestServiceOffersVersionedRawAnnotationCommentFix(t *testing.T) {
 		edit.DocumentVersion == nil ||
 		*edit.DocumentVersion != 11 ||
 		edit.Location.Range.Start != edit.Location.Range.End {
+		t.Fatalf("CodeActions()[0].Edits[0] = %+v", edit)
+	}
+}
+
+func TestServiceOffersVersionedLegacyImportReplacement(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	content := []byte(`package main
+
+import "os"
+
+// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @Application
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := service.Analyze(
+		context.Background(),
+		Request{
+			WorkspaceRoot: root,
+			Overlay: map[string]Document{
+				mainPath: {Version: 17, Content: content},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	items := result.Diagnostics().Items()
+	if len(items) != 1 ||
+		items[0].Code !=
+			"spice.resolution.annotation-import-legacy" ||
+		!strings.Contains(items[0].Message, "replace it with @import") {
+		t.Fatalf("Diagnostics() = %+v", items)
+	}
+	actions := result.CodeActions()
+	if len(actions) != 1 ||
+		actions[0].Title !=
+			"Replace @spice.import with @import" ||
+		len(actions[0].Edits) != 1 {
+		t.Fatalf("CodeActions() = %+v", actions)
+	}
+	edit := actions[0].Edits[0]
+	start := edit.Location.Range.Start.Offset
+	end := edit.Location.Range.End.Offset
+	if edit.NewText != "@import" ||
+		edit.DocumentVersion == nil ||
+		*edit.DocumentVersion != 17 ||
+		end-start != len("@spice.import") ||
+		string(content[start:end]) != "@spice.import" {
 		t.Fatalf("CodeActions()[0].Edits[0] = %+v", edit)
 	}
 }

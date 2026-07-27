@@ -317,21 +317,70 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		t.Fatalf("code actions = %+v", actions)
 	}
 
+	legacyImport := strings.Replace(
+		validWithConfigurationKey,
+		"// @Application",
+		`// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @Application`,
+		1,
+	)
+	client.change(mainURI, 4, legacyImport)
+	legacyDiagnostics := client.waitForDiagnostics(mainURI, 4)
+	if len(legacyDiagnostics.Diagnostics) != 1 ||
+		legacyDiagnostics.Diagnostics[0].Code !=
+			"spice.resolution.annotation-import-legacy" {
+		t.Fatalf(
+			"legacy import diagnostics = %+v",
+			legacyDiagnostics.Diagnostics,
+		)
+	}
+	client.send(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      42,
+		"method":  "textDocument/codeAction",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"range":        legacyDiagnostics.Diagnostics[0].Range,
+			"context": map[string]any{
+				"diagnostics": legacyDiagnostics.Diagnostics,
+			},
+		},
+	})
+	legacyActionResponse := client.waitForID("42")
+	var legacyActions []protocolCodeAction
+	if err := json.Unmarshal(
+		legacyActionResponse.Result,
+		&legacyActions,
+	); err != nil {
+		t.Fatalf("Unmarshal(legacy import actions) error = %v", err)
+	}
+	if len(legacyActions) != 1 ||
+		legacyActions[0].Title !=
+			"Replace @spice.import with @import" ||
+		len(legacyActions[0].Edit.DocumentChanges) != 1 ||
+		legacyActions[0].Edit.DocumentChanges[0].
+			TextDocument.Version != 4 ||
+		legacyActions[0].Edit.DocumentChanges[0].
+			Edits[0].NewText != "@import" {
+		t.Fatalf("legacy import actions = %+v", legacyActions)
+	}
+
 	stale := strings.Replace(
 		validWithConfigurationKey,
 		"// @Application",
 		"// @Application\n// @Unknown",
 		1,
 	)
-	client.change(mainURI, 4, stale)
-	client.change(mainURI, 5, validWithConfigurationKey)
-	fifth := client.waitForDiagnostics(mainURI, 5)
-	if len(fifth.Diagnostics) != 0 {
-		t.Fatalf("version 5 diagnostics = %+v", fifth.Diagnostics)
+	client.change(mainURI, 5, stale)
+	client.change(mainURI, 6, validWithConfigurationKey)
+	sixth := client.waitForDiagnostics(mainURI, 6)
+	if len(sixth.Diagnostics) != 0 {
+		t.Fatalf("version 6 diagnostics = %+v", sixth.Diagnostics)
 	}
-	if slices.Contains(client.diagnosticVersions, 4) {
+	if slices.Contains(client.diagnosticVersions, 5) {
 		t.Fatalf(
-			"server published stale version 4: %v",
+			"server published stale version 5: %v",
 			client.diagnosticVersions,
 		)
 	}
@@ -347,7 +396,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		"textDocument": map[string]any{"uri": mainURI},
 		"text":         stale,
 	})
-	savedInvalid := client.waitForDiagnostics(mainURI, 5)
+	savedInvalid := client.waitForDiagnostics(mainURI, 6)
 	if len(savedInvalid.Diagnostics) == 0 {
 		t.Fatal("saved invalid diagnostics are empty")
 	}
@@ -355,7 +404,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		"textDocument": map[string]any{"uri": mainURI},
 		"text":         validWithConfigurationKey,
 	})
-	savedValid := client.waitForDiagnostics(mainURI, 5)
+	savedValid := client.waitForDiagnostics(mainURI, 6)
 	if len(savedValid.Diagnostics) != 0 {
 		t.Fatalf("saved valid diagnostics = %+v", savedValid.Diagnostics)
 	}
@@ -1068,7 +1117,7 @@ func writeImportedLSPModule(t *testing.T) (string, string, string) {
 
 import "os"
 
-// @spice.import { Application as App } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application as App } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @App
 func main() {

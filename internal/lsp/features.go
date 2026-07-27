@@ -373,13 +373,13 @@ func inspectAnnotationImportContext(
 	offset int,
 ) (completionContext, bool) {
 	prefix := string(content[lineStart:offset])
-	directive := strings.Index(prefix, "@spice.import")
+	directive := strings.Index(prefix, "@import")
 	if directive < 0 {
 		return completionContext{}, false
 	}
-	after := prefix[directive+len("@spice.import"):]
+	after := prefix[directive+len("@import"):]
 	if from := strings.LastIndex(after, `from "`); from >= 0 {
-		valueStart := lineStart + directive + len("@spice.import") +
+		valueStart := lineStart + directive + len("@import") +
 			from + len(`from "`)
 		if !strings.Contains(string(content[valueStart:offset]), `"`) {
 			return completionContext{
@@ -546,7 +546,7 @@ func annotationCompletionCandidates(
 		}
 		local := definition.DescriptorSymbol
 		directive := fmt.Sprintf(
-			`// @spice.import { %s } from "%s"`,
+			`// @import { %s } from "%s"`,
 			definition.DescriptorSymbol,
 			definition.DescriptorPackage,
 		)
@@ -554,7 +554,7 @@ func annotationCompletionCandidates(
 			namespace := path.Base(definition.DescriptorPackage)
 			local = namespace + "." + definition.DescriptorSymbol
 			directive = fmt.Sprintf(
-				`// @spice.import * as %s from "%s"`,
+				`// @import * as %s from "%s"`,
 				namespace,
 				definition.DescriptorPackage,
 			)
@@ -602,7 +602,7 @@ func annotationImportInsertionOffset(content []byte) (int, bool) {
 			string(bytes.TrimSuffix(content[start:end], []byte{'\r'})),
 		)
 		switch {
-		case strings.HasPrefix(line, "// @spice.import "):
+		case strings.HasPrefix(line, "// @import "):
 			lastDirectiveEnd = next
 		case strings.HasPrefix(line, "package "):
 			packageEnd = next

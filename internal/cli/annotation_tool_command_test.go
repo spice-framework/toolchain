@@ -22,7 +22,7 @@ require github.com/StevenBuglione/spice v0.0.0
 replace github.com/StevenBuglione/spice => `+filepath.ToSlash(repository)+"\n")
 	writeAnnotationCommandFile(t, root, "app/app.go", `package app
 
-// @spice.import { Echo } from "example.com/fixture/annotations"
+// @import { Echo } from "example.com/fixture/annotations"
 
 // @Echo
 type Value struct{}

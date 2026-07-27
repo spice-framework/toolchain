@@ -109,7 +109,7 @@ func TestDefinitionForOccurrenceUsesExactImportedDescriptor(t *testing.T) {
 	sourcePath := filepath.Join(root, "main.go")
 	source := []byte(
 		"package main\n\n" +
-			"// @spice.import { Application as App } from \"example.com/sdk/core\"\n" +
+			"// @import { Application as App } from \"example.com/sdk/core\"\n" +
 			"// @App\n" +
 			"func main() {}\n",
 	)
