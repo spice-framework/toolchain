@@ -25,6 +25,18 @@ type Discovery struct {
 	References []annotation.DefinitionReference
 }
 
+// NamespacePackages returns the stable package paths whose complete descriptor
+// surface was explicitly imported with "* as".
+func (discovery Discovery) NamespacePackages() []string {
+	packages := make(map[string]struct{})
+	for _, directive := range discovery.Directives {
+		if directive.Kind == annotation.ImportNamespace {
+			packages[directive.Package] = struct{}{}
+		}
+	}
+	return sortedKeys(packages)
+}
+
 // Discover lexically finds annotation import comments before the one typed
 // package load. Overlays replace matching disk content and no Go code runs.
 func Discover(

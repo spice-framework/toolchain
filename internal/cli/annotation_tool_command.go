@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/annotationhost"
 	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/descriptor"
@@ -100,7 +101,21 @@ func inspectAnnotationDescriptors(
 	if err != nil {
 		return nil, "", err
 	}
-	decoded, err := descriptor.DecodeAll(program, discovery.References)
+	namespaceReferences, err := descriptor.NamespaceReferences(
+		program,
+		discovery.NamespacePackages(),
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	references := append(
+		append(
+			[]annotation.DefinitionReference(nil),
+			discovery.References...,
+		),
+		namespaceReferences...,
+	)
+	decoded, err := descriptor.DecodeAll(program, references)
 	if err != nil {
 		return nil, "", err
 	}

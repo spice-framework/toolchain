@@ -701,6 +701,75 @@ func smoke(ctx context.Context, root string) error {
 			return err
 		}
 	}
+	return thirdPartyAnnotationSmoke(ctx, root)
+}
+
+func thirdPartyAnnotationSmoke(
+	ctx context.Context,
+	root string,
+) error {
+	pluginRoot := filepath.Join(root, "testdata", "annotationfixture")
+	applicationRoot := filepath.Join(root, "testdata", "annotationapp")
+	offline := map[string]string{"GOPROXY": "off"}
+	for _, moduleRoot := range []string{pluginRoot, applicationRoot} {
+		for _, arguments := range [][]string{
+			{"mod", "tidy", "-diff"},
+			{"test", "./..."},
+			{"vet", "./..."},
+		} {
+			if err := runExternal(
+				ctx,
+				moduleRoot,
+				offline,
+				"go",
+				arguments...,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	temp, err := os.MkdirTemp("", "spice-annotation-fixture-*")
+	if err != nil {
+		return fmt.Errorf(
+			"create annotation fixture directory: %w",
+			err,
+		)
+	}
+	defer removeTemporaryDirectory(temp)
+	executable := filepath.Join(temp, "spice")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	if err := runExternal(
+		ctx,
+		root,
+		offline,
+		"go",
+		"build",
+		"-trimpath",
+		"-o",
+		executable,
+		"./cmd/spice",
+	); err != nil {
+		return err
+	}
+	for _, arguments := range [][]string{
+		{"annotations", "list", "./..."},
+		{"annotations", "doctor", "./..."},
+		{"verify", "--format=json", "./..."},
+		{"generate", "--check", "./..."},
+		{"run", "./...", "--", "-check"},
+	} {
+		if err := runExternal(
+			ctx,
+			applicationRoot,
+			offline,
+			executable,
+			arguments...,
+		); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

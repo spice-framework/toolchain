@@ -292,10 +292,19 @@ func (service *Service) analyze(
 		return result, nil
 	}
 
+	references, err := selectedDescriptorReferences(program, discovery)
+	if err != nil {
+		result.diagnostics = diagnosticadapt.Failure(
+			"annotation",
+			"descriptor",
+			err.Error(),
+		)
+		return result, nil
+	}
 	descriptorState, err := prepareDescriptors(
 		service.config.registry,
 		program,
-		discovery.References,
+		references,
 	)
 	if err != nil {
 		result.diagnostics = diagnosticadapt.Failure(
@@ -918,6 +927,26 @@ type preparedDescriptors struct {
 	registry    annotation.Registry
 	items       []descriptor.Descriptor
 	descriptors map[annotation.DefinitionReference]descriptor.Descriptor
+}
+
+func selectedDescriptorReferences(
+	program *load.Program,
+	discovery annotationimport.Discovery,
+) ([]annotation.DefinitionReference, error) {
+	namespaceReferences, err := descriptor.NamespaceReferences(
+		program,
+		discovery.NamespacePackages(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return append(
+		append(
+			[]annotation.DefinitionReference(nil),
+			discovery.References...,
+		),
+		namespaceReferences...,
+	), nil
 }
 
 func prepareDescriptors(

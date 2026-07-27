@@ -76,6 +76,32 @@ func TestDiscoverIncludesNewOverlaySourceInsideRoot(t *testing.T) {
 	}
 }
 
+func TestDiscoveryNamespacePackagesAreStableAndUnique(t *testing.T) {
+	t.Parallel()
+	discovery := Discovery{Directives: []annotation.ImportDirective{
+		{
+			Kind:    annotation.ImportNamespace,
+			Package: "example.com/z",
+		},
+		{
+			Kind:    annotation.ImportNamed,
+			Package: "example.com/named",
+		},
+		{
+			Kind:    annotation.ImportNamespace,
+			Package: "example.com/a",
+		},
+		{
+			Kind:    annotation.ImportNamespace,
+			Package: "example.com/z",
+		},
+	}}
+	want := []string{"example.com/a", "example.com/z"}
+	if got := discovery.NamespacePackages(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("NamespacePackages() = %#v, want %#v", got, want)
+	}
+}
+
 func writeDiscoveryFile(
 	t *testing.T,
 	root string,
