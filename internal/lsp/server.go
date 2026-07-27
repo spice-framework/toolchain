@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -134,7 +135,7 @@ func (server *Server) Run(
 	ctx context.Context,
 	input io.Reader,
 	output io.Writer,
-) error {
+) (runErr error) {
 	if ctx == nil {
 		return errors.New("LSP context must not be nil")
 	}
@@ -153,7 +154,9 @@ func (server *Server) Run(
 	server.writer = newRPCWriter(output)
 	server.mu.Unlock()
 
-	defer server.stop()
+	defer func() {
+		runErr = errors.Join(runErr, server.stop())
+	}()
 	reader := newRPCReader(input)
 	for {
 		message, err := readRPCContext(runCtx, reader, input)
@@ -457,15 +460,37 @@ func (server *Server) handleShutdown(message rpcMessage) error {
 	return server.writer.response(message.ID, nil)
 }
 
-func (server *Server) stop() {
+func (server *Server) stop() error {
 	server.mu.Lock()
 	server.closing = true
 	server.cancelAnalysesLocked()
 	if server.cancel != nil {
 		server.cancel()
 	}
+	keys := make([]string, 0, len(server.workspaces))
+	for key := range server.workspaces {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	services := make([]*compilerservice.Service, 0, len(keys))
+	for _, key := range keys {
+		workspace := server.workspaces[key]
+		if workspace != nil && workspace.service != nil {
+			services = append(services, workspace.service)
+		}
+	}
 	server.mu.Unlock()
 	server.analysisWait.Wait()
+	closeCtx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer cancel()
+	var result error
+	for _, service := range services {
+		result = errors.Join(result, service.Close(closeCtx))
+	}
+	return result
 }
 
 func (server *Server) cancelAnalysesLocked() {

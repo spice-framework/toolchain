@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -169,7 +170,10 @@ func scheduledOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != Annotation {
+		if !occurrence.UsesContribution(
+			sdk.ContributionSchedule,
+			Annotation,
+		) {
 			continue
 		}
 		result[occurrence.SymbolID] = append(
@@ -367,6 +371,31 @@ type options struct {
 }
 
 func parseOptions(occurrence resolve.Occurrence) (options, *problem) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionSchedule,
+	); found {
+		delay, delayProblem := durationValue(
+			"delay",
+			contribution.Schedule.Delay,
+			true,
+		)
+		if delayProblem != nil {
+			return options{}, delayProblem
+		}
+		initialDelay, initialProblem := durationValue(
+			"initialDelay",
+			contribution.Schedule.InitialDelay,
+			false,
+		)
+		if initialProblem != nil {
+			return options{}, initialProblem
+		}
+		return options{
+			delay:           delay,
+			initialDelay:    initialDelay,
+			continueOnError: contribution.Schedule.ContinueOnError,
+		}, nil
+	}
 	result := options{}
 	seen := make(map[string]struct{})
 	delayFound := false
@@ -451,12 +480,23 @@ func durationOption(
 		}
 	}
 	raw := argument.Value.String
+	return durationValue(argument.Name, raw, positive)
+}
+
+func durationValue(
+	name string,
+	raw string,
+	positive bool,
+) (time.Duration, *problem) {
+	if raw == "" && !positive {
+		return 0, nil
+	}
 	if raw == "" || strings.TrimSpace(raw) != raw {
 		return 0, &problem{
 			kind: "duration",
 			reason: fmt.Sprintf(
 				"argument %q must be a non-empty duration without surrounding whitespace",
-				argument.Name,
+				name,
 			),
 		}
 	}
@@ -466,7 +506,7 @@ func durationOption(
 			kind: "duration",
 			reason: fmt.Sprintf(
 				"argument %q is not a valid Go duration: %v",
-				argument.Name,
+				name,
 				err,
 			),
 		}
@@ -476,7 +516,7 @@ func durationOption(
 			kind: "duration",
 			reason: fmt.Sprintf(
 				"argument %q must be positive",
-				argument.Name,
+				name,
 			),
 		}
 	}
@@ -485,7 +525,7 @@ func durationOption(
 			kind: "duration",
 			reason: fmt.Sprintf(
 				"argument %q must not be negative",
-				argument.Name,
+				name,
 			),
 		}
 	}

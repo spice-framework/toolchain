@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
@@ -120,7 +121,10 @@ func Build(program *load.Program, resolution resolve.Result, modules modulith.Mo
 	seen := make(map[string]resolve.Occurrence)
 	catalog := Catalog{}
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != "Configuration" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionConfiguration,
+			"Configuration",
+		) {
 			continue
 		}
 		if previous, duplicate := seen[occurrence.SymbolID]; duplicate {
@@ -275,6 +279,11 @@ func configurationType(occurrence resolve.Occurrence, symbol load.Symbol) (*type
 }
 
 func configurationPrefix(occurrence resolve.Occurrence, symbol load.Symbol) (string, *problem) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionConfiguration,
+	); found {
+		return contribution.Configuration.Prefix, nil
+	}
 	if len(occurrence.Annotation.Arguments) == 0 {
 		return "", nil
 	}

@@ -200,15 +200,12 @@ func doctorAnnotationDescriptors(
 			}
 			clients[tool] = client
 		}
-		if err := annotationhost.ValidateDescriptorToolModule(
+		if err := client.ValidateDescriptor(
+			item.Definition,
 			item.Provenance,
-			client.Provenance(),
 		); err != nil {
 			problems = append(problems, err)
 			continue
-		}
-		if err := validateDescriptorHandler(item, client); err != nil {
-			problems = append(problems, err)
 		}
 	}
 	closeErr := manager.Close(ctx)
@@ -241,37 +238,6 @@ func doctorAnnotationDescriptors(
 		return 1
 	}
 	return 0
-}
-
-func validateDescriptorHandler(
-	item descriptor.Descriptor,
-	client *annotationhost.Client,
-) error {
-	expected := item.Definition.Implementation
-	for _, handler := range client.Handlers() {
-		if handler.ID != expected.Handler {
-			continue
-		}
-		if handler.Source != expected.Source {
-			return fmt.Errorf(
-				"annotation descriptor %s.%s handler %q source is %s.%s, tool reports %s.%s",
-				item.Package,
-				item.Symbol,
-				expected.Handler,
-				expected.Source.Package,
-				expected.Source.Name,
-				handler.Source.Package,
-				handler.Source.Name,
-			)
-		}
-		return nil
-	}
-	return fmt.Errorf(
-		"annotation descriptor %s.%s requires missing handler %q",
-		item.Package,
-		item.Symbol,
-		expected.Handler,
-	)
 }
 
 func compactErrors(values []error) []error {

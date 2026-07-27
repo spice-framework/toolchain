@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	compilerasync "github.com/StevenBuglione/spice/compiler/async"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	compilercache "github.com/StevenBuglione/spice/compiler/cache"
@@ -748,7 +749,10 @@ func applicationTargets(
 	var targets []Target
 	var diagnostics []Diagnostic
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != "Application" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionApplication,
+			"Application",
+		) {
 			continue
 		}
 		if previous, duplicate := seen[occurrence.SymbolID]; duplicate {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -480,6 +481,21 @@ func hookFailure(
 }
 
 func occurrenceKind(occurrence resolve.Occurrence) (Kind, bool) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionLifecycle,
+	); found {
+		switch contribution.Lifecycle.Phase {
+		case sdk.LifecycleStart:
+			return Start, true
+		case sdk.LifecycleStop:
+			return Stop, true
+		default:
+			return "", false
+		}
+	}
+	if occurrence.Definition != (annotation.DefinitionReference{}) {
+		return "", false
+	}
 	switch occurrence.Annotation.Name {
 	case "OnStart":
 		return Start, true

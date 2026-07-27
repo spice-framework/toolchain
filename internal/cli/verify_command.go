@@ -2,17 +2,14 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	diagnosticadapt "github.com/StevenBuglione/spice/compiler/diagnostic/adapt"
 	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 )
 
 type diagnosticFormat string
@@ -26,17 +23,6 @@ type verifyArguments struct {
 	format    diagnosticFormat
 	formatSet bool
 	patterns  []string
-}
-
-type verificationAnalysis struct {
-	program    *load.Program
-	resolution resolve.Result
-	metadata   compilerMetadata
-}
-
-type verificationFailure struct {
-	diagnostics diagnostic.Set
-	summary     string
 }
 
 func verifyCommand(
@@ -63,36 +49,58 @@ func verifyPrepared(
 	options load.Options,
 	loader programLoader,
 ) int {
-	analysis, failure := analyzeVerification(
-		arguments.patterns,
-		options,
-		loader,
-	)
-	if failure != nil {
+	service, err := newCompilerAnalysisService(options, loader)
+	if err != nil {
 		return reportVerification(
 			arguments.format,
 			false,
-			failure.summary,
-			failure.diagnostics,
+			"Spice verification failed: compiler metadata error.",
+			diagnosticadapt.Failure("metadata", "invalid", err.Error()),
 			stdout,
 			stderr,
 		)
 	}
-	model := application.BuildWithOptions(
-		analysis.program,
-		analysis.resolution,
-		analysis.metadata.buildOptions,
+	root := diagnosticWorkspaceRoot(options)
+	result, analysisErr := service.Analyze(
+		context.Background(),
+		compilerservice.Request{
+			WorkspaceRoot: root,
+			Patterns:      arguments.patterns,
+			Mode:          compilerservice.AnalysisValidate,
+		},
 	)
-	modelDiagnostics := model.Diagnostics()
-	if len(modelDiagnostics) != 0 {
+	closeErr := closeCompilerAnalysisService(service)
+	if analysisErr != nil {
 		return reportVerification(
 			arguments.format,
 			false,
-			verificationSummary(modelDiagnostics),
-			diagnosticadapt.Application(
-				diagnosticWorkspaceRoot(options),
-				modelDiagnostics,
+			"Spice verification failed: compiler analysis error.",
+			diagnosticadapt.Failure("analysis", "failed", analysisErr.Error()),
+			stdout,
+			stderr,
+		)
+	}
+	if closeErr != nil {
+		return reportVerification(
+			arguments.format,
+			false,
+			"Spice verification failed: annotation tool shutdown error.",
+			diagnosticadapt.Failure(
+				"annotation-tool",
+				"shutdown",
+				closeErr.Error(),
 			),
+			stdout,
+			stderr,
+		)
+	}
+	diagnostics := result.Diagnostics()
+	if !diagnostics.Empty() {
+		return reportVerification(
+			arguments.format,
+			false,
+			verificationDiagnosticSummary(result, diagnostics),
+			diagnostics,
 			stdout,
 			stderr,
 		)
@@ -100,8 +108,8 @@ func verifyPrepared(
 
 	summary := fmt.Sprintf(
 		"Spice verification passed: %d annotations in %d Go files.",
-		len(analysis.resolution.Occurrences),
-		analysis.resolution.Files,
+		len(result.Annotations()),
+		result.Files(),
 	)
 	return reportVerification(
 		arguments.format,
@@ -156,176 +164,44 @@ func parseVerifyArguments(arguments []string) (verifyArguments, error) {
 	return result, nil
 }
 
-func analyzeVerification(
-	patterns []string,
-	options load.Options,
-	loader programLoader,
-) (verificationAnalysis, *verificationFailure) {
-	metadata, err := loadCompilerMetadata(options)
-	if err != nil {
-		return verificationAnalysis{}, verificationProblem(
-			diagnosticadapt.Failure("metadata", "invalid", err.Error()),
-			"Spice verification failed: compiler metadata error.",
-		)
-	}
-	program, err := loader(
-		context.Background(),
-		metadata.loadOptions(options),
-		patterns...,
-	)
-	if err != nil {
-		return verificationAnalysis{}, loadVerificationProblem(
-			err,
-			options,
-		)
-	}
-	resolution := resolve.Annotations(program)
-	if len(resolution.Diagnostics) != 0 {
-		return verificationAnalysis{}, verificationProblem(
-			diagnosticadapt.Resolution(
-				diagnosticWorkspaceRoot(options),
-				resolution.Diagnostics,
-			),
-			fmt.Sprintf(
-				"Spice verification failed: %d annotation resolution error(s).",
-				len(resolution.Diagnostics),
-			),
-		)
-	}
-	validation := validationDiagnostics(
-		resolution.Occurrences,
-		metadata.registry,
-	)
-	if len(validation) != 0 {
-		return verificationAnalysis{}, verificationProblem(
-			diagnosticadapt.Validation(
-				diagnosticWorkspaceRoot(options),
-				validation,
-			),
-			fmt.Sprintf(
-				"Spice verification failed: %d annotation validation error(s).",
-				len(validation),
-			),
-		)
-	}
-	if failure := validateVerificationStarters(
-		options,
-		program,
-		resolution,
-		&metadata,
-	); failure != nil {
-		return verificationAnalysis{}, failure
-	}
-	return verificationAnalysis{
-		program:    program,
-		resolution: resolution,
-		metadata:   metadata,
-	}, nil
-}
-
-func validateVerificationStarters(
-	options load.Options,
-	program *load.Program,
-	resolution resolve.Result,
-	metadata *compilerMetadata,
-) *verificationFailure {
-	requirements := metadata.starterCatalog.ActiveDependencies(
-		resolution.Occurrences,
-	)
-	if len(requirements) != 0 {
-		modules, err := loadModuleVersions(context.Background(), options)
-		if err != nil {
-			return verificationProblem(
-				diagnosticadapt.Failure(
-					"starter",
-					"dependency-inspection",
-					fmt.Sprintf(
-						"inspect selected starter dependencies: %v",
-						err,
-					),
-				),
-				"Spice verification failed: starter dependency inspection error.",
-			)
-		}
-		dependencyDiagnostics := metadata.starterCatalog.
-			ValidateActiveModuleVersions(resolution.Occurrences, modules)
-		if len(dependencyDiagnostics) != 0 {
-			return verificationProblem(
-				diagnosticadapt.StarterDependencies(
-					dependencyDiagnostics,
-				),
-				fmt.Sprintf(
-					"Spice verification failed: %d starter dependency alignment error(s).",
-					len(dependencyDiagnostics),
-				),
-			)
-		}
-	}
-
-	entryPoints := metadata.starterCatalog.ProviderEntrypoints(
-		resolution.Occurrences,
-	)
-	if len(entryPoints) == 0 {
-		return nil
-	}
-	catalog := provider.BuildEntrypoints(program, entryPoints)
-	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
-		return verificationProblem(
-			diagnosticadapt.Provider(
-				diagnosticWorkspaceRoot(options),
-				diagnostics,
-			),
-			fmt.Sprintf(
-				"Spice verification failed: %d starter entrypoint error(s).",
-				len(diagnostics),
-			),
-		)
-	}
-	metadata.buildOptions.ProviderCatalogs = append(
-		append(
-			[]provider.Catalog(nil),
-			metadata.buildOptions.ProviderCatalogs...,
-		),
-		catalog,
-	)
-	return nil
-}
-
-func loadVerificationProblem(
-	err error,
-	options load.Options,
-) *verificationFailure {
-	loadError, ok := errors.AsType[*load.LoadError](err)
-	if ok && loadError != nil && len(loadError.Diagnostics) != 0 {
-		return verificationProblem(
-			diagnosticadapt.Load(
-				diagnosticWorkspaceRoot(options),
-				loadError.Diagnostics,
-			),
-			fmt.Sprintf(
-				"Spice verification failed: %d package loading error(s).",
-				len(loadError.Diagnostics),
-			),
-		)
-	}
-	kind := "failed"
-	if errors.Is(err, context.Canceled) {
-		kind = "canceled"
-	}
-	return verificationProblem(
-		diagnosticadapt.Failure("load", kind, err.Error()),
-		"Spice verification failed: package loading error.",
-	)
-}
-
-func verificationProblem(
+func verificationDiagnosticSummary(
+	result compilerservice.Result,
 	diagnostics diagnostic.Set,
-	summary string,
-) *verificationFailure {
-	return &verificationFailure{
-		diagnostics: diagnostics,
-		summary:     summary,
+) string {
+	if modelDiagnostics := result.ApplicationModel().Diagnostics(); len(modelDiagnostics) != 0 {
+		return verificationSummary(modelDiagnostics)
 	}
+	items := diagnostics.Items()
+	stage := "compiler"
+	if len(items) != 0 {
+		segments := strings.Split(items[0].Code, ".")
+		if len(segments) >= 3 {
+			stage = segments[1]
+		}
+	}
+	description := map[string]string{
+		"load":            "package loading",
+		"resolution":      "annotation resolution",
+		"validation":      "annotation validation",
+		"annotation-tool": "annotation tool",
+		"provider":        "provider catalog",
+		"modulith":        "module architecture",
+	}[stage]
+	if stage == "starter" {
+		description = "starter dependency alignment"
+		if len(items) != 0 &&
+			strings.Contains(items[0].Code, "missing-entrypoint") {
+			description = "starter entrypoint"
+		}
+	}
+	if description == "" {
+		description = "compiler"
+	}
+	return fmt.Sprintf(
+		"Spice verification failed: %d %s error(s).",
+		len(items),
+		description,
+	)
 }
 
 func reportVerification(

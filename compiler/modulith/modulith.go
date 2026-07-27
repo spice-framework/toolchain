@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
@@ -298,7 +299,10 @@ func discoverModules(
 	var modules []Module
 	var diagnostics []Diagnostic
 	for _, occurrence := range occurrences {
-		if occurrence.Annotation.Name != "Module" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionModule,
+			"Module",
+		) {
 			continue
 		}
 		if occurrence.Target != annotation.TargetPackage {
@@ -349,6 +353,14 @@ func discoverModules(
 }
 
 func parseDependencies(occurrence resolve.Occurrence) ([]Dependency, []Diagnostic) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionModule,
+	); found {
+		return parseDependencyValues(
+			occurrence,
+			contribution.Module.AllowedDependencies,
+		)
+	}
 	var value annotation.Value
 	found := false
 	for _, argument := range occurrence.Annotation.Arguments {
@@ -376,9 +388,8 @@ func parseDependencies(occurrence resolve.Occurrence) ([]Dependency, []Diagnosti
 		)}
 	}
 
-	seen := make(map[string]struct{})
-	var dependencies []Dependency
 	var diagnostics []Diagnostic
+	var values []string
 	for index, item := range value.List {
 		if item.Kind != annotation.KindString {
 			diagnostics = append(diagnostics, occurrenceDiagnostic(
@@ -388,12 +399,30 @@ func parseDependencies(occurrence resolve.Occurrence) ([]Dependency, []Diagnosti
 			))
 			continue
 		}
-		dependency, err := parseDependency(item.String, occurrence)
+		values = append(values, item.String)
+	}
+	dependencies, parsedDiagnostics := parseDependencyValues(
+		occurrence,
+		values,
+	)
+	diagnostics = append(diagnostics, parsedDiagnostics...)
+	return dependencies, diagnostics
+}
+
+func parseDependencyValues(
+	occurrence resolve.Occurrence,
+	values []string,
+) ([]Dependency, []Diagnostic) {
+	seen := make(map[string]struct{})
+	var dependencies []Dependency
+	var diagnostics []Diagnostic
+	for _, value := range values {
+		dependency, err := parseDependency(value, occurrence)
 		if err != nil {
 			diagnostics = append(diagnostics, occurrenceDiagnostic(
 				occurrence,
 				"dependency-identity",
-				fmt.Sprintf("@Module allowed dependency %q is invalid: %v", item.String, err),
+				fmt.Sprintf("@Module allowed dependency %q is invalid: %v", value, err),
 			))
 			continue
 		}
@@ -486,7 +515,10 @@ func discoverNamedInterfaces(
 ) {
 	seen := make(map[string]resolve.Occurrence)
 	for _, occurrence := range occurrences {
-		if occurrence.Annotation.Name != "NamedInterface" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionNamedInterface,
+			"NamedInterface",
+		) {
 			continue
 		}
 		name, ok := namedInterfaceName(occurrence, &model.diagnostics)
@@ -543,6 +575,15 @@ func discoverNamedInterfaces(
 }
 
 func namedInterfaceName(occurrence resolve.Occurrence, diagnostics *[]Diagnostic) (string, bool) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionNamedInterface,
+	); found {
+		return validateNamedInterfaceName(
+			occurrence,
+			contribution.NamedInterface.Name,
+			diagnostics,
+		)
+	}
 	var names []string
 	for _, argument := range occurrence.Annotation.Arguments {
 		if argument.Name != "" && argument.Name != "name" {
@@ -566,15 +607,27 @@ func namedInterfaceName(occurrence resolve.Occurrence, diagnostics *[]Diagnostic
 		))
 		return "", false
 	}
-	if !interfaceNamePattern.MatchString(names[0]) {
+	return validateNamedInterfaceName(
+		occurrence,
+		names[0],
+		diagnostics,
+	)
+}
+
+func validateNamedInterfaceName(
+	occurrence resolve.Occurrence,
+	name string,
+	diagnostics *[]Diagnostic,
+) (string, bool) {
+	if !interfaceNamePattern.MatchString(name) {
 		*diagnostics = append(*diagnostics, occurrenceDiagnostic(
 			occurrence,
 			"interface-name",
-			fmt.Sprintf("@NamedInterface name %q must match %s", names[0], interfaceNamePattern),
+			fmt.Sprintf("@NamedInterface name %q must match %s", name, interfaceNamePattern),
 		))
 		return "", false
 	}
-	return names[0], true
+	return name, true
 }
 
 func validateDependencies(model *Model) {

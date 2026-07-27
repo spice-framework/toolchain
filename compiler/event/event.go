@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
@@ -212,7 +213,11 @@ func buildListeners(
 	modules modulith.Model,
 ) ([]Listener, []Diagnostic) {
 	contextType := signature.ContextType(program)
-	occurrences := annotationOccurrences(resolution, ListenerAnnotation)
+	occurrences := annotationOccurrences(
+		resolution,
+		ListenerAnnotation,
+		sdk.ContributionEventListener,
+	)
 	var listeners []Listener
 	var diagnostics []Diagnostic
 	for _, symbolID := range sortedOccurrenceIDs(occurrences) {
@@ -363,7 +368,11 @@ func buildTopics(
 	listeners []Listener,
 	modules modulith.Model,
 ) ([]Topic, []provider.Provider, map[string]bool, []Diagnostic) {
-	occurrences := annotationOccurrences(resolution, TopicAnnotation)
+	occurrences := annotationOccurrences(
+		resolution,
+		TopicAnnotation,
+		sdk.ContributionEventTopic,
+	)
 	fileSets := packageFileSets(program)
 	var topics []Topic
 	var providers []provider.Provider
@@ -674,6 +683,11 @@ func exactProvider(
 }
 
 func listenerOrder(occurrence resolve.Occurrence) (int, string) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionEventListener,
+	); found {
+		return int(contribution.EventListener.Order), ""
+	}
 	order := 0
 	seen := false
 	for _, argument := range occurrence.Annotation.Arguments {
@@ -733,10 +747,11 @@ func topicDependency(
 func annotationOccurrences(
 	resolution resolve.Result,
 	name string,
+	kind sdk.ContributionKind,
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name == name {
+		if occurrence.UsesContribution(kind, name) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
 				occurrence,

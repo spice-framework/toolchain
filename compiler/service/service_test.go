@@ -151,6 +151,60 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 	}
 }
 
+func TestServiceValidationModeDoesNotRequireApplicationTarget(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	writeServiceFixtureFile(t, root, "main.go", `package main
+
+// @Service
+type ProcessBoundary struct{}
+`)
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := compiler.Analyze(context.Background(), Request{
+		WorkspaceRoot: root,
+		Mode:          AnalysisValidate,
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if !result.Diagnostics().Empty() ||
+		result.GenerationReady() ||
+		result.TargetName() != "" ||
+		result.Files() != 3 {
+		t.Fatalf(
+			"validation result diagnostics=%+v generation=%t target=%q files=%d",
+			result.Diagnostics().Items(),
+			result.GenerationReady(),
+			result.TargetName(),
+			result.Files(),
+		)
+	}
+}
+
+func TestServiceRejectsInvalidAnalysisModes(t *testing.T) {
+	t.Parallel()
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	root := writeServiceModule(t)
+	for _, request := range []Request{
+		{WorkspaceRoot: root, Mode: AnalysisMode(255)},
+		{
+			WorkspaceRoot: root,
+			Mode:          AnalysisValidate,
+			Target:        "Application",
+		},
+	} {
+		if _, err := compiler.Analyze(context.Background(), request); err == nil {
+			t.Fatalf("Analyze(%+v) error = nil, want failure", request)
+		}
+	}
+}
+
 func TestServiceLoadsAndDecodesExplicitAnnotationImports(t *testing.T) {
 	t.Parallel()
 	root := writeServiceModule(t)
@@ -158,53 +212,27 @@ func TestServiceLoadsAndDecodesExplicitAnnotationImports(t *testing.T) {
 
 import "os"
 
-// @spice.import { Application as SpiceApplication } from "example.com/servicefixture/annotations/core"
+// @spice.import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
 	os.Exit(spiceMain(os.Args[1:]))
 }
 `)
-	writeServiceFixtureFile(
-		t,
-		root,
-		"annotations/core/application.go",
-		`package core
-
-import "github.com/StevenBuglione/spice/annotation/sdk"
-
-// Application marks the application process entrypoint. Spice analyzes its
-// signature and never executes its body.
-func Application() sdk.Definition {
-	return sdk.Definition{
-		Name: "Application",
-		Summary: "Marks the application process entrypoint.",
-		Targets: []sdk.Target{sdk.TargetFunction},
-		Examples: []sdk.Example{{
-			Title: "Application entrypoint",
-			Code: "// @Application",
-		}},
-		Compatibility: sdk.Compatibility{
-			Since: "0.1.0",
-			MinimumSpice: "0.1.0",
-		},
-		Implementation: sdk.Implementation{
-			Tool: "example.com/servicefixture/cmd/annotations",
-			Handler: "core/application",
-			Protocol: sdk.ProtocolV1Alpha1,
-			Source: sdk.Symbol{
-				Package: "example.com/servicefixture/internal/annotations",
-				Name: "ApplicationHandler",
-			},
-		},
-	}
-}
-`,
-	)
 	compiler, err := New(Config{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+		if closeErr := compiler.Close(closeCtx); closeErr != nil {
+			t.Errorf("Close() error = %v", closeErr)
+		}
+	})
 	result, err := compiler.Analyze(context.Background(), Request{
 		WorkspaceRoot: root,
 	})
@@ -219,13 +247,144 @@ func Application() sdk.Definition {
 	}
 	var imported *Annotation
 	for index := range result.annotations {
-		if result.annotations[index].Name == "Application" {
+		if result.annotations[index].Name == "core.Application" {
 			imported = &result.annotations[index]
 			break
 		}
 	}
 	if imported == nil || imported.Raw != "// @SpiceApplication" {
 		t.Fatalf("annotations = %+v", result.Annotations())
+	}
+}
+
+func TestServiceExplicitAnnotationFailsClosedWithoutToolAuthorization(
+	t *testing.T,
+) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	writeServiceFixtureFile(t, root, "main.go", `package main
+
+import "os"
+
+// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @Application
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`)
+	modPath := filepath.Join(root, "go.mod")
+	content, err := os.ReadFile(modPath)
+	if err != nil {
+		t.Fatalf("ReadFile(go.mod) error = %v", err)
+	}
+	content = bytes.Replace(
+		content,
+		[]byte(
+			"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n",
+		),
+		nil,
+		1,
+	)
+	if writeErr := os.WriteFile(modPath, content, 0o600); writeErr != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", writeErr)
+	}
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := compiler.Analyze(context.Background(), Request{
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	items := result.Diagnostics().Items()
+	if len(items) != 1 ||
+		items[0].Code != "spice.annotation-tool.operation" ||
+		!strings.Contains(items[0].Message, "go get -tool") ||
+		result.GenerationReady() {
+		t.Fatalf(
+			"Analyze() diagnostics = %+v, ready = %t",
+			items,
+			result.GenerationReady(),
+		)
+	}
+}
+
+func TestServiceBuildsIRFromMultipleToolContributions(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	writeServiceFixtureFile(t, root, "main.go", `package main
+
+import "os"
+
+// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @Application
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`)
+	writeServiceFixtureFile(t, root, "orders/doc.go", `// Package orders owns order configuration.
+// @spice.import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @Module
+package orders
+`)
+	writeServiceFixtureFile(t, root, "orders/config.go", `package orders
+
+// @spice.import { Bean, Configuration } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @Configuration(prefix="orders")
+type Settings struct {
+	Limit int `+"`spice:\"limit,default=100\"`"+`
+}
+
+type Store struct{}
+
+// @Bean
+func NewStore(Settings) *Store {
+	panic("provider bodies must not execute during analysis")
+}
+`)
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+		if closeErr := compiler.Close(closeCtx); closeErr != nil {
+			t.Errorf("Close() error = %v", closeErr)
+		}
+	})
+	result, err := compiler.Analyze(context.Background(), Request{
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if !result.Diagnostics().Empty() || !result.GenerationReady() {
+		t.Fatalf(
+			"Analyze() diagnostics = %+v, ready = %t",
+			result.Diagnostics().Items(),
+			result.GenerationReady(),
+		)
+	}
+	if len(result.ApplicationModel().Targets()) != 1 ||
+		len(result.ProviderGraph().Providers) != 2 ||
+		len(result.Configurations()) != 1 ||
+		len(result.ModuleGraph().Modules) != 1 {
+		t.Fatalf(
+			"tool-contributed result targets=%d providers=%d configurations=%d modules=%d",
+			len(result.ApplicationModel().Targets()),
+			len(result.ProviderGraph().Providers),
+			len(result.Configurations()),
+			len(result.ModuleGraph().Modules),
+		)
 	}
 }
 
@@ -872,6 +1031,7 @@ func writeServiceModule(tb testingTB) string {
 	}
 	files := map[string]string{
 		"go.mod": "module example.com/servicefixture\n\ngo 1.26.0\n\n" +
+			"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n" +
 			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
 			"replace github.com/StevenBuglione/spice => " +
 			filepath.ToSlash(repository) + "\n",

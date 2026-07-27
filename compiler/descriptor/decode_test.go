@@ -65,6 +65,68 @@ func Controller() sdk.Definition {
 	}
 }
 
+func TestDecodeAllOfficialDescriptors(t *testing.T) {
+	t.Parallel()
+	repository, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("Abs(repository) error = %v", err)
+	}
+	references := []annotation.DefinitionReference{
+		{Package: "github.com/StevenBuglione/spice/annotation/async", Symbol: "Execute"},
+		{Package: "github.com/StevenBuglione/spice/annotation/cache", Symbol: "Cacheable"},
+		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Application"},
+		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Bean"},
+		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Configuration"},
+		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Service"},
+		{Package: "github.com/StevenBuglione/spice/annotation/data", Symbol: "Transactional"},
+		{Package: "github.com/StevenBuglione/spice/annotation/event", Symbol: "Listener"},
+		{Package: "github.com/StevenBuglione/spice/annotation/event", Symbol: "Topic"},
+		{Package: "github.com/StevenBuglione/spice/annotation/lifecycle", Symbol: "OnStart"},
+		{Package: "github.com/StevenBuglione/spice/annotation/lifecycle", Symbol: "OnStop"},
+		{Package: "github.com/StevenBuglione/spice/annotation/management", Symbol: "Enable"},
+		{Package: "github.com/StevenBuglione/spice/annotation/modulith", Symbol: "Module"},
+		{Package: "github.com/StevenBuglione/spice/annotation/modulith", Symbol: "NamedInterface"},
+		{Package: "github.com/StevenBuglione/spice/annotation/observability", Symbol: "Logging"},
+		{Package: "github.com/StevenBuglione/spice/annotation/schedule", Symbol: "FixedDelay"},
+		{Package: "github.com/StevenBuglione/spice/annotation/security", Symbol: "Authorize"},
+		{Package: "github.com/StevenBuglione/spice/annotation/web", Symbol: "Controller"},
+		{Package: "github.com/StevenBuglione/spice/annotation/web", Symbol: "Get"},
+		{Package: "github.com/StevenBuglione/spice/annotation/web", Symbol: "Post"},
+	}
+	packages := make([]string, 0, len(references))
+	for _, reference := range references {
+		packages = append(packages, reference.Package)
+	}
+	program, err := load.Load(
+		context.Background(),
+		load.Options{Dir: repository},
+		packages...,
+	)
+	if err != nil {
+		t.Fatalf("load.Load() error = %v", err)
+	}
+	descriptors, err := DecodeAll(program, references)
+	if err != nil {
+		t.Fatalf("DecodeAll() error = %v", err)
+	}
+	if len(descriptors) != len(references) {
+		t.Fatalf(
+			"DecodeAll() descriptors = %d, want %d",
+			len(descriptors),
+			len(references),
+		)
+	}
+	for _, item := range descriptors {
+		if item.Documentation == "" ||
+			item.Definition.Implementation.Tool !=
+				"github.com/StevenBuglione/spice/cmd/spice-annotation-core" ||
+			item.Definition.Implementation.Source.Package !=
+				"github.com/StevenBuglione/spice/internal/annotationcore" {
+			t.Fatalf("official descriptor = %+v", item)
+		}
+	}
+}
+
 func TestDecodeRejectsExecutableOrAmbiguousDescriptors(t *testing.T) {
 	tests := []struct {
 		name    string

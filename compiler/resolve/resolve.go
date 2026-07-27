@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/load"
 	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
@@ -32,6 +33,46 @@ type Occurrence struct {
 	PhysicalOffset   int
 	PhysicalPosition token.Position
 	DisplayPosition  token.Position
+	Contributions    []sdk.Contribution
+}
+
+// HasContribution reports whether a validated tool contribution is attached
+// to this invocation.
+func (occurrence Occurrence) HasContribution(
+	kind sdk.ContributionKind,
+) bool {
+	for _, contribution := range occurrence.Contributions {
+		if contribution.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// Contribution returns a defensive typed contribution by kind.
+func (occurrence Occurrence) Contribution(
+	kind sdk.ContributionKind,
+) (sdk.Contribution, bool) {
+	for _, contribution := range occurrence.Contributions {
+		if contribution.Kind == kind {
+			return contribution.Clone(), true
+		}
+	}
+	return sdk.Contribution{}, false
+}
+
+// UsesContribution preserves the legacy unimported spelling only while the
+// built-in migration is in progress. Explicit imports must be authorized and
+// contribute the requested semantic kind through their tool.
+func (occurrence Occurrence) UsesContribution(
+	kind sdk.ContributionKind,
+	legacyName string,
+) bool {
+	if occurrence.HasContribution(kind) {
+		return true
+	}
+	return occurrence.Definition == (annotation.DefinitionReference{}) &&
+		occurrence.Annotation.Name == legacyName
 }
 
 // Diagnostic is one deterministic source-positioned resolution failure.
@@ -70,6 +111,52 @@ type Result struct {
 	Files       int
 	Occurrences []Occurrence
 	Diagnostics []Diagnostic
+}
+
+// WithContributions returns a defensive result whose occurrence at index owns
+// the supplied validated contributions.
+func (result Result) WithContributions(
+	index int,
+	values []sdk.Contribution,
+) (Result, error) {
+	if index < 0 || index >= len(result.Occurrences) {
+		return Result{}, fmt.Errorf(
+			"annotation contribution occurrence index %d is out of range",
+			index,
+		)
+	}
+	cloned, err := cloneContributions(values)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Occurrences = append([]Occurrence(nil), result.Occurrences...)
+	result.Occurrences[index].Contributions = cloned
+	return result, nil
+}
+
+func cloneContributions(
+	values []sdk.Contribution,
+) ([]sdk.Contribution, error) {
+	result := make([]sdk.Contribution, len(values))
+	seen := make(map[sdk.ContributionKind]struct{}, len(values))
+	for index, value := range values {
+		if err := value.Validate(); err != nil {
+			return nil, fmt.Errorf(
+				"annotation contribution %d is invalid: %w",
+				index,
+				err,
+			)
+		}
+		if _, duplicate := seen[value.Kind]; duplicate {
+			return nil, fmt.Errorf(
+				"annotation invocation returned duplicate %q contributions",
+				value.Kind,
+			)
+		}
+		seen[value.Kind] = struct{}{}
+		result[index] = value.Clone()
+	}
+	return result, nil
 }
 
 type symbolIndex struct {

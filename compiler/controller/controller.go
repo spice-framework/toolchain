@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
@@ -222,7 +223,10 @@ func Build(
 	controllerObjects := make(map[*types.TypeName]int)
 	seenControllers := make(map[string]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != "Controller" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionController,
+			"Controller",
+		) {
 			continue
 		}
 		if previous, duplicate := seenControllers[occurrence.SymbolID]; duplicate {
@@ -253,7 +257,7 @@ func Build(
 	}
 
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != "Get" && occurrence.Annotation.Name != "Post" {
+		if !routeOccurrence(occurrence) {
 			continue
 		}
 		symbol, ok := symbols[occurrence.SymbolID]
@@ -324,7 +328,10 @@ func applyAuthorizations(catalog *Catalog, resolution resolve.Result) {
 	}
 	seen := make(map[string]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != "security.Authorize" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionAuthorization,
+			"security.Authorize",
+		) {
 			continue
 		}
 		if previous, duplicate := seen[occurrence.SymbolID]; duplicate {
@@ -403,14 +410,35 @@ func analyzeAuthorization(
 		Position:         occurrence.DisplayPosition,
 		PhysicalPosition: physicalPosition(occurrence),
 	}
-	seenArguments := make(map[string]struct{})
-	for _, argument := range occurrence.Annotation.Arguments {
-		if problem := applyAuthorizationArgument(
-			&authorization,
-			argument,
-			seenArguments,
-		); problem != "" {
-			return Authorization{}, problem
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionAuthorization,
+	); found {
+		authorization.Authenticated = contribution.Authorization.Authenticated
+		authorization.anyRoles = append(
+			[]string(nil),
+			contribution.Authorization.AnyRoles...,
+		)
+		authorization.allRoles = append(
+			[]string(nil),
+			contribution.Authorization.AllRoles...,
+		)
+		authorization.allScopes = append(
+			[]string(nil),
+			contribution.Authorization.AllScopes...,
+		)
+		sort.Strings(authorization.anyRoles)
+		sort.Strings(authorization.allRoles)
+		sort.Strings(authorization.allScopes)
+	} else {
+		seenArguments := make(map[string]struct{})
+		for _, argument := range occurrence.Annotation.Arguments {
+			if problem := applyAuthorizationArgument(
+				&authorization,
+				argument,
+				seenArguments,
+			); problem != "" {
+				return Authorization{}, problem
+			}
 		}
 	}
 	if !authorization.Authenticated &&
@@ -552,7 +580,7 @@ func analyzeController(
 		diagnostic := symbolDiagnostic(occurrence, symbol, "invalid-controller", fmt.Sprintf("@Controller %s must have a struct underlying type", label))
 		return Controller{}, nil, &diagnostic
 	}
-	prefix, valid := stringArgument(occurrence.Annotation, "prefix", false)
+	prefix, valid := controllerPrefix(occurrence)
 	if !valid || !validPrefix(prefix) {
 		diagnostic := symbolDiagnostic(occurrence, symbol, "invalid-prefix", fmt.Sprintf("@Controller %s prefix %q must be empty or an absolute path without wildcards, query, fragment, or trailing slash", label, prefix))
 		return Controller{}, nil, &diagnostic
@@ -585,7 +613,7 @@ func analyzeRoute(
 	if diagnostic := validateRouteMethod(occurrence, symbol, signature); diagnostic != nil {
 		return Route{}, diagnostic
 	}
-	routePath, valid := stringArgument(occurrence.Annotation, "path", true)
+	method, routePath, valid := routeContribution(occurrence)
 	fullPath, wildcards, pathProblem := routePattern(controller.Prefix, routePath)
 	if !valid || pathProblem != "" {
 		diagnostic := symbolDiagnostic(occurrence, symbol, "invalid-path", fmt.Sprintf("@%s method %s path %q is invalid: %s", occurrence.Annotation.Name, symbolLabel(symbol), routePath, pathProblem))
@@ -595,10 +623,6 @@ func analyzeRoute(
 	if !found {
 		diagnostic := symbolDiagnostic(occurrence, symbol, "missing-controller-provider", fmt.Sprintf("@%s method %s receiver exact type %s has no provider", occurrence.Annotation.Name, symbolLabel(symbol), provider.TypeID(signature.Recv().Type())))
 		return Route{}, &diagnostic
-	}
-	method := http.MethodGet
-	if occurrence.Annotation.Name == "Post" {
-		method = http.MethodPost
 	}
 	route := Route{
 		Symbol:           symbol,
@@ -1074,6 +1098,46 @@ func stringArgument(value annotation.Annotation, name string, positional bool) (
 		return "", false
 	}
 	return argument.Value.String, true
+}
+
+func controllerPrefix(occurrence resolve.Occurrence) (string, bool) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionController,
+	); found {
+		return contribution.Controller.Prefix, true
+	}
+	return stringArgument(occurrence.Annotation, "prefix", false)
+}
+
+func routeOccurrence(occurrence resolve.Occurrence) bool {
+	if occurrence.HasContribution(sdk.ContributionRoute) {
+		return true
+	}
+	if occurrence.Definition != (annotation.DefinitionReference{}) {
+		return false
+	}
+	return occurrence.Annotation.Name == "Get" ||
+		occurrence.Annotation.Name == "Post"
+}
+
+func routeContribution(
+	occurrence resolve.Occurrence,
+) (method string, routePath string, valid bool) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionRoute,
+	); found {
+		return contribution.Route.Method, contribution.Route.Path, true
+	}
+	routePath, valid = stringArgument(
+		occurrence.Annotation,
+		"path",
+		true,
+	)
+	method = http.MethodGet
+	if occurrence.Annotation.Name == "Post" {
+		method = http.MethodPost
+	}
+	return method, routePath, valid
 }
 
 func namedType(value types.Type, packagePath, name string) bool {

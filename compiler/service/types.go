@@ -13,6 +13,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 )
@@ -25,6 +26,18 @@ const (
 
 // ErrStaleAnalysis reports that a newer sequenced request superseded a result.
 var ErrStaleAnalysis = errors.New("spice analysis request is stale")
+
+// AnalysisMode controls whether a successful analysis also selects and renders
+// one application target. The zero value preserves generation behavior.
+type AnalysisMode uint8
+
+const (
+	// AnalysisGenerate builds the complete application IR and a generation plan.
+	AnalysisGenerate AnalysisMode = iota
+	// AnalysisValidate builds and validates the complete application IR without
+	// requiring an @Application target or rendering generated files.
+	AnalysisValidate
+)
 
 // Loader is the cancellable typed-program loading boundary.
 type Loader func(
@@ -53,6 +66,16 @@ type Config struct {
 	MaxCacheEntries      int
 	MaxOverlayFiles      int
 	MaxOverlayBytes      int
+	// SpiceVersion is sent during annotation-tool compatibility negotiation.
+	SpiceVersion string
+}
+
+// Close gracefully terminates annotation-tool processes owned by the service.
+func (service *Service) Close(ctx context.Context) error {
+	if service == nil || service.config.annotationTools == nil {
+		return nil
+	}
+	return service.config.annotationTools.Close(ctx)
 }
 
 // Document is one versioned in-memory source overlay.
@@ -67,6 +90,7 @@ type Request struct {
 	Target        string
 	Patterns      []string
 	Overlay       map[string]Document
+	Mode          AnalysisMode
 	// ContentHash is a caller-owned hash of all relevant workspace and overlay
 	// content. Caching is disabled when it is empty, preventing stale disk
 	// results from being reused without a complete content identity.
@@ -209,12 +233,14 @@ type Result struct {
 	annotations    []Annotation
 	providerGraph  ProviderGraph
 	moduleGraph    ModuleGraph
+	moduleModel    modulith.Model
 	configurations []Configuration
 	definitions    []AnnotationDefinition
 	actions        []diagnostic.SuggestedFix
 	application    application.Model
 	plan           generate.Plan
 	targetName     string
+	files          int
 	hasPlan        bool
 }
 
@@ -238,6 +264,11 @@ func (result Result) Annotations() []Annotation {
 	return slices.Clone(result.annotations)
 }
 
+// Files returns the number of primary Go files scanned for annotations.
+func (result Result) Files() int {
+	return result.files
+}
+
 // ProviderGraph returns a deep defensive graph summary.
 func (result Result) ProviderGraph() ProviderGraph {
 	return cloneProviderGraph(result.providerGraph)
@@ -246,6 +277,12 @@ func (result Result) ProviderGraph() ProviderGraph {
 // ModuleGraph returns a deep defensive module summary.
 func (result Result) ModuleGraph() ModuleGraph {
 	return cloneModuleGraph(result.moduleGraph)
+}
+
+// ModuleModel returns the immutable application-module model used by CLI and
+// editor projections. Its public accessors return defensive values.
+func (result Result) ModuleModel() modulith.Model {
+	return result.moduleModel
 }
 
 // Configurations returns deep defensive configuration metadata.

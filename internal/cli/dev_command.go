@@ -68,7 +68,7 @@ func devCommandContext(
 	options load.Options,
 	loader programLoader,
 	builder applicationBuildExecutor,
-) int {
+) (exitCode int) {
 	parsed, err := parseDevArguments(arguments)
 	if err != nil {
 		if writeErr := writef(stderr, "Spice dev failed: %v\n", err); writeErr != nil {
@@ -87,6 +87,21 @@ func devCommandContext(
 		}
 		return 1
 	}
+	defer func() {
+		if closeErr := closeCompilerAnalysisService(
+			analysisService,
+		); closeErr != nil {
+			if writeErr := writef(
+				stderr,
+				"Spice dev failed: close annotation tools: %v\n",
+				closeErr,
+			); writeErr != nil {
+				exitCode = 1
+				return
+			}
+			exitCode = 1
+		}
+	}()
 	watcher, err := devloop.NewPollingWatcher(
 		ctx,
 		devloop.PollingConfig{

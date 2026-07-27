@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
 
@@ -298,6 +299,7 @@ func Compile(
 	result := Result{metadata: make(map[string]Metadata, len(applications))}
 	applicationIndex := indexApplications(applications)
 	definitionIndex, definitionDiagnostics := indexDefinitions(definitions)
+	capabilityIndex := indexCapabilities(definitionIndex)
 	result.diagnostics = append(result.diagnostics, definitionDiagnostics...)
 	if len(definitionDiagnostics) != 0 {
 		sortDiagnostics(result.diagnostics)
@@ -306,8 +308,22 @@ func Compile(
 
 	seen := make(map[string]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		definition, recognized := definitionIndex[occurrence.Annotation.Name]
+		definition, recognized, contributed := bootstrapDefinition(
+			occurrence,
+			definitionIndex,
+			capabilityIndex,
+		)
 		if !recognized {
+			if contributed {
+				result.diagnostics = append(
+					result.diagnostics,
+					occurrenceDiagnostic(
+						occurrence,
+						"unsupported-capability",
+						"annotation tool contributed a bootstrap capability without a selected compiler definition",
+					),
+				)
+			}
 			continue
 		}
 		if occurrence.Target != annotation.TargetFunction {
@@ -338,7 +354,8 @@ func Compile(
 			)
 			continue
 		}
-		key := occurrence.SymbolID + "\x00" + occurrence.Annotation.Name
+		key := occurrence.SymbolID + "\x00" +
+			string(definition.Capability)
 		if previous, duplicate := seen[key]; duplicate {
 			result.diagnostics = append(
 				result.diagnostics,
@@ -371,6 +388,33 @@ func Compile(
 	}
 	sortDiagnostics(result.diagnostics)
 	return result
+}
+
+func indexCapabilities(
+	definitions map[string]Definition,
+) map[Capability]Definition {
+	result := make(map[Capability]Definition, len(definitions))
+	for _, definition := range definitions {
+		result[definition.Capability] = definition
+	}
+	return result
+}
+
+func bootstrapDefinition(
+	occurrence resolve.Occurrence,
+	annotations map[string]Definition,
+	capabilities map[Capability]Definition,
+) (Definition, bool, bool) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionBootstrap,
+	); found {
+		definition, recognized := capabilities[Capability(
+			contribution.Bootstrap.Capability,
+		)]
+		return definition, recognized, true
+	}
+	definition, recognized := annotations[occurrence.Annotation.Name]
+	return definition, recognized, false
 }
 
 func indexApplications(applications []Application) map[string]Application {
@@ -520,7 +564,7 @@ func compileFeature(
 	definition Definition,
 ) (Feature, []Diagnostic) {
 	feature := Feature{
-		Annotation:       definition.Annotation,
+		Annotation:       occurrence.Annotation.Name,
 		Capability:       definition.Capability,
 		SourceID:         definition.SourceID,
 		SourceVersion:    definition.SourceVersion,
@@ -538,14 +582,29 @@ func compileOptions(
 	occurrence resolve.Occurrence,
 	definitions []OptionDefinition,
 ) ([]Option, []Diagnostic) {
+	arguments := occurrence.Annotation.Arguments
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionBootstrap,
+	); found {
+		arguments = make(
+			[]annotation.Argument,
+			len(contribution.Bootstrap.Options),
+		)
+		for index, option := range contribution.Bootstrap.Options {
+			arguments[index] = annotation.Argument{
+				Name:  option.Name,
+				Value: bootstrapOptionValue(option.Value),
+			}
+		}
+	}
 	definitionIndex := make(map[string]OptionDefinition, len(definitions))
 	for _, definition := range definitions {
 		definitionIndex[definition.Name] = definition
 	}
 	assigned := make(map[string]bool, len(definitions))
-	options := make([]Option, 0, len(occurrence.Annotation.Arguments))
+	options := make([]Option, 0, len(arguments))
 	var diagnostics []Diagnostic
-	for _, argument := range occurrence.Annotation.Arguments {
+	for _, argument := range arguments {
 		definition, found := definitionIndex[argument.Name]
 		if !found {
 			diagnostics = append(diagnostics, optionDiagnostic(
@@ -598,6 +657,21 @@ func compileOptions(
 		return options[i].Name < options[j].Name
 	})
 	return options, diagnostics
+}
+
+func bootstrapOptionValue(value sdk.ContributionValue) annotation.Value {
+	result := annotation.Value{
+		Kind:       value.Kind,
+		String:     value.String,
+		Integer:    value.Integer,
+		Boolean:    value.Boolean,
+		Identifier: value.Identifier,
+		List:       make([]annotation.Value, len(value.List)),
+	}
+	for index, item := range value.List {
+		result.List[index] = bootstrapOptionValue(item)
+	}
+	return result
 }
 
 func compileOption(

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/controller"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -211,7 +212,7 @@ func compileBoundary(
 	occurrence resolve.Occurrence,
 	route controller.Route,
 ) (Boundary, string) {
-	name, problem := cacheName(occurrence.Annotation)
+	name, problem := cacheOccurrenceName(occurrence)
 	if problem != "" {
 		return Boundary{}, problem
 	}
@@ -286,13 +287,27 @@ func compileBoundary(
 	}, ""
 }
 
+func cacheOccurrenceName(
+	occurrence resolve.Occurrence,
+) (string, string) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionCache,
+	); found {
+		return validatedCacheName(contribution.Cache.Name)
+	}
+	return cacheName(occurrence.Annotation)
+}
+
 func cacheName(value annotation.Annotation) (string, string) {
 	if len(value.Arguments) != 1 ||
 		value.Arguments[0].Name != "name" ||
 		value.Arguments[0].Value.Kind != annotation.KindString {
 		return "", "@cache.Cacheable requires exactly one named string argument \"name\""
 	}
-	name := value.Arguments[0].Value.String
+	return validatedCacheName(value.Arguments[0].Value.String)
+}
+
+func validatedCacheName(name string) (string, string) {
 	if !cacheNamePattern.MatchString(name) {
 		return "", fmt.Sprintf(
 			"@cache.Cacheable argument \"name\" %q must match %s",
@@ -329,7 +344,10 @@ func cacheOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name == Annotation {
+		if occurrence.UsesContribution(
+			sdk.ContributionCache,
+			Annotation,
+		) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
 				occurrence,

@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/controller"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
@@ -170,7 +171,7 @@ func Build(
 			)
 			continue
 		}
-		options, problem := parseOptions(occurrence.Annotation)
+		options, problem := parseOptions(occurrence)
 		if problem != "" {
 			catalog.diagnostics = append(
 				catalog.diagnostics,
@@ -231,7 +232,10 @@ func transactionOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name == Annotation {
+		if occurrence.UsesContribution(
+			sdk.ContributionTransaction,
+			Annotation,
+		) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
 				occurrence,
@@ -268,7 +272,22 @@ type options struct {
 	readOnly  bool
 }
 
-func parseOptions(value annotation.Annotation) (options, string) {
+func parseOptions(occurrence resolve.Occurrence) (options, string) {
+	if contribution, found := occurrence.Contribution(
+		sdk.ContributionTransaction,
+	); found {
+		isolation, valid := isolationLevelString(
+			contribution.Transaction.Isolation,
+		)
+		if !valid {
+			return options{}, "@data.Transactional contribution contains an unsupported isolation"
+		}
+		return options{
+			isolation: isolation,
+			readOnly:  contribution.Transaction.ReadOnly,
+		}, ""
+	}
+	value := occurrence.Annotation
 	result := options{isolation: sql.LevelDefault}
 	seen := make(map[string]struct{}, len(value.Arguments))
 	for _, argument := range value.Arguments {
@@ -308,8 +327,12 @@ func isolationLevel(value annotation.Value) (sql.IsolationLevel, bool) {
 	if value.Kind != annotation.KindString {
 		return sql.LevelDefault, false
 	}
-	switch value.String {
-	case "default":
+	return isolationLevelString(value.String)
+}
+
+func isolationLevelString(value string) (sql.IsolationLevel, bool) {
+	switch value {
+	case "", "default":
 		return sql.LevelDefault, true
 	case "read-uncommitted":
 		return sql.LevelReadUncommitted, true

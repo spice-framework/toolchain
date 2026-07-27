@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
@@ -307,7 +308,10 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 	}
 
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.Annotation.Name != "Bean" {
+		if !occurrence.UsesContribution(
+			sdk.ContributionProvider,
+			"Bean",
+		) {
 			continue
 		}
 		symbol, ok := symbols[occurrence.SymbolID]

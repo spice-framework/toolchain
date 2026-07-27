@@ -18,6 +18,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/compiler/annotationhost"
 	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
@@ -63,6 +64,8 @@ type serviceConfig struct {
 	maxOverlayFiles      int
 	maxOverlayBytes      int
 	cacheExtensions      bool
+	annotationTools      *annotationhost.Manager
+	spiceVersion         string
 }
 
 // New creates an isolated bounded compiler service.
@@ -123,6 +126,8 @@ func New(config Config) (*Service, error) {
 			maxOverlayFiles:      config.MaxOverlayFiles,
 			maxOverlayBytes:      config.MaxOverlayBytes,
 			cacheExtensions:      cacheExtensions,
+			annotationTools:      annotationhost.NewManager(),
+			spiceVersion:         normalizedSpiceVersion(config.SpiceVersion),
 		},
 		cache:   make(map[[sha256.Size]byte]Result),
 		latest:  make(map[string]uint64),
@@ -130,11 +135,20 @@ func New(config Config) (*Service, error) {
 	}, nil
 }
 
+func normalizedSpiceVersion(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "development"
+	}
+	return value
+}
+
 type normalizedRequest struct {
 	root     string
 	target   string
 	patterns []string
 	overlay  map[string]Document
+	mode     AnalysisMode
 	content  string
 	sequence uint64
 }
@@ -294,6 +308,7 @@ func (service *Service) analyze(
 		program,
 		descriptorState.index,
 	)
+	result.files = resolution.Files
 	result.annotations = summarizeAnnotations(request.root, resolution)
 	if len(resolution.Diagnostics) != 0 {
 		result.diagnostics = versionDiagnostics(
@@ -323,6 +338,22 @@ func (service *Service) analyze(
 		return result, nil
 	}
 
+	resolution, contributionDiagnostics, err := service.applyToolContributions(
+		ctx,
+		request,
+		program,
+		resolution,
+		descriptorState,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	if !contributionDiagnostics.Empty() {
+		result.diagnostics = contributionDiagnostics
+		result.actions = actionsFromDiagnostics(result.diagnostics)
+		return result, nil
+	}
+
 	starterDiagnostics, err := service.starterDependencyDiagnostics(
 		ctx,
 		request,
@@ -342,29 +373,20 @@ func (service *Service) analyze(
 			service.config.bootstrapDefinitions,
 		),
 	}
-	providerEntrypoints := append(
-		slices.Clone(service.config.providerEntrypoints),
-		service.config.starterCatalog.ProviderEntrypoints(
-			resolution.Occurrences,
-		)...,
+	providerCatalogs, catalogDiagnostics := service.buildProviderCatalogs(
+		request,
+		program,
+		resolution,
 	)
-	if len(providerEntrypoints) != 0 {
-		catalog := provider.BuildEntrypoints(
-			program,
-			providerEntrypoints,
-		)
-		if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
-			result.diagnostics = versionDiagnostics(
-				diagnosticadapt.Provider(request.root, diagnostics),
-				request.overlay,
-			)
-			result.actions = actionsFromDiagnostics(result.diagnostics)
-			return result, nil
-		}
-		buildOptions.ProviderCatalogs = []provider.Catalog{catalog}
+	if !catalogDiagnostics.Empty() {
+		result.diagnostics = catalogDiagnostics
+		result.actions = actionsFromDiagnostics(result.diagnostics)
+		return result, nil
 	}
+	buildOptions.ProviderCatalogs = providerCatalogs
 
 	moduleModel := modulith.Build(program, resolution)
+	result.moduleModel = moduleModel
 	result.moduleGraph = summarizeModuleGraph(moduleModel)
 	model := application.BuildWithOptions(
 		program,
@@ -380,6 +402,57 @@ func (service *Service) analyze(
 			request.overlay,
 		)
 		result.actions = actionsFromDiagnostics(result.diagnostics)
+		return result, nil
+	}
+	return completeAnalysis(request, program, model, result)
+}
+
+func (service *Service) buildProviderCatalogs(
+	request normalizedRequest,
+	program *load.Program,
+	resolution resolve.Result,
+) ([]provider.Catalog, diagnostic.Set) {
+	var catalogs []provider.Catalog
+	if len(service.config.providerEntrypoints) != 0 {
+		catalog := provider.BuildEntrypoints(
+			program,
+			service.config.providerEntrypoints,
+		)
+		if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+			return nil, versionDiagnostics(
+				diagnosticadapt.Provider(request.root, diagnostics),
+				request.overlay,
+			)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	starterEntrypoints := service.config.starterCatalog.ProviderEntrypoints(
+		resolution.Occurrences,
+	)
+	if len(starterEntrypoints) == 0 {
+		return catalogs, diagnostic.NewSet()
+	}
+	catalog := provider.BuildEntrypoints(program, starterEntrypoints)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		return nil, versionDiagnostics(
+			diagnosticadapt.StarterProviders(
+				request.root,
+				diagnostics,
+			),
+			request.overlay,
+		)
+	}
+	return append(catalogs, catalog), diagnostic.NewSet()
+}
+
+func completeAnalysis(
+	request normalizedRequest,
+	program *load.Program,
+	model application.Model,
+	result Result,
+) (Result, error) {
+	if request.mode == AnalysisValidate {
+		result.diagnostics = diagnostic.NewSet()
 		return result, nil
 	}
 
@@ -520,7 +593,9 @@ func (service *Service) analysisLoadOptions(
 ) load.Options {
 	options := cloneLoadOptions(service.config.loadOptions)
 	options.Dir = request.root
-	options.Overlay = make(map[string][]byte, len(request.overlay))
+	if options.Overlay == nil {
+		options.Overlay = make(map[string][]byte, len(request.overlay))
+	}
 	for filePath, document := range request.overlay {
 		options.Overlay[filePath] = slices.Clone(document.Content)
 	}
@@ -533,10 +608,10 @@ func (service *Service) analysisLoadOptions(
 		service.config.starterCatalog.EntryPointPackages()...,
 	)
 	options.AllowGeneratedMainBridge = true
-	return withOfflineModuleResolution(
-		withAnalysisBuildTag(options),
-		request.root,
-	)
+	if request.mode == AnalysisGenerate {
+		options = withAnalysisBuildTag(options)
+	}
+	return withOfflineModuleResolution(options, request.root)
 }
 
 func withOfflineModuleResolution(
@@ -593,6 +668,17 @@ func (service *Service) normalizeRequest(
 	if request.WorkspaceRoot == "" {
 		return normalizedRequest{}, errors.New("compiler service workspace root must not be empty")
 	}
+	if request.Mode != AnalysisGenerate && request.Mode != AnalysisValidate {
+		return normalizedRequest{}, fmt.Errorf(
+			"compiler service analysis mode %d is unsupported",
+			request.Mode,
+		)
+	}
+	if request.Mode == AnalysisValidate && request.Target != "" {
+		return normalizedRequest{}, errors.New(
+			"compiler service validation analysis must not select a target",
+		)
+	}
 	root, err := filepath.Abs(request.WorkspaceRoot)
 	if err != nil {
 		return normalizedRequest{}, fmt.Errorf("resolve compiler service workspace root: %w", err)
@@ -622,6 +708,7 @@ func (service *Service) normalizeRequest(
 		target:   request.Target,
 		patterns: patterns,
 		overlay:  overlay,
+		mode:     request.Mode,
 		content:  request.ContentHash,
 		sequence: request.Sequence,
 	}, nil
@@ -767,8 +854,9 @@ func descriptorDefinitionIndex(
 }
 
 type preparedDescriptors struct {
-	index    resolve.DefinitionIndex
-	registry annotation.Registry
+	index       resolve.DefinitionIndex
+	registry    annotation.Registry
+	descriptors map[annotation.DefinitionReference]descriptor.Descriptor
 }
 
 func prepareDescriptors(
@@ -785,9 +873,26 @@ func prepareDescriptors(
 		return preparedDescriptors{}, err
 	}
 	return preparedDescriptors{
-		index:    descriptorDefinitionIndex(descriptors),
-		registry: registry,
+		index:       descriptorDefinitionIndex(descriptors),
+		registry:    registry,
+		descriptors: descriptorIndex(descriptors),
 	}, nil
+}
+
+func descriptorIndex(
+	descriptors []descriptor.Descriptor,
+) map[annotation.DefinitionReference]descriptor.Descriptor {
+	result := make(
+		map[annotation.DefinitionReference]descriptor.Descriptor,
+		len(descriptors),
+	)
+	for _, item := range descriptors {
+		result[annotation.DefinitionReference{
+			Package: item.Package,
+			Symbol:  item.Symbol,
+		}] = item
+	}
+	return result
 }
 
 func registryWithDescriptors(
@@ -992,6 +1097,7 @@ func (service *Service) cacheKey(
 	payload := struct {
 		Root              string
 		Target            string
+		Mode              AnalysisMode
 		Patterns          []string
 		Overlay           map[string]Document
 		Environment       []string
@@ -1003,6 +1109,7 @@ func (service *Service) cacheKey(
 	}{
 		Root:              normalizedWorkspaceKey(request.root),
 		Target:            request.target,
+		Mode:              request.mode,
 		Patterns:          request.patterns,
 		Overlay:           request.overlay,
 		Environment:       options.Env,

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -15,19 +14,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/compiler/scan"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
-	"github.com/StevenBuglione/spice/compiler/validate"
 	"github.com/StevenBuglione/spice/internal/genfs"
 )
 
@@ -220,26 +215,14 @@ func prepareFocusedModuleTest(
 	options load.Options,
 	loader programLoader,
 ) (modulith.Model, bool) {
-	program, resolution, _, ok := resolveValidatedCompilerPatterns(
+	model, ok := prepareModuleModel(
 		arguments.patterns,
 		stderr,
 		options,
 		loader,
-		"module test discovery",
 		"Spice module test failed",
 	)
 	if !ok {
-		return modulith.Model{}, false
-	}
-	model := modulith.Build(program, resolution)
-	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
-		if reportErr := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice module test failed: %d module architecture error(s).", len(diagnostics)),
-		); reportErr != nil {
-			return modulith.Model{}, false
-		}
 		return modulith.Model{}, false
 	}
 	focused, err := model.Focus(arguments.module)
@@ -422,26 +405,14 @@ func modulesCommand(
 	if len(parsed.patterns) == 0 {
 		parsed.patterns = []string{"./..."}
 	}
-	program, resolution, _, ok := resolveValidatedCompilerPatterns(
+	model, ok := prepareModuleModel(
 		parsed.patterns,
 		stderr,
 		options,
 		loader,
-		"module discovery",
 		"Spice module documentation failed",
 	)
 	if !ok {
-		return 1
-	}
-	model := modulith.Build(program, resolution)
-	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("Spice module documentation failed: %d module architecture error(s).", len(diagnostics)),
-		); err != nil {
-			return 1
-		}
 		return 1
 	}
 	if parsed.focus != "" {
@@ -465,6 +436,77 @@ func modulesCommand(
 		return 1
 	}
 	return 0
+}
+
+func prepareModuleModel(
+	patterns []string,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+	failurePrefix string,
+) (modulith.Model, bool) {
+	service, err := newCompilerAnalysisService(options, loader)
+	if err != nil {
+		if writeErr := writef(
+			stderr,
+			"%s: %v\n",
+			failurePrefix,
+			err,
+		); writeErr != nil {
+			return modulith.Model{}, false
+		}
+		return modulith.Model{}, false
+	}
+	root := options.Dir
+	if root == "" {
+		root = "."
+	}
+	result, analysisErr := service.Analyze(
+		context.Background(),
+		compilerservice.Request{
+			WorkspaceRoot: root,
+			Patterns:      patterns,
+			Mode:          compilerservice.AnalysisValidate,
+		},
+	)
+	closeErr := closeCompilerAnalysisService(service)
+	if analysisErr != nil {
+		if writeErr := writef(
+			stderr,
+			"%s: %v\n",
+			failurePrefix,
+			analysisErr,
+		); writeErr != nil {
+			return modulith.Model{}, false
+		}
+		return modulith.Model{}, false
+	}
+	if closeErr != nil {
+		if writeErr := writef(
+			stderr,
+			"%s: close annotation tools: %v\n",
+			failurePrefix,
+			closeErr,
+		); writeErr != nil {
+			return modulith.Model{}, false
+		}
+		return modulith.Model{}, false
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		if reportErr := reportDiagnostics(
+			stderr,
+			diagnostics,
+			fmt.Sprintf(
+				"%s: %d module architecture error(s).",
+				failurePrefix,
+				len(diagnostics),
+			),
+		); reportErr != nil {
+			return modulith.Model{}, false
+		}
+		return modulith.Model{}, false
+	}
+	return result.ModuleModel(), true
 }
 
 func parseModuleArguments(arguments []string) (moduleArguments, error) {
@@ -678,7 +720,7 @@ func prepareGenerationContext(
 	if root == "" {
 		root = "."
 	}
-	return prepareGenerationAnalysis(
+	plan, target, ready := prepareGenerationAnalysis(
 		ctx,
 		arguments,
 		stderr,
@@ -686,6 +728,17 @@ func prepareGenerationContext(
 		service,
 		0,
 	)
+	if closeErr := closeCompilerAnalysisService(service); closeErr != nil {
+		if writeErr := writef(
+			stderr,
+			"Spice generation failed: close annotation tools: %v\n",
+			closeErr,
+		); writeErr != nil {
+			return codegen.Plan{}, "", false
+		}
+		return codegen.Plan{}, "", false
+	}
+	return plan, target, ready
 }
 
 func prepareGenerationAnalysis(
@@ -755,7 +808,19 @@ func newCompilerAnalysisService(
 		LoadOptions:    options,
 		Registry:       builtin.Registry(),
 		StarterCatalog: metadata.starterCatalog,
+		SpiceVersion:   Version,
 	})
+}
+
+func closeCompilerAnalysisService(
+	service *compilerservice.Service,
+) error {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer cancel()
+	return service.Close(ctx)
 }
 
 func generationDiagnosticSummary(
@@ -1051,117 +1116,6 @@ func resolvePatternsContext(
 	return program, result, true
 }
 
-func resolveValidatedCompilerPatterns(
-	patterns []string,
-	stderr io.Writer,
-	options load.Options,
-	loader programLoader,
-	operation string,
-	failurePrefix string,
-) (*load.Program, resolve.Result, compilerMetadata, bool) {
-	return resolveValidatedCompilerPatternsContext(
-		context.Background(),
-		patterns,
-		stderr,
-		options,
-		loader,
-		operation,
-		failurePrefix,
-	)
-}
-
-func resolveValidatedCompilerPatternsContext(
-	ctx context.Context,
-	patterns []string,
-	stderr io.Writer,
-	options load.Options,
-	loader programLoader,
-	operation string,
-	failurePrefix string,
-) (*load.Program, resolve.Result, compilerMetadata, bool) {
-	metadata, ok := prepareCompilerMetadata(stderr, options, operation)
-	if !ok {
-		return nil, resolve.Result{}, compilerMetadata{}, false
-	}
-	program, result, ok := resolvePatternsContext(
-		ctx,
-		patterns,
-		stderr,
-		metadata.loadOptions(options),
-		loader,
-		operation,
-	)
-	if !ok {
-		return program, result, compilerMetadata{}, false
-	}
-	diagnostics := validationDiagnostics(result.Occurrences, metadata.registry)
-	if len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("%s: %d annotation validation error(s).", failurePrefix, len(diagnostics)),
-		); err != nil {
-			return program, result, compilerMetadata{}, false
-		}
-		return program, result, compilerMetadata{}, false
-	}
-
-	requirements := metadata.starterCatalog.ActiveDependencies(
-		result.Occurrences,
-	)
-	if len(requirements) != 0 {
-		modules, err := loadModuleVersions(ctx, options)
-		if err != nil {
-			if writeErr := writef(
-				stderr,
-				"%s: inspect selected starter dependencies: %v\n",
-				failurePrefix,
-				err,
-			); writeErr != nil {
-				return program, result, compilerMetadata{}, false
-			}
-			return program, result, compilerMetadata{}, false
-		}
-		dependencyDiagnostics := metadata.starterCatalog.
-			ValidateActiveModuleVersions(result.Occurrences, modules)
-		if len(dependencyDiagnostics) != 0 {
-			if err := reportDiagnostics(
-				stderr,
-				dependencyDiagnostics,
-				fmt.Sprintf(
-					"%s: %d starter dependency alignment error(s).",
-					failurePrefix,
-					len(dependencyDiagnostics),
-				),
-			); err != nil {
-				return program, result, compilerMetadata{}, false
-			}
-			return program, result, compilerMetadata{}, false
-		}
-	}
-
-	entryPoints := metadata.starterCatalog.ProviderEntrypoints(result.Occurrences)
-	if len(entryPoints) == 0 {
-		return program, result, metadata, true
-	}
-	catalog := provider.BuildEntrypoints(program, entryPoints)
-	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
-		if err := reportDiagnostics(
-			stderr,
-			diagnostics,
-			fmt.Sprintf("%s: %d starter entrypoint error(s).", failurePrefix, len(diagnostics)),
-		); err != nil {
-			return program, result, compilerMetadata{}, false
-		}
-		return program, result, compilerMetadata{}, false
-	}
-	metadata.buildOptions.ProviderCatalogs = append(
-		append([]provider.Catalog(nil), metadata.buildOptions.ProviderCatalogs...),
-		catalog,
-	)
-	return program, result, metadata, true
-}
-
 func withAnalysisBuildTag(options load.Options) load.Options {
 	result := options
 	result.AllowGeneratedMainBridge = true
@@ -1226,37 +1180,11 @@ func addTagValue(tags map[string]struct{}, value string) {
 }
 
 type compilerMetadata struct {
-	registry       annotation.Registry
 	starterCatalog compilerstarter.Catalog
-	buildOptions   application.BuildOptions
-}
-
-func (metadata compilerMetadata) loadOptions(options load.Options) load.Options {
-	result := options
-	result.AuxiliaryPackages = append(
-		append([]string(nil), options.AuxiliaryPackages...),
-		metadata.starterCatalog.EntryPointPackages()...,
-	)
-	return result
-}
-
-func prepareCompilerMetadata(
-	stderr io.Writer,
-	options load.Options,
-	operation string,
-) (compilerMetadata, bool) {
-	metadata, err := loadCompilerMetadata(options)
-	if err == nil {
-		return metadata, true
-	}
-	if writeErr := writef(stderr, "Spice %s failed: %v\n", operation, err); writeErr != nil {
-		return compilerMetadata{}, false
-	}
-	return compilerMetadata{}, false
 }
 
 func loadCompilerMetadata(options load.Options) (compilerMetadata, error) {
-	result := compilerMetadata{registry: builtin.Registry()}
+	result := compilerMetadata{}
 	directory := options.Dir
 	if directory == "" {
 		directory = "."
@@ -1277,17 +1205,7 @@ func loadCompilerMetadata(options load.Options) (compilerMetadata, error) {
 			err,
 		)
 	}
-	registry, err := catalog.Registry(result.registry)
-	if err != nil {
-		return compilerMetadata{}, fmt.Errorf(
-			"compose starter selection %s: %w",
-			starterSelectionPath,
-			err,
-		)
-	}
-	result.registry = registry
 	result.starterCatalog = catalog
-	result.buildOptions.BootstrapDefinitions = catalog.BootstrapDefinitions()
 	return result, nil
 }
 
@@ -1348,33 +1266,6 @@ func readStarterSelection(
 		)
 	}
 	return content, true, nil
-}
-
-func validationDiagnostics(
-	occurrences []resolve.Occurrence,
-	registry annotation.Registry,
-) []validate.Diagnostic {
-	diagnostics := make([]validate.Diagnostic, 0)
-	for _, occurrence := range occurrences {
-		occurrenceDiagnostics := validate.Occurrences([]scan.Occurrence{{
-			Annotation: occurrence.Annotation,
-			Target:     occurrence.Target,
-			Name:       occurrence.Name,
-			File:       occurrence.PhysicalFile,
-		}}, registry)
-		for index := range occurrenceDiagnostics {
-			physical := occurrence.PhysicalPosition
-			if physical.Filename == "" {
-				physical = token.Position{
-					Filename: occurrence.PhysicalFile,
-					Offset:   occurrence.PhysicalOffset,
-				}
-			}
-			occurrenceDiagnostics[index].PhysicalPosition = physical
-		}
-		diagnostics = append(diagnostics, occurrenceDiagnostics...)
-	}
-	return diagnostics
 }
 
 func packagePatterns(arguments []string) []string {

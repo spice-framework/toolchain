@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
@@ -271,7 +272,10 @@ func applicationAnnotations(
 ) map[string]struct{} {
 	applicationSymbols := make(map[string]struct{})
 	for _, occurrence := range occurrences {
-		if occurrence.Annotation.Name == "Application" && occurrence.SymbolID != "" {
+		if occurrence.UsesContribution(
+			sdk.ContributionApplication,
+			"Application",
+		) && occurrence.SymbolID != "" {
 			applicationSymbols[occurrence.SymbolID] = struct{}{}
 		}
 	}

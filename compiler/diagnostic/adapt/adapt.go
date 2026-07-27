@@ -99,11 +99,28 @@ func Provider(
 	workspaceRoot string,
 	items []provider.Diagnostic,
 ) diagnostic.Set {
+	return providerSet(workspaceRoot, "provider", items)
+}
+
+// StarterProviders converts provider diagnostics originating from explicitly
+// selected starter entrypoints.
+func StarterProviders(
+	workspaceRoot string,
+	items []provider.Diagnostic,
+) diagnostic.Set {
+	return providerSet(workspaceRoot, "starter", items)
+}
+
+func providerSet(
+	workspaceRoot string,
+	stage string,
+	items []provider.Diagnostic,
+) diagnostic.Set {
 	result := make([]diagnostic.Diagnostic, len(items))
 	for index, item := range items {
 		result[index] = sourceDiagnostic(
 			workspaceRoot,
-			"provider",
+			stage,
 			item.Kind,
 			item.Message,
 			item.Position,
