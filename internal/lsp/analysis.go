@@ -486,6 +486,9 @@ func (server *Server) publishDiagnostics(
 	version *int,
 	diagnostics []protocolDiagnostic,
 ) error {
+	if diagnostics == nil {
+		diagnostics = []protocolDiagnostic{}
+	}
 	params := map[string]any{
 		"uri":         uri,
 		"diagnostics": diagnostics,

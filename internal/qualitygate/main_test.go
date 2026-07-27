@@ -123,6 +123,13 @@ func TestRepositoryAndFilesystemHelpers(t *testing.T) {
 	writeTestFile(t, tree, "nested/b.go", "package nested\n")
 	writeTestFile(t, tree, "vendor/ignored.go", "package ignored\n")
 	writeTestFile(t, tree, ".git/ignored.go", "package ignored\n")
+	writeTestFile(t, tree, "editors/goland/build/ignored.go", "not valid Go\n")
+	writeTestFile(t, tree, "editors/goland/.gradle/ignored.go", "not valid Go\n")
+	writeTestFile(t, tree, "editors/goland/.intellijPlatform/ignored.go", "not valid Go\n")
+	writeTestFile(t, tree, "editors/zed/target/ignored.go", "not valid Go\n")
+	writeTestFile(t, tree, "out/ignored.go", "not valid Go\n")
+	writeTestFile(t, tree, "dist/ignored.go", "not valid Go\n")
+	writeTestFile(t, tree, "bin/ignored.go", "not valid Go\n")
 	files, err := goFiles(tree)
 	if err != nil {
 		t.Fatalf("goFiles() error = %v", err)
@@ -156,7 +163,7 @@ func TestCoverageAndExecutableHelpers(t *testing.T) {
 	if _, coverageErr := totalCoverage("no total"); coverageErr == nil {
 		t.Fatal("totalCoverage() error = nil")
 	}
-	for _, executable := range []string{"cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice"} {
+	for _, executable := range []string{"cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice", "xvfb-run"} {
 		if executableErr := validateExecutable(executable); executableErr != nil {
 			t.Fatalf("validateExecutable(%q) error = %v", executable, executableErr)
 		}

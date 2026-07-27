@@ -136,6 +136,9 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	)
 	client.change(mainURI, 2, validWithConfigurationKey)
 	second := client.waitForDiagnostics(mainURI, 2)
+	if second.Diagnostics == nil {
+		t.Fatal("version 2 diagnostics must be an empty JSON array, not null")
+	}
 	if len(second.Diagnostics) != 0 {
 		t.Fatalf("version 2 diagnostics = %+v", second.Diagnostics)
 	}
@@ -360,6 +363,9 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		"textDocument": map[string]any{"uri": mainURI},
 	})
 	closed := client.waitForClosedDiagnostics(mainURI)
+	if closed.Diagnostics == nil {
+		t.Fatal("closed diagnostics must be an empty JSON array, not null")
+	}
 	if len(closed.Diagnostics) != 0 || closed.Version != nil {
 		t.Fatalf("closed diagnostics = %+v", closed)
 	}

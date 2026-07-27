@@ -140,14 +140,21 @@ func goland(ctx context.Context, root string) error {
 	if localPath != "" {
 		arguments = append(arguments, "-PgolandPath="+localPath)
 	}
+	arguments = append(arguments, "test", "buildPlugin")
+	if runtime.GOOS != "darwin" {
+		arguments = append(arguments, "integrationTest")
+	}
 	arguments = append(
 		arguments,
-		"test",
-		"buildPlugin",
 		"verifyPluginProjectConfiguration",
 		"verifyPluginStructure",
 		"verifyPlugin",
 	)
+	if runtime.GOOS == "linux" &&
+		strings.TrimSpace(os.Getenv("DISPLAY")) == "" {
+		arguments = append([]string{"-a", executable}, arguments...)
+		executable = "xvfb-run"
+	}
 	return runExternal(ctx, golandRoot, nil, executable, arguments...)
 }
 
@@ -409,6 +416,27 @@ func goFiles(root string) ([]string, error) {
 			switch entry.Name() {
 			case ".git", ".tools", "vendor":
 				if path != root {
+					return filepath.SkipDir
+				}
+			}
+			if path != root {
+				relative, err := filepath.Rel(root, path)
+				if err != nil {
+					return fmt.Errorf(
+						"make directory %q relative to repository: %w",
+						path,
+						err,
+					)
+				}
+				if slices.Contains([]string{
+					"bin",
+					"dist",
+					"out",
+					filepath.Join("editors", "goland", ".gradle"),
+					filepath.Join("editors", "goland", ".intellijPlatform"),
+					filepath.Join("editors", "goland", "build"),
+					filepath.Join("editors", "zed", "target"),
+				}, relative) {
 					return filepath.SkipDir
 				}
 			}
@@ -836,7 +864,7 @@ func capture(
 func validateExecutable(executable string) error {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(executable)), ".exe")
 	switch name {
-	case "cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice":
+	case "cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice", "xvfb-run":
 		return nil
 	default:
 		return fmt.Errorf("executable %q is not an approved quality tool", executable)

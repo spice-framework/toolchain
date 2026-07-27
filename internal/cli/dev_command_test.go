@@ -252,7 +252,11 @@ func waitForBufferText(
 	expected string,
 ) {
 	t.Helper()
-	timeout := time.NewTimer(30 * time.Second)
+	// This is an executable integration test: each successful revision invokes
+	// the real Go compiler with the race detector active under make verify.
+	// Whole-repository and installed-IDE verification can legitimately keep
+	// that compiler busy beyond 30 seconds on supported CI hosts.
+	timeout := time.NewTimer(90 * time.Second)
 	defer timeout.Stop()
 	for {
 		if strings.Contains(buffer.String(), expected) {
