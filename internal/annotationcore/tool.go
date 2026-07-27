@@ -204,6 +204,46 @@ func handlerRegistrations() []handlerRegistration {
 			coreannotation.Bean,
 		),
 		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Qualifier"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.Qualifier,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Primary"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.Primary,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Fallback"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.Fallback,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Order"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.Order,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Singleton"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.Singleton,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Prototype"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.Prototype,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "RequestScope"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.RequestScope,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "SessionScope"},
+			sdk.ContributionBeanMetadata,
+			coreannotation.SessionScope,
+		),
+		newHandlerRegistration(
 			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Configuration"},
 			sdk.ContributionConfiguration,
 			coreannotation.Configuration,

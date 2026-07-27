@@ -115,6 +115,37 @@ func Undocumented() {}
 	}
 }
 
+func TestTreeScansConstructorParameterAnnotations(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := `package sample
+
+func NewCheckout(
+	config string,
+	// @Qualifier("stripe")
+	processor any,
+) {}
+`
+	if err := os.WriteFile(
+		filepath.Join(root, "sample.go"),
+		[]byte(source),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	result, err := Tree(root)
+	if err != nil {
+		t.Fatalf("Tree() error = %v", err)
+	}
+	if len(result.Occurrences) != 1 ||
+		result.Occurrences[0].Target != TargetParameter ||
+		result.Occurrences[0].Name != "processor" {
+		t.Fatalf("Occurrences = %#v", result.Occurrences)
+	}
+}
+
 func TestTreeIsDeterministicAcrossRepeatedScans(t *testing.T) {
 	t.Parallel()
 

@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerasync "github.com/StevenBuglione/spice/compiler/async"
 	compilercache "github.com/StevenBuglione/spice/compiler/cache"
@@ -48,6 +49,7 @@ const (
 
 	generatedFilename = "zz_spice_gen.go"
 	asyncPath         = "github.com/StevenBuglione/spice/async"
+	beanPath          = "github.com/StevenBuglione/spice/bean"
 	configPath        = "github.com/StevenBuglione/spice/config"
 	cachePath         = "github.com/StevenBuglione/spice/cache"
 	dataPath          = "github.com/StevenBuglione/spice/data"
@@ -391,6 +393,10 @@ func renderSource(
 	features.transactions = len(transactions) != 0
 	features.events = len(events) != 0
 	features.caching = len(caches) != 0
+	features.requestScope = hasProviderScope(
+		providers,
+		sdk.BeanScopeRequest,
+	)
 	aliases := importAliases(
 		providers,
 		configTypes,
@@ -401,7 +407,11 @@ func renderSource(
 		features,
 	)
 	providerModules := providerModuleIDs(model, providers)
-	dependencies, err := dependencyVariables(model, providers)
+	dependencies, err := dependencyVariables(
+		model,
+		providers,
+		aliases,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -522,6 +532,7 @@ func renderSource(
 		applicationTarget.PackagePath,
 	)
 	writeManagementSetup(&source, model, applicationTarget, features)
+	writeRequestScopeSetup(&source, features)
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
 	writeLifecycleMethods(&source)
@@ -551,6 +562,16 @@ func writeProviders(
 	configByProvider := configurationProviderIndex(configTypes)
 	eventByProvider := eventProviderIndex(events)
 	for index, item := range providers {
+		if item.Scope != sdk.BeanScopeSingleton {
+			writeScopedProvider(
+				source,
+				item,
+				index,
+				aliases,
+				dependencies[item.SymbolID],
+			)
+			continue
+		}
 		switch item.Source {
 		case provider.SourceBean, provider.SourceStarter:
 			writeProviderCall(
@@ -607,6 +628,120 @@ func writeProviders(
 		}
 	}
 	return nil
+}
+
+func writeScopedProvider(
+	source *bytes.Buffer,
+	item provider.Provider,
+	index int,
+	aliases map[string]string,
+	dependencies []string,
+) {
+	variable := providerVariable(index)
+	factory := "providerFactory" + strconv.Itoa(index)
+	outputType := renderedType(item.Output, aliases)
+	fmt.Fprintf(
+		source,
+		"\t%s := func(ctx context.Context) (%s, spicelifecycle.Cleanup, error) {\n",
+		factory,
+		outputType,
+	)
+	writeScopedConstruction(
+		source,
+		item,
+		aliases,
+		dependencies,
+		outputType,
+	)
+	source.WriteString("\t}\n")
+	switch item.Scope {
+	case sdk.BeanScopeSingleton:
+		return
+	case sdk.BeanScopePrototype:
+		fmt.Fprintf(
+			source,
+			"\t%s := spicebean.NewProvider(%s)\n",
+			variable,
+			factory,
+		)
+	case sdk.BeanScopeRequest, sdk.BeanScopeSession:
+		scopeKind := "spicebean.ScopeRequest"
+		if item.Scope == sdk.BeanScopeSession {
+			scopeKind = "spicebean.ScopeSession"
+		}
+		fmt.Fprintf(
+			source,
+			"\tscoped%d := spicebean.NewScoped[%s](%s, %s)\n",
+			index,
+			outputType,
+			scopeKind,
+			factory,
+		)
+		fmt.Fprintf(
+			source,
+			"\t%s := scoped%d.Provider()\n",
+			variable,
+			index,
+		)
+	}
+	fmt.Fprintf(source, "\t_ = %s\n", variable)
+}
+
+func writeScopedConstruction(
+	source *bytes.Buffer,
+	item provider.Provider,
+	aliases map[string]string,
+	dependencies []string,
+	outputType string,
+) {
+	if item.Construction == provider.ConstructionAllocate {
+		fmt.Fprintf(
+			source,
+			"\t\treturn new(%s.%s), nil, nil\n",
+			aliases[item.PackagePath],
+			item.Symbol.Name,
+		)
+		return
+	}
+	constructor := item.Constructor
+	if constructor.PackagePath == "" {
+		constructor.PackagePath = item.PackagePath
+		constructor.Name = item.Symbol.Name
+	}
+	call := aliases[constructor.PackagePath] + "." +
+		constructor.Name + "(" + strings.Join(dependencies, ", ") + ")"
+	switch {
+	case item.ReturnsCleanup && item.ReturnsError:
+		fmt.Fprintf(source, "\t\tvalue, cleanup, err := %s\n", call)
+	case item.ReturnsCleanup:
+		fmt.Fprintf(source, "\t\tvalue, cleanup := %s\n", call)
+	case item.ReturnsError:
+		fmt.Fprintf(source, "\t\tvalue, err := %s\n", call)
+	default:
+		fmt.Fprintf(source, "\t\tvalue := %s\n", call)
+	}
+	if item.ReturnsError {
+		source.WriteString("\t\tif err != nil {\n")
+		fmt.Fprintf(source, "\t\t\tvar zero %s\n", outputType)
+		fmt.Fprintf(
+			source,
+			"\t\t\treturn zero, nil, fmt.Errorf(%s, err)\n",
+			strconv.Quote(
+				"construct "+string(item.Scope)+" bean "+
+					item.SymbolID+" ("+item.OutputTypeID+"): %w",
+			),
+		)
+		source.WriteString("\t\t}\n")
+	}
+	cleanup := "nil"
+	if item.ReturnsCleanup {
+		cleanup = "cleanup"
+	}
+	fmt.Fprintf(
+		source,
+		"\t\treturn value, %s, nil\n",
+		cleanup,
+	)
 }
 
 func eventProviderIndex(events []compilerevent.Topic) map[string]compilerevent.Topic {
@@ -1384,6 +1519,9 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 		source.WriteString("\tMaxRequestBodyBytes int64\n")
 		source.WriteString("\tHTTPObservers []spiceweb.HTTPObserver\n")
 		source.WriteString("\tMiddleware []spiceweb.Middleware\n")
+		if features.requestScope {
+			source.WriteString("\tScopeErrorHandler spicebean.ScopeErrorHandler\n")
+		}
 	}
 	if features.authorization {
 		source.WriteString("\tAuthorizationObservers []spicesecurity.Observer\n")
@@ -1410,6 +1548,32 @@ func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
 	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
 	source.WriteString("}\n\n")
+}
+
+func writeRequestScopeSetup(
+	source *bytes.Buffer,
+	features commandFeatures,
+) {
+	if !features.hasMux || !features.requestScope {
+		return
+	}
+	source.WriteString("\trequestScopedHandler, err := spicebean.RequestScopeMiddleware(application.handler, options.ScopeErrorHandler)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure request bean scope: %w\", err))\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tapplication.handler = requestScopedHandler\n")
+}
+
+func hasProviderScope(
+	providers []provider.Provider,
+	scope sdk.BeanScope,
+) bool {
+	for _, item := range providers {
+		if item.Scope == scope {
+			return true
+		}
+	}
+	return false
 }
 
 func writeConfigurationAPI(
@@ -1788,6 +1952,7 @@ func writeProviderAllocation(
 		aliases[item.PackagePath],
 		item.Symbol.Name,
 	)
+	fmt.Fprintf(source, "\t_ = %s\n", providerVariable(index))
 }
 
 func writeAsyncApplicationFields(
@@ -2242,6 +2407,9 @@ func importAliases(
 	if features.caching {
 		aliases[cachePath] = "spicecache"
 	}
+	if usesBeanHandles(providers) {
+		aliases[beanPath] = "spicebean"
+	}
 	used := map[string]struct{}{
 		"Application":               {},
 		"ApplicationOptions":        {},
@@ -2267,6 +2435,7 @@ func importAliases(
 		"spiceconfig":               {},
 		"spiceasync":                {},
 		"spicecache":                {},
+		"spicebean":                 {},
 		"spicedata":                 {},
 		"spiceevent":                {},
 		"spicelifecycle":            {},
@@ -2359,6 +2528,13 @@ func addProviderImportNames(
 			}
 			names[item.PackagePath] = name
 		}
+		for _, dependency := range item.Dependencies {
+			addTypeImportName(
+				names,
+				aliases,
+				dependency.Type,
+			)
+		}
 		constructorPath := item.Constructor.PackagePath
 		if constructorPath == "" || constructorPath == item.PackagePath {
 			continue
@@ -2426,11 +2602,16 @@ func addTypeObjectImportName(
 func dependencyVariables(
 	model application.Model,
 	providers []provider.Provider,
+	aliases map[string]string,
 ) (map[string][]string, error) {
-	edges := make(map[string]string)
+	edges := make(map[string][]graphEdge)
 	for _, edge := range model.Edges() {
 		key := dependencyKey(edge.ConsumerID, edge.ParameterIndex)
-		edges[key] = edge.DependencyID
+		edges[key] = append(edges[key], graphEdge{
+			providerID: edge.DependencyID,
+			index:      edge.CollectionIndex,
+			kind:       edge.DependencyKind,
+		})
 	}
 	variables := make(map[string]string, len(providers))
 	for index, item := range providers {
@@ -2440,28 +2621,140 @@ func dependencyVariables(
 	for _, item := range providers {
 		inputs := make([]string, len(item.Dependencies))
 		for _, dependency := range item.Dependencies {
-			dependencyID, ok := edges[dependencyKey(item.SymbolID, dependency.Index)]
-			if !ok {
+			selected := edges[dependencyKey(
+				item.SymbolID,
+				dependency.Index,
+			)]
+			if len(selected) == 0 &&
+				dependency.Kind != provider.DependencySlice &&
+				dependency.Kind != provider.DependencyMap &&
+				dependency.Kind != provider.DependencyOptional {
 				return nil, fmt.Errorf(
 					"provider %s parameter %d has no validated graph edge",
 					item.SymbolID,
 					dependency.Index,
 				)
 			}
-			variable, ok := variables[dependencyID]
-			if !ok {
-				return nil, fmt.Errorf(
-					"provider %s parameter %d references unknown provider %s",
-					item.SymbolID,
-					dependency.Index,
-					dependencyID,
-				)
+			sort.SliceStable(selected, func(i, j int) bool {
+				return selected[i].index < selected[j].index
+			})
+			selectedVariables := make([]string, len(selected))
+			selectedProviders := make([]provider.Provider, len(selected))
+			for selectedIndex, edge := range selected {
+				variable, ok := variables[edge.providerID]
+				if !ok {
+					return nil, fmt.Errorf(
+						"provider %s parameter %d references unknown provider %s",
+						item.SymbolID,
+						dependency.Index,
+						edge.providerID,
+					)
+				}
+				selectedVariables[selectedIndex] = variable
+				selectedProviders[selectedIndex] = providerByID(providers, edge.providerID)
 			}
-			inputs[dependency.Index] = variable
+			effective := dependency
+			if len(selected) != 0 &&
+				selected[0].kind == provider.DependencySingle {
+				effective.Kind = provider.DependencySingle
+				effective.Element = nil
+				effective.ElementTypeID = ""
+			}
+			inputs[dependency.Index] = dependencyExpression(
+				effective,
+				selectedVariables,
+				selectedProviders,
+				aliases,
+			)
 		}
 		result[item.SymbolID] = inputs
 	}
 	return result, nil
+}
+
+type graphEdge struct {
+	providerID string
+	index      int
+	kind       provider.DependencyKind
+}
+
+func dependencyExpression(
+	dependency provider.Dependency,
+	variables []string,
+	selected []provider.Provider,
+	aliases map[string]string,
+) string {
+	elementType := renderedType(dependency.MatchType(), aliases)
+	switch dependency.Kind {
+	case provider.DependencySingle:
+		if len(variables) == 0 {
+			return ""
+		}
+		return variables[0]
+	case provider.DependencySlice:
+		return renderedType(dependency.Type, aliases) +
+			"{" + strings.Join(variables, ", ") + "}"
+	case provider.DependencyMap:
+		entries := make([]string, len(variables))
+		for index, variable := range variables {
+			entries[index] = strconv.Quote(selected[index].Name) +
+				": " + variable
+		}
+		return renderedType(dependency.Type, aliases) +
+			"{" + strings.Join(entries, ", ") + "}"
+	case provider.DependencyOptional:
+		if len(variables) == 0 {
+			return "spicebean.None[" + elementType + "]()"
+		}
+		return "spicebean.Some[" + elementType + "](" +
+			variables[0] + ")"
+	case provider.DependencyLazy:
+		return "spicebean.NewLazy(func(context.Context) (" +
+			elementType + ", error) { return " +
+			variables[0] + ", nil })"
+	case provider.DependencyProvider:
+		if len(selected) != 0 &&
+			selected[0].Scope != sdk.BeanScopeSingleton {
+			return variables[0]
+		}
+		return "spicebean.NewProvider(func(context.Context) (" +
+			elementType +
+			", spicelifecycle.Cleanup, error) { return " +
+			variables[0] + ", nil, nil })"
+	}
+	return ""
+}
+
+func providerByID(
+	providers []provider.Provider,
+	symbolID string,
+) provider.Provider {
+	for _, item := range providers {
+		if item.SymbolID == symbolID {
+			return item
+		}
+	}
+	return provider.Provider{}
+}
+
+func usesBeanHandles(providers []provider.Provider) bool {
+	for _, item := range providers {
+		if item.Scope != sdk.BeanScopeSingleton {
+			return true
+		}
+		for _, dependency := range item.Dependencies {
+			switch dependency.Kind {
+			case provider.DependencyOptional,
+				provider.DependencyLazy,
+				provider.DependencyProvider:
+				return true
+			case provider.DependencySingle,
+				provider.DependencySlice,
+				provider.DependencyMap:
+			}
+		}
+	}
+	return false
 }
 
 func validateTarget(target Target, applicationTarget application.Target) []Diagnostic {
@@ -2844,8 +3137,11 @@ type modelHashCache struct {
 }
 
 type modelHashDependency struct {
-	Index int    `json:"index"`
-	Type  string `json:"type"`
+	Index      int                     `json:"index"`
+	Type       string                  `json:"type"`
+	Kind       provider.DependencyKind `json:"kind,omitempty"`
+	Element    string                  `json:"element,omitempty"`
+	Qualifiers []string                `json:"qualifiers,omitempty"`
 }
 
 type modelHashProvider struct {
@@ -2858,15 +3154,25 @@ type modelHashProvider struct {
 	Construction  provider.Construction `json:"construction,omitempty"`
 	Constructor   string                `json:"constructor,omitempty"`
 	Interfaces    []string              `json:"interfaces,omitempty"`
+	Name          string                `json:"name"`
+	ExplicitName  bool                  `json:"explicit_name,omitempty"`
+	Aliases       []string              `json:"aliases,omitempty"`
+	Qualifiers    []string              `json:"qualifiers,omitempty"`
+	Primary       bool                  `json:"primary,omitempty"`
+	Fallback      bool                  `json:"fallback,omitempty"`
+	Order         int64                 `json:"order,omitempty"`
+	Scope         sdk.BeanScope         `json:"scope"`
 	Cleanup       bool                  `json:"cleanup"`
 	Error         bool                  `json:"error"`
 	Inputs        []modelHashDependency `json:"inputs"`
 }
 
 type modelHashEdge struct {
-	Consumer  string `json:"consumer"`
-	Parameter int    `json:"parameter"`
-	Provider  string `json:"provider"`
+	Consumer   string                  `json:"consumer"`
+	Parameter  int                     `json:"parameter"`
+	Provider   string                  `json:"provider"`
+	Kind       provider.DependencyKind `json:"kind,omitempty"`
+	Collection int                     `json:"collection,omitempty"`
 }
 
 type modelHashComponent struct {
@@ -3011,7 +3317,16 @@ func modelHash(
 	for _, item := range providers {
 		inputs := make([]modelHashDependency, len(item.Dependencies))
 		for index, dependency := range item.Dependencies {
-			inputs[index] = modelHashDependency{Index: dependency.Index, Type: dependency.TypeID}
+			inputs[index] = modelHashDependency{
+				Index:   dependency.Index,
+				Type:    dependency.TypeID,
+				Kind:    dependency.Kind,
+				Element: dependency.ElementTypeID,
+				Qualifiers: append(
+					[]string(nil),
+					dependency.Qualifiers...,
+				),
+			}
 		}
 		value.Providers = append(value.Providers, modelHashProvider{
 			ID:            item.SymbolID,
@@ -3022,6 +3337,14 @@ func modelHash(
 			Output:        item.OutputTypeID,
 			Construction:  item.Construction,
 			Constructor:   item.Constructor.ID,
+			Name:          item.Name,
+			ExplicitName:  item.ExplicitName,
+			Aliases:       append([]string(nil), item.Aliases...),
+			Qualifiers:    append([]string(nil), item.Qualifiers...),
+			Primary:       item.Primary,
+			Fallback:      item.Fallback,
+			Order:         item.Order,
+			Scope:         item.Scope,
 			Cleanup:       item.ReturnsCleanup,
 			Error:         item.ReturnsError,
 			Inputs:        inputs,
@@ -3105,9 +3428,11 @@ func modelHash(
 	value.Transactions = modelHashTransactions(model.Transactions())
 	for _, edge := range model.Edges() {
 		value.Edges = append(value.Edges, modelHashEdge{
-			Consumer:  edge.ConsumerID,
-			Parameter: edge.ParameterIndex,
-			Provider:  edge.DependencyID,
+			Consumer:   edge.ConsumerID,
+			Parameter:  edge.ParameterIndex,
+			Provider:   edge.DependencyID,
+			Kind:       edge.DependencyKind,
+			Collection: edge.CollectionIndex,
 		})
 	}
 	for _, component := range model.Components() {

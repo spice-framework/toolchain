@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"database/sql"
+	"go/types"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/lifecycle"
 	"github.com/StevenBuglione/spice/compiler/load"
@@ -985,6 +987,129 @@ func Application(Root) {}
 	diagnostics[0].Message = "changed"
 	if invalid.Diagnostics()[0].Message == "changed" {
 		t.Fatal("Diagnostics returned mutable storage")
+	}
+}
+
+func TestBuildRejectsNarrowerScopeForFrameworkOwnedComponent(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/scopedcomponent\n\ngo 1.26.0\n",
+		"app/application.go": `package app
+
+import "context"
+
+type Worker struct{}
+
+// @Bean
+// @Prototype
+func NewWorker() *Worker { return &Worker{} }
+
+// @OnStart
+func (*Worker) Start(context.Context) error { return nil }
+
+// @Application
+func Application(*Worker) {}
+`,
+	})
+	program, resolution := loadAndResolve(t, root, "./app")
+	for index, occurrence := range resolution.Occurrences {
+		if occurrence.Annotation.Name != "Prototype" {
+			continue
+		}
+		var err error
+		resolution, err = resolution.WithContributions(index, []sdk.Contribution{{
+			Kind: sdk.ContributionBeanMetadata,
+			BeanMetadata: &sdk.BeanMetadataContribution{
+				Scope: sdk.BeanScopePrototype,
+			},
+		}})
+		if err != nil {
+			t.Fatalf("WithContributions() error = %v", err)
+		}
+	}
+	model := Build(program, resolution)
+	diagnostics := model.Diagnostics()
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "scoped-component" ||
+		diagnostics[0].Stage != StageLifecycle ||
+		!strings.Contains(
+			diagnostics[0].Message,
+			"framework-owned components require singleton scope",
+		) {
+		t.Fatalf("Build() diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestApplicationRootBeanSelection(t *testing.T) {
+	t.Parallel()
+	valueType := types.Typ[types.String]
+	bean := func(
+		id string,
+		name string,
+	) provider.Provider {
+		return provider.Provider{
+			SymbolID: id,
+			Name:     name,
+			Scope:    sdk.BeanScopeSingleton,
+			Output:   valueType,
+		}
+	}
+
+	regular := bean("regular", "regular")
+	fallback := bean("fallback", "fallback")
+	fallback.Fallback = true
+	selected, problem := exactProvider(
+		valueType,
+		"",
+		[]provider.Provider{fallback, regular},
+	)
+	if problem != "" || selected.SymbolID != "regular" {
+		t.Fatalf("fallback selection = %#v, %q", selected, problem)
+	}
+
+	primary := bean("primary", "primary")
+	primary.Primary = true
+	selected, problem = exactProvider(
+		valueType,
+		"",
+		[]provider.Provider{regular, primary},
+	)
+	if problem != "" || selected.SymbolID != "primary" {
+		t.Fatalf("primary selection = %#v, %q", selected, problem)
+	}
+
+	aliased := bean("aliased", "other")
+	aliased.Aliases = []string{"processor"}
+	selected, problem = exactProvider(
+		valueType,
+		"processor",
+		[]provider.Provider{regular, aliased},
+	)
+	if problem != "" || selected.SymbolID != "aliased" {
+		t.Fatalf("name selection = %#v, %q", selected, problem)
+	}
+
+	if _, problem := exactProvider(
+		valueType,
+		"",
+		[]provider.Provider{regular, aliased},
+	); !strings.Contains(problem, "multiple beans remain") {
+		t.Fatalf("ambiguous problem = %q", problem)
+	}
+	scoped := bean("scoped", "scoped")
+	scoped.Scope = sdk.BeanScopeRequest
+	if _, problem := exactProvider(
+		valueType,
+		"",
+		[]provider.Provider{scoped},
+	); !strings.Contains(problem, "application roots must be singleton") {
+		t.Fatalf("scope problem = %q", problem)
+	}
+	if _, problem := exactProvider(
+		types.Typ[types.Int],
+		"",
+		[]provider.Provider{regular},
+	); !strings.Contains(problem, "no @Bean provider") {
+		t.Fatalf("missing problem = %q", problem)
 	}
 }
 

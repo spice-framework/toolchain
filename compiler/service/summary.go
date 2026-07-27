@@ -70,17 +70,30 @@ func summarizeProviderGraph(model application.Model) ProviderGraph {
 		)
 		for dependencyIndex, dependency := range item.Dependencies {
 			dependencies[dependencyIndex] = ProviderDependency{
-				Index:  dependency.Index,
-				Name:   dependency.Name,
-				TypeID: dependency.TypeID,
+				Index:         dependency.Index,
+				Name:          dependency.Name,
+				TypeID:        dependency.TypeID,
+				Kind:          dependency.Kind,
+				ElementTypeID: dependency.ElementTypeID,
+				Qualifiers: append(
+					[]string(nil),
+					dependency.Qualifiers...,
+				),
 			}
 		}
 		result.Providers[index] = Provider{
 			ID:             item.SymbolID,
 			Name:           item.Name,
+			ExplicitName:   item.ExplicitName,
 			PackagePath:    item.PackagePath,
 			OutputTypeID:   item.OutputTypeID,
 			Source:         item.Source,
+			Aliases:        append([]string(nil), item.Aliases...),
+			Qualifiers:     append([]string(nil), item.Qualifiers...),
+			Primary:        item.Primary,
+			Fallback:       item.Fallback,
+			Order:          item.Order,
+			Scope:          item.Scope,
 			Dependencies:   dependencies,
 			ReturnsCleanup: item.ReturnsCleanup,
 			ReturnsError:   item.ReturnsError,
@@ -90,11 +103,13 @@ func summarizeProviderGraph(model application.Model) ProviderGraph {
 	result.Edges = make([]ProviderEdge, len(edges))
 	for index, edge := range edges {
 		result.Edges[index] = ProviderEdge{
-			ConsumerID:     edge.ConsumerID,
-			DependencyID:   edge.DependencyID,
-			RequiredTypeID: edge.RequiredTypeID,
-			ParameterIndex: edge.ParameterIndex,
-			ParameterName:  edge.ParameterName,
+			ConsumerID:      edge.ConsumerID,
+			DependencyID:    edge.DependencyID,
+			RequiredTypeID:  edge.RequiredTypeID,
+			ParameterIndex:  edge.ParameterIndex,
+			ParameterName:   edge.ParameterName,
+			DependencyKind:  edge.DependencyKind,
+			CollectionIndex: edge.CollectionIndex,
 		}
 	}
 	return result

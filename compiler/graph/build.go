@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/provider"
 )
 
@@ -28,42 +29,7 @@ func Build(catalog provider.Catalog) Result {
 
 	index := buildTypeIndex(result.providers)
 	adjacency := make([][]int, len(result.providers))
-	for consumerIndex := range result.providers {
-		consumer := &result.providers[consumerIndex]
-		for _, input := range consumer.Dependencies {
-			candidates := index.lookup(input.Type, result.providers)
-			if len(candidates) == 0 {
-				result.diagnostics = append(result.diagnostics, missingDiagnostic(consumer, input))
-				continue
-			}
-			if len(candidates) > 1 {
-				result.diagnostics = append(
-					result.diagnostics,
-					ambiguousDiagnostic(
-						consumer,
-						input,
-						candidates,
-						result.providers,
-					),
-				)
-				continue
-			}
-			dependencyIndex := candidates[0]
-			dependency := &result.providers[dependencyIndex]
-			result.edges = append(result.edges, Edge{
-				consumer:         consumer,
-				dependency:       dependency,
-				ConsumerID:       consumer.SymbolID,
-				DependencyID:     dependency.SymbolID,
-				RequiredTypeID:   input.TypeID,
-				ParameterIndex:   input.Index,
-				ParameterName:    input.Name,
-				Position:         preferredPosition(input.Position, consumer.Position),
-				PhysicalPosition: preferredPosition(input.PhysicalPosition, consumer.PhysicalPosition),
-			})
-			adjacency[consumerIndex] = append(adjacency[consumerIndex], dependencyIndex)
-		}
-	}
+	connectDependencies(&result, index, adjacency)
 
 	sort.SliceStable(result.edges, func(i, j int) bool {
 		left, right := result.edges[i], result.edges[j]
@@ -72,6 +38,9 @@ func Build(catalog provider.Catalog) Result {
 		}
 		if left.ParameterIndex != right.ParameterIndex {
 			return left.ParameterIndex < right.ParameterIndex
+		}
+		if left.CollectionIndex != right.CollectionIndex {
+			return left.CollectionIndex < right.CollectionIndex
 		}
 		return left.DependencyID < right.DependencyID
 	})
@@ -89,6 +58,427 @@ func Build(catalog provider.Catalog) Result {
 		result.order = constructionOrder(adjacency, result.providers)
 	}
 	return result
+}
+
+func connectDependencies(
+	result *Result,
+	index typeIndex,
+	adjacency [][]int,
+) {
+	for consumerIndex := range result.providers {
+		consumer := &result.providers[consumerIndex]
+		for _, input := range consumer.Dependencies {
+			connectDependency(
+				result,
+				index,
+				adjacency,
+				consumerIndex,
+				input,
+			)
+		}
+	}
+}
+
+func connectDependency(
+	result *Result,
+	index typeIndex,
+	adjacency [][]int,
+	consumerIndex int,
+	input provider.Dependency,
+) {
+	kind, candidates := dependencyCandidates(
+		index,
+		input,
+		result.providers,
+	)
+	if kind == provider.DependencySlice ||
+		kind == provider.DependencyMap {
+		connectCollection(
+			result,
+			adjacency,
+			consumerIndex,
+			input,
+			kind,
+			candidates,
+		)
+		return
+	}
+	connectSingle(
+		result,
+		adjacency,
+		consumerIndex,
+		input,
+		kind,
+		candidates,
+	)
+}
+
+func dependencyCandidates(
+	index typeIndex,
+	input provider.Dependency,
+	providers []provider.Provider,
+) (provider.DependencyKind, []int) {
+	kind := input.Kind
+	var candidates []int
+	if kind == provider.DependencySlice ||
+		kind == provider.DependencyMap {
+		candidates = index.lookup(input.Type, providers)
+		if len(candidates) != 0 {
+			kind = provider.DependencySingle
+		}
+	}
+	if len(candidates) == 0 {
+		candidates = index.lookup(input.MatchType(), providers)
+	}
+	return kind, filterQualified(
+		candidates,
+		input.Qualifiers,
+		providers,
+	)
+}
+
+func connectCollection(
+	result *Result,
+	adjacency [][]int,
+	consumerIndex int,
+	input provider.Dependency,
+	kind provider.DependencyKind,
+	candidates []int,
+) {
+	consumer := &result.providers[consumerIndex]
+	candidates = orderedCollectionCandidates(candidates, result.providers)
+	if kind == provider.DependencyMap {
+		if duplicate := duplicateCandidateName(
+			candidates,
+			result.providers,
+		); duplicate != "" {
+			result.diagnostics = append(
+				result.diagnostics,
+				collectionNameDiagnostic(consumer, input, duplicate),
+			)
+			return
+		}
+	}
+	if scoped := firstScopedCandidate(
+		candidates,
+		result.providers,
+	); scoped >= 0 {
+		result.diagnostics = append(
+			result.diagnostics,
+			scopeDiagnostic(
+				consumer,
+				input,
+				&result.providers[scoped],
+			),
+		)
+		return
+	}
+	for collectionIndex, dependencyIndex := range candidates {
+		appendEdge(
+			result,
+			adjacency,
+			consumerIndex,
+			dependencyIndex,
+			input,
+			kind,
+			collectionIndex,
+		)
+	}
+}
+
+func connectSingle(
+	result *Result,
+	adjacency [][]int,
+	consumerIndex int,
+	input provider.Dependency,
+	kind provider.DependencyKind,
+	candidates []int,
+) {
+	consumer := &result.providers[consumerIndex]
+	if len(candidates) == 0 {
+		if input.Kind != provider.DependencyOptional {
+			result.diagnostics = append(
+				result.diagnostics,
+				missingDiagnostic(consumer, input),
+			)
+		}
+		return
+	}
+	candidates = selectedCandidates(candidates, input, result.providers)
+	if len(candidates) != 1 {
+		result.diagnostics = append(
+			result.diagnostics,
+			ambiguousDiagnostic(
+				consumer,
+				input,
+				candidates,
+				result.providers,
+			),
+		)
+		return
+	}
+	dependencyIndex := candidates[0]
+	if result.providers[dependencyIndex].Scope !=
+		sdk.BeanScopeSingleton &&
+		input.Kind != provider.DependencyProvider {
+		result.diagnostics = append(
+			result.diagnostics,
+			scopeDiagnostic(
+				consumer,
+				input,
+				&result.providers[dependencyIndex],
+			),
+		)
+		return
+	}
+	appendEdge(
+		result,
+		adjacency,
+		consumerIndex,
+		dependencyIndex,
+		input,
+		kind,
+		0,
+	)
+}
+
+func selectedCandidates(
+	candidates []int,
+	input provider.Dependency,
+	providers []provider.Provider,
+) []int {
+	candidates = preferNonFallback(candidates, providers)
+	if len(candidates) > 1 {
+		candidates = selectPrimary(candidates, providers)
+	}
+	if len(candidates) > 1 && input.Name != "" {
+		candidates = selectByParameterName(
+			candidates,
+			input.Name,
+			providers,
+		)
+	}
+	return candidates
+}
+
+func duplicateCandidateName(
+	candidates []int,
+	providers []provider.Provider,
+) string {
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		name := providers[candidate].Name
+		if _, duplicate := seen[name]; duplicate {
+			return name
+		}
+		seen[name] = struct{}{}
+	}
+	return ""
+}
+
+func collectionNameDiagnostic(
+	consumer *provider.Provider,
+	input provider.Dependency,
+	name string,
+) Diagnostic {
+	return Diagnostic{
+		Position: preferredPosition(
+			input.Position,
+			consumer.Position,
+		),
+		PhysicalPosition: preferredPosition(
+			input.PhysicalPosition,
+			consumer.PhysicalPosition,
+		),
+		ProviderID: consumer.SymbolID,
+		Kind:       "duplicate-collection-name",
+		Message: fmt.Sprintf(
+			"%s %s (%s) requests map injection for %s, but multiple matching beans use name %q; assign unique explicit bean names",
+			providerRole(consumer),
+			providerLabel(consumer),
+			consumer.SymbolID,
+			dependencyTypeID(input),
+			name,
+		),
+	}
+}
+
+func firstScopedCandidate(
+	candidates []int,
+	providers []provider.Provider,
+) int {
+	for _, candidate := range candidates {
+		if providers[candidate].Scope != sdk.BeanScopeSingleton {
+			return candidate
+		}
+	}
+	return -1
+}
+
+func scopeDiagnostic(
+	consumer *provider.Provider,
+	input provider.Dependency,
+	dependency *provider.Provider,
+) Diagnostic {
+	position := preferredPosition(input.Position, consumer.Position)
+	physical := preferredPosition(
+		input.PhysicalPosition,
+		consumer.PhysicalPosition,
+	)
+	return Diagnostic{
+		Position:         position,
+		PhysicalPosition: physical,
+		ProviderID:       consumer.SymbolID,
+		Kind:             "scope-mismatch",
+		Message: fmt.Sprintf(
+			"%s %s (%s) requests %s directly for %s, but matching bean %q has %s scope; inject bean.Provider[%s] so acquisition and cleanup ownership remain explicit",
+			providerRole(consumer),
+			providerLabel(consumer),
+			consumer.SymbolID,
+			dependencyTypeID(input),
+			parameterLabel(input),
+			dependency.Name,
+			dependency.Scope,
+			dependencyTypeID(input),
+		),
+	}
+}
+
+func appendEdge(
+	result *Result,
+	adjacency [][]int,
+	consumerIndex int,
+	dependencyIndex int,
+	input provider.Dependency,
+	kind provider.DependencyKind,
+	collectionIndex int,
+) {
+	consumer := &result.providers[consumerIndex]
+	dependency := &result.providers[dependencyIndex]
+	requiredTypeID := input.TypeID
+	if kind != provider.DependencySingle &&
+		input.ElementTypeID != "" {
+		requiredTypeID = input.ElementTypeID
+	}
+	result.edges = append(result.edges, Edge{
+		consumer:        consumer,
+		dependency:      dependency,
+		ConsumerID:      consumer.SymbolID,
+		DependencyID:    dependency.SymbolID,
+		RequiredTypeID:  requiredTypeID,
+		ParameterIndex:  input.Index,
+		ParameterName:   input.Name,
+		DependencyKind:  kind,
+		CollectionIndex: collectionIndex,
+		Position: preferredPosition(
+			input.Position,
+			consumer.Position,
+		),
+		PhysicalPosition: preferredPosition(
+			input.PhysicalPosition,
+			consumer.PhysicalPosition,
+		),
+	})
+	adjacency[consumerIndex] = append(
+		adjacency[consumerIndex],
+		dependencyIndex,
+	)
+}
+
+func orderedCollectionCandidates(
+	candidates []int,
+	providers []provider.Provider,
+) []int {
+	result := append([]int(nil), candidates...)
+	sort.SliceStable(result, func(i, j int) bool {
+		left := &providers[result[i]]
+		right := &providers[result[j]]
+		if left.Order != right.Order {
+			return left.Order < right.Order
+		}
+		if left.Name != right.Name {
+			return left.Name < right.Name
+		}
+		return left.SymbolID < right.SymbolID
+	})
+	return result
+}
+
+func filterQualified(
+	candidates []int,
+	qualifiers []string,
+	providers []provider.Provider,
+) []int {
+	if len(qualifiers) == 0 {
+		return candidates
+	}
+	result := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		item := &providers[candidate]
+		matched := true
+		for _, qualifier := range qualifiers {
+			if qualifier != item.Name &&
+				!slices.Contains(item.Aliases, qualifier) &&
+				!slices.Contains(item.Qualifiers, qualifier) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+func preferNonFallback(
+	candidates []int,
+	providers []provider.Provider,
+) []int {
+	var regular []int
+	for _, candidate := range candidates {
+		if !providers[candidate].Fallback {
+			regular = append(regular, candidate)
+		}
+	}
+	if len(regular) != 0 {
+		return regular
+	}
+	return candidates
+}
+
+func selectPrimary(
+	candidates []int,
+	providers []provider.Provider,
+) []int {
+	var primary []int
+	for _, candidate := range candidates {
+		if providers[candidate].Primary {
+			primary = append(primary, candidate)
+		}
+	}
+	if len(primary) != 0 {
+		return primary
+	}
+	return candidates
+}
+
+func selectByParameterName(
+	candidates []int,
+	name string,
+	providers []provider.Provider,
+) []int {
+	var result []int
+	for _, candidate := range candidates {
+		item := &providers[candidate]
+		if item.Name == name || slices.Contains(item.Aliases, name) {
+			result = append(result, candidate)
+		}
+	}
+	if len(result) != 0 {
+		return result
+	}
+	return candidates
 }
 
 type typeIndex map[string][]int
@@ -159,12 +549,13 @@ func missingDiagnostic(consumer *provider.Provider, input provider.Dependency) D
 		ProviderID:       consumer.SymbolID,
 		Kind:             "missing-dependency",
 		Message: fmt.Sprintf(
-			"%s %s (%s) requires exact type %s for %s, but no provider produces that type",
+			"%s %s (%s) requires exact type %s for %s%s, but no provider matches the type and requested qualifiers",
 			providerRole(consumer),
 			providerLabel(consumer),
 			consumer.SymbolID,
-			input.TypeID,
+			dependencyTypeID(input),
 			parameterLabel(input),
+			qualifierSuffix(input),
 		),
 	}
 }
@@ -196,15 +587,31 @@ func ambiguousDiagnostic(
 		ProviderID:       consumer.SymbolID,
 		Kind:             "ambiguous-dependency",
 		Message: fmt.Sprintf(
-			"%s %s (%s) requires type %s for %s, but multiple explicit providers match: %s",
+			"%s %s (%s) requires type %s for %s%s, but multiple explicit providers match after qualifier, fallback, primary, and parameter-name selection: %s",
 			providerRole(consumer),
 			providerLabel(consumer),
 			consumer.SymbolID,
-			input.TypeID,
+			dependencyTypeID(input),
 			parameterLabel(input),
+			qualifierSuffix(input),
 			strings.Join(labels, ", "),
 		),
 	}
+}
+
+func dependencyTypeID(input provider.Dependency) string {
+	if input.ElementTypeID != "" {
+		return input.ElementTypeID
+	}
+	return input.TypeID
+}
+
+func qualifierSuffix(input provider.Dependency) string {
+	if len(input.Qualifiers) == 0 {
+		return ""
+	}
+	return " with qualifiers [" +
+		strings.Join(input.Qualifiers, ", ") + "]"
 }
 
 func providerRole(item *provider.Provider) string {

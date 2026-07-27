@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -92,6 +93,192 @@ func NewCheckout(
 		len(copyOne[0].Interfaces) {
 		t.Fatal("Providers() exposed interface binding storage")
 	}
+}
+
+func TestBeanMetadataAttachesToBeansAndExactConstructorParameters(
+	t *testing.T,
+) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/selection\n\ngo 1.26.0\n",
+		"selection.go": `package selection
+
+type Processor struct{}
+type Checkout struct{ processor Processor }
+
+// @Bean(name="stripe", aliases=["card"])
+// @Qualifier("payments")
+// @Primary
+// @Order(-10)
+// @Prototype
+func StripeProcessor() Processor { return Processor{} }
+
+// @Bean(name="offline")
+// @Fallback
+func OfflineProcessor() Processor { return Processor{} }
+
+// @Bean
+func NewCheckout(
+	// @Qualifier("card")
+	processor Processor,
+) *Checkout {
+	return &Checkout{processor: processor}
+}
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	resolved = attachProviderTestContributions(t, resolved)
+	catalog := buildQuiet(t, program, resolved)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	stripe := providerByName(catalog.Providers(), "stripe")
+	if stripe == nil ||
+		len(stripe.Aliases) != 1 ||
+		stripe.Aliases[0] != "card" ||
+		len(stripe.Qualifiers) != 1 ||
+		stripe.Qualifiers[0] != "payments" ||
+		!stripe.Primary ||
+		stripe.Fallback ||
+		stripe.Order != -10 ||
+		stripe.Scope != sdk.BeanScopePrototype {
+		t.Fatalf("stripe metadata = %#v", stripe)
+	}
+	offline := providerByName(catalog.Providers(), "offline")
+	if offline == nil || !offline.Fallback ||
+		offline.Scope != sdk.BeanScopeSingleton {
+		t.Fatalf("offline metadata = %#v", offline)
+	}
+	checkout := providerByName(
+		catalog.Providers(),
+		"newCheckout",
+	)
+	if checkout == nil ||
+		len(checkout.Dependencies) != 1 ||
+		len(checkout.Dependencies[0].Qualifiers) != 1 ||
+		checkout.Dependencies[0].Qualifiers[0] != "card" ||
+		checkout.Dependencies[0].Position.Line == 0 {
+		t.Fatalf("checkout dependency = %#v", checkout)
+	}
+
+	copyOne := catalog.Providers()
+	copyOne[0].Aliases = append(copyOne[0].Aliases, "mutated")
+	copyOne[0].Qualifiers = append(copyOne[0].Qualifiers, "mutated")
+	if slices.Contains(catalog.Providers()[0].Aliases, "mutated") ||
+		slices.Contains(catalog.Providers()[0].Qualifiers, "mutated") {
+		t.Fatal("Providers() exposed bean metadata storage")
+	}
+}
+
+func TestClassifyDependencyKindsByExactGoTypeIdentity(t *testing.T) {
+	t.Parallel()
+	stringType := types.Typ[types.String]
+	tests := []struct {
+		name string
+		typ  types.Type
+		kind DependencyKind
+		elem types.Type
+	}{
+		{
+			name: "slice",
+			typ:  types.NewSlice(stringType),
+			kind: DependencySlice,
+			elem: stringType,
+		},
+		{
+			name: "string map",
+			typ:  types.NewMap(stringType, stringType),
+			kind: DependencyMap,
+			elem: stringType,
+		},
+		{
+			name: "non-string map",
+			typ:  types.NewMap(types.Typ[types.Int], stringType),
+			kind: DependencySingle,
+		},
+		{
+			name: "optional",
+			typ:  instantiatedHandleType(t, beanPackagePath, "Optional"),
+			kind: DependencyOptional,
+			elem: stringType,
+		},
+		{
+			name: "lazy",
+			typ:  instantiatedHandleType(t, beanPackagePath, "Lazy"),
+			kind: DependencyLazy,
+			elem: stringType,
+		},
+		{
+			name: "provider",
+			typ:  instantiatedHandleType(t, beanPackagePath, "Provider"),
+			kind: DependencyProvider,
+			elem: stringType,
+		},
+		{
+			name: "foreign lookalike",
+			typ:  instantiatedHandleType(t, "example.com/bean", "Provider"),
+			kind: DependencySingle,
+		},
+		{
+			name: "unknown bean handle",
+			typ:  instantiatedHandleType(t, beanPackagePath, "Unknown"),
+			kind: DependencySingle,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dependency := Dependency{
+				Type: test.typ,
+				Kind: DependencySingle,
+			}
+			classifyDependency(&dependency)
+			if dependency.Kind != test.kind ||
+				(test.elem == nil && dependency.Element != nil) ||
+				(test.elem != nil &&
+					!types.Identical(dependency.Element, test.elem)) {
+				t.Fatalf("dependency = %#v", dependency)
+			}
+			if test.elem != nil &&
+				!types.Identical(dependency.MatchType(), test.elem) {
+				t.Fatalf(
+					"MatchType() = %v, want %v",
+					dependency.MatchType(),
+					test.elem,
+				)
+			}
+		})
+	}
+	classifyDependency(nil)
+	classifyDependency(&Dependency{})
+}
+
+func instantiatedHandleType(
+	t *testing.T,
+	packagePath string,
+	name string,
+) types.Type {
+	t.Helper()
+	pkg := types.NewPackage(packagePath, "bean")
+	parameter := types.NewTypeParam(
+		types.NewTypeName(0, pkg, "T", nil),
+		types.Universe.Lookup("any").Type(),
+	)
+	origin := types.NewNamed(
+		types.NewTypeName(0, pkg, name, nil),
+		types.NewStruct(nil, nil),
+		nil,
+	)
+	origin.SetTypeParams([]*types.TypeParam{parameter})
+	value, err := types.Instantiate(
+		nil,
+		origin,
+		[]types.Type{types.Typ[types.String]},
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func TestInterfaceBindingRequiresGoAssertion(t *testing.T) {
@@ -275,6 +462,18 @@ func attachProviderTestContributions(
 	for index, occurrence := range resolved.Occurrences {
 		var contributions []sdk.Contribution
 		switch occurrence.Annotation.Name {
+		case "Bean":
+			name, aliases := beanIdentityFixture(
+				t,
+				occurrence.Annotation.Arguments,
+			)
+			contributions = []sdk.Contribution{{
+				Kind: sdk.ContributionProvider,
+				Provider: &sdk.ProviderContribution{
+					Name:    name,
+					Aliases: aliases,
+				},
+			}}
 		case "Service":
 			constructor := ""
 			for _, argument := range occurrence.Annotation.Arguments {
@@ -289,6 +488,14 @@ func attachProviderTestContributions(
 					Role:        "service",
 					Construct:   true,
 					Constructor: constructor,
+					Name: stringArgumentFixture(
+						occurrence.Annotation.Arguments,
+						"name",
+					),
+					Aliases: stringListArgumentFixture(
+						occurrence.Annotation.Arguments,
+						"aliases",
+					),
 				},
 			}}
 		case "Implements":
@@ -312,6 +519,42 @@ func attachProviderTestContributions(
 					Interfaces: interfaces,
 				},
 			}}
+		case "Qualifier":
+			contributions = []sdk.Contribution{{
+				Kind: sdk.ContributionBeanMetadata,
+				BeanMetadata: &sdk.BeanMetadataContribution{
+					Qualifiers: []string{
+						positionalStringFixture(
+							t,
+							occurrence.Annotation.Arguments,
+						),
+					},
+				},
+			}}
+		case "Primary":
+			contributions = metadataFixture(
+				sdk.BeanMetadataContribution{Primary: true},
+			)
+		case "Fallback":
+			contributions = metadataFixture(
+				sdk.BeanMetadataContribution{Fallback: true},
+			)
+		case "Order":
+			value := positionalIntegerFixture(
+				t,
+				occurrence.Annotation.Arguments,
+			)
+			contributions = metadataFixture(
+				sdk.BeanMetadataContribution{Order: &value},
+			)
+		case "Singleton":
+			contributions = scopeFixture(sdk.BeanScopeSingleton)
+		case "Prototype":
+			contributions = scopeFixture(sdk.BeanScopePrototype)
+		case "RequestScope":
+			contributions = scopeFixture(sdk.BeanScopeRequest)
+		case "SessionScope":
+			contributions = scopeFixture(sdk.BeanScopeSession)
 		default:
 			continue
 		}
@@ -324,6 +567,89 @@ func attachProviderTestContributions(
 		}
 	}
 	return resolved
+}
+
+func metadataFixture(
+	value sdk.BeanMetadataContribution,
+) []sdk.Contribution {
+	return []sdk.Contribution{{
+		Kind:         sdk.ContributionBeanMetadata,
+		BeanMetadata: &value,
+	}}
+}
+
+func scopeFixture(scope sdk.BeanScope) []sdk.Contribution {
+	return metadataFixture(
+		sdk.BeanMetadataContribution{Scope: scope},
+	)
+}
+
+func beanIdentityFixture(
+	t *testing.T,
+	arguments []annotation.Argument,
+) (string, []string) {
+	t.Helper()
+	return stringArgumentFixture(arguments, "name"),
+		stringListArgumentFixture(arguments, "aliases")
+}
+
+func stringArgumentFixture(
+	arguments []annotation.Argument,
+	name string,
+) string {
+	for _, argument := range arguments {
+		if argument.Name == name &&
+			argument.Value.Kind == annotation.KindString {
+			return argument.Value.String
+		}
+	}
+	return ""
+}
+
+func stringListArgumentFixture(
+	arguments []annotation.Argument,
+	name string,
+) []string {
+	for _, argument := range arguments {
+		if argument.Name != name ||
+			argument.Value.Kind != annotation.KindList {
+			continue
+		}
+		result := make([]string, len(argument.Value.List))
+		for index, item := range argument.Value.List {
+			if item.Kind == annotation.KindString {
+				result[index] = item.String
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+func positionalStringFixture(
+	t *testing.T,
+	arguments []annotation.Argument,
+) string {
+	t.Helper()
+	if len(arguments) != 1 ||
+		arguments[0].Name != "" ||
+		arguments[0].Value.Kind != annotation.KindString {
+		t.Fatalf("invalid positional string fixture: %#v", arguments)
+	}
+	return arguments[0].Value.String
+}
+
+func positionalIntegerFixture(
+	t *testing.T,
+	arguments []annotation.Argument,
+) int64 {
+	t.Helper()
+	if len(arguments) != 1 ||
+		arguments[0].Name != "" ||
+		arguments[0].Value.Kind != annotation.KindInteger {
+		t.Fatalf("invalid positional integer fixture: %#v", arguments)
+	}
+	return arguments[0].Value.Integer
 }
 
 func TestCatalogValidProviders(t *testing.T) {
@@ -485,7 +811,7 @@ func (A) Method() B { return B{} }
 	}
 }
 
-func TestCatalogRejectsDuplicateOutput(t *testing.T) {
+func TestCatalogAllowsDuplicateOutputWithDistinctBeanNames(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod":           "module example.com/duplicates\n\ngo 1.23.0\n",
 		"shared/shared.go": "package shared\n\ntype Config struct{}\n",
@@ -507,25 +833,15 @@ func Third() shared.Config { return shared.Config{} }
 	})
 	program, resolved := loadAndResolve(t, root, "./...")
 	catalog := buildQuiet(t, program, resolved)
-	diagnostics := catalog.Diagnostics()
-	if len(diagnostics) != 1 {
-		t.Fatalf("diagnostics = %v, want one duplicate diagnostic", diagnosticStrings(diagnostics))
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %v", diagnosticStrings(diagnostics))
 	}
-	message := diagnostics[0].Error()
-	for _, expected := range []string{
-		"exact type example.com/duplicates/shared.Config",
-		"example.com/duplicates/a.First",
-		"example.com/duplicates/a.Second",
-		"example.com/duplicates/b.Third",
-		"qualifiers and implicit interface bindings are not supported",
-	} {
-		if !strings.Contains(message, expected) {
-			t.Fatalf("diagnostic %q missing %q", message, expected)
-		}
+	if providers := catalog.Providers(); len(providers) != 3 {
+		t.Fatalf("providers = %#v", providers)
 	}
 }
 
-func TestCatalogRejectsAliasDuplicateOutput(t *testing.T) {
+func TestCatalogAllowsAliasDuplicateOutputWithDistinctBeanNames(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/aliasduplicates\n\ngo 1.23.0\n",
 		"providers.go": `package aliasduplicates
@@ -563,23 +879,8 @@ func DistinctProvider() Distinct { panic("provider body must not execute") }
 		t.Fatalf("distinct named output %q unexpectedly conflicts with %q", distinct.OutputTypeID, original.OutputTypeID)
 	}
 
-	diagnostics := catalog.Diagnostics()
-	if len(diagnostics) != 1 {
-		t.Fatalf("diagnostics = %v, want one alias duplicate diagnostic", diagnosticStrings(diagnostics))
-	}
-	message := diagnostics[0].Error()
-	for _, expected := range []string{
-		"exact type example.com/aliasduplicates.Alias",
-		"example.com/aliasduplicates.AliasProvider",
-		"example.com/aliasduplicates.OriginalProvider",
-		"qualifiers and implicit interface bindings are not supported",
-	} {
-		if !strings.Contains(message, expected) {
-			t.Fatalf("diagnostic %q missing %q", message, expected)
-		}
-	}
-	if strings.Contains(message, "DistinctProvider") {
-		t.Fatalf("distinct named provider incorrectly entered alias duplicate diagnostic: %q", message)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %v", diagnosticStrings(diagnostics))
 	}
 }
 
@@ -613,10 +914,15 @@ func TestAddExtendsCatalogDefensivelyAndRechecksExactOutputs(t *testing.T) {
 
 	duplicate := added
 	duplicate.SymbolID = "duplicate"
+	duplicate.Name = combined.Providers()[0].Name
+	duplicate.ExplicitName = true
+	duplicate.Source = SourceBean
+	duplicate.Output = types.Typ[types.String]
+	duplicate.OutputTypeID = "string"
 	duplicate.Symbol.DisplayLabel = "duplicate"
 	if diagnostics := Add(combined, duplicate).Diagnostics(); len(diagnostics) != 1 ||
-		diagnostics[0].Kind != "duplicate-output" ||
-		!strings.Contains(diagnostics[0].Message, "multiple providers produce exact type int") {
+		diagnostics[0].Kind != "duplicate-bean-name" ||
+		!strings.Contains(diagnostics[0].Message, "bean name or alias") {
 		t.Fatalf("duplicate diagnostics = %#v", diagnostics)
 	}
 

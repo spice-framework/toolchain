@@ -185,6 +185,17 @@ func toolAnalyzeParams(
 	if symbol.Object != nil {
 		typeID = provider.TypeID(symbol.Object.Type())
 	}
+	parameterTypeID := ""
+	if occurrence.Target == annotation.TargetParameter &&
+		symbol.Signature != nil &&
+		occurrence.ParameterIndex >= 0 &&
+		occurrence.ParameterIndex < symbol.Signature.Params().Len() {
+		parameterTypeID = provider.TypeID(
+			symbol.Signature.Params().At(
+				occurrence.ParameterIndex,
+			).Type(),
+		)
+	}
 	facts := map[string]string{
 		"symbol_kind": string(symbol.Kind),
 	}
@@ -202,11 +213,14 @@ func toolAnalyzeParams(
 			CanonicalName:     item.Definition.Name,
 			Arguments:         arguments,
 			Declaration: protocol.Declaration{
-				Target:      occurrence.Target,
-				SymbolID:    occurrence.SymbolID,
-				Name:        occurrence.Name,
-				PackagePath: occurrence.PackagePath,
-				TypeID:      typeID,
+				Target:          occurrence.Target,
+				SymbolID:        occurrence.SymbolID,
+				Name:            occurrence.Name,
+				PackagePath:     occurrence.PackagePath,
+				TypeID:          typeID,
+				ParameterIndex:  occurrence.ParameterIndex,
+				ParameterName:   occurrence.ParameterName,
+				ParameterTypeID: parameterTypeID,
 			},
 			Facts: facts,
 		},

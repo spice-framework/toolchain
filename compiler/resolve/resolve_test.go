@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 )
 
@@ -294,6 +295,140 @@ func Main() {}
 	joined := strings.Join(diagnosticMessages(result.Diagnostics), "\n")
 	if !strings.Contains(joined, `annotation import name "App" conflicts`) {
 		t.Fatalf("diagnostics = %q", joined)
+	}
+}
+
+func TestAnnotationsResolveExactConstructorParameterRanges(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/parameters\n\ngo 1.26.0\n",
+		"app/app.go": `package app
+
+// @import { Qualifier } from "example.com/annotations/core"
+
+func NewCheckout(
+	config string,
+	// @Qualifier("stripe")
+	processor any,
+) {}
+`,
+	})
+	result := AnnotationsWithDefinitions(
+		mustLoad(t, dir, "./app"),
+		DefinitionIndex{{
+			Package: "example.com/annotations/core",
+			Symbol:  "Qualifier",
+		}: "Qualifier"},
+	)
+	if len(result.Diagnostics) != 0 || len(result.Occurrences) != 1 {
+		t.Fatalf(
+			"occurrences=%#v diagnostics=%v",
+			result.Occurrences,
+			diagnosticMessages(result.Diagnostics),
+		)
+	}
+	occurrence := result.Occurrences[0]
+	if occurrence.Target != annotation.TargetParameter ||
+		occurrence.ParameterIndex != 1 ||
+		occurrence.ParameterName != "processor" ||
+		occurrence.Name != "NewCheckout" {
+		t.Fatalf("parameter occurrence = %#v", occurrence)
+	}
+	if occurrence.ParameterPosition.Line != 8 ||
+		occurrence.ParameterPhysicalPosition.Line != 8 {
+		t.Fatalf(
+			"parameter positions = %v / %v",
+			occurrence.ParameterPosition,
+			occurrence.ParameterPhysicalPosition,
+		)
+	}
+}
+
+func TestAnnotationsRejectAmbiguousParameterDocumentation(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/parameters\n\ngo 1.26.0\n",
+		"app/app.go": `package app
+
+func NewCheckout(
+	// @Qualifier("stripe")
+	first, second any,
+) {}
+`,
+	})
+	result := Annotations(mustLoad(t, dir, "./app"))
+	if len(result.Occurrences) != 0 {
+		t.Fatalf("occurrences = %#v", result.Occurrences)
+	}
+	if joined := strings.Join(
+		diagnosticMessages(result.Diagnostics),
+		"\n",
+	); !strings.Contains(joined, "ambiguous on a parameter declaration with 2 names") {
+		t.Fatalf("diagnostics = %q", joined)
+	}
+}
+
+func TestOccurrenceContributionOwnershipAndQueries(t *testing.T) {
+	t.Parallel()
+	result := Result{Occurrences: []Occurrence{{Annotation: annotation.Annotation{
+		Name: "Bean",
+	}}}}
+	contribution := sdk.Contribution{
+		Kind: sdk.ContributionProvider,
+		Provider: &sdk.ProviderContribution{
+			Aliases: []string{"primary"},
+		},
+	}
+	updated, err := result.WithContributions(
+		0,
+		[]sdk.Contribution{contribution},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurrence := updated.Occurrences[0]
+	if !occurrence.HasContribution(sdk.ContributionProvider) ||
+		!occurrence.UsesContribution(
+			sdk.ContributionProvider,
+			"other",
+		) {
+		t.Fatalf("contribution queries = %#v", occurrence)
+	}
+	value, found := occurrence.Contribution(sdk.ContributionProvider)
+	if !found || value.Provider == nil {
+		t.Fatalf("Contribution() = %#v, %t", value, found)
+	}
+	value.Provider.Aliases[0] = "changed"
+	again, found := occurrence.Contribution(sdk.ContributionProvider)
+	if !found || again.Provider.Aliases[0] != "primary" {
+		t.Fatal("Contribution() exposed owned payload")
+	}
+	if _, found := occurrence.Contribution(
+		sdk.ContributionRoute,
+	); found {
+		t.Fatal("missing Contribution() found")
+	}
+	if result.Occurrences[0].HasContribution(
+		sdk.ContributionProvider,
+	) {
+		t.Fatal("WithContributions() mutated original result")
+	}
+	if _, err := result.WithContributions(-1, nil); err == nil {
+		t.Fatal("WithContributions(-1) error = nil")
+	}
+	if _, err := result.WithContributions(1, nil); err == nil {
+		t.Fatal("WithContributions(1) error = nil")
+	}
+	if _, err := result.WithContributions(0, []sdk.Contribution{{
+		Kind: sdk.ContributionProvider,
+	}}); err == nil {
+		t.Fatal("WithContributions(invalid) error = nil")
+	}
+
+	legacy := Occurrence{Annotation: annotation.Annotation{Name: "Bean"}}
+	if !legacy.UsesContribution(
+		sdk.ContributionProvider,
+		"Bean",
+	) {
+		t.Fatal("legacy contribution fallback was not recognized")
 	}
 }
 

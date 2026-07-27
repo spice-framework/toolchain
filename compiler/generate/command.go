@@ -47,6 +47,7 @@ type commandFeatures struct {
 	events          bool
 	caching         bool
 	httpObservation bool
+	requestScope    bool
 }
 
 func commandFeaturesFor(

@@ -155,7 +155,10 @@ func New() *Client { return &Client{} }
 	merged := Merge(beanCatalog, starterCatalog)
 	joined := strings.Join(diagnosticStrings(merged.Diagnostics()), "\n")
 	if !strings.Contains(joined, "multiple providers produce exact type") ||
-		!strings.Contains(joined, "*example.com/entrypoints/search.Client") {
+		!strings.Contains(
+			joined,
+			"*example.com/entrypoints/search.Client",
+		) {
 		t.Fatalf("Merge() diagnostics = %v", diagnosticStrings(merged.Diagnostics()))
 	}
 }

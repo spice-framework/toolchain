@@ -56,7 +56,7 @@ func Variadic(values ...Config) Config { return Config{} }
 	}
 }
 
-func TestRunVerifyRejectsDuplicateBeanOutput(t *testing.T) {
+func TestRunVerifyRejectsAmbiguousDuplicateBeanOutput(t *testing.T) {
 	t.Parallel()
 	root := writeModule(t, map[string]string{
 		"shared/shared.go": "package shared\n\ntype Config struct{}\n",
@@ -70,19 +70,30 @@ import "example.com/fixture/shared"
 // @Bean
 func Second() shared.Config { return shared.Config{} }
 `,
+		"consumer/consumer.go": `package consumer
+import "example.com/fixture/shared"
+type Service struct{}
+// @Bean
+func NewService(config shared.Config) Service { return Service{} }
+`,
 	})
 	code, stdout, stderr := runModule(root, "verify", "./...")
-	if code != 1 || stdout != "" || !strings.Contains(stderr, "1 provider catalog error(s)") {
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "1 provider graph error(s)") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	for _, expected := range []string{"exact type example.com/fixture/shared.Config", "example.com/fixture/a.First", "example.com/fixture/b.Second"} {
+	for _, expected := range []string{
+		"multiple explicit providers match",
+		"example.com/fixture/shared.Config",
+		"example.com/fixture/a.First",
+		"example.com/fixture/b.Second",
+	} {
 		if !strings.Contains(stderr, expected) {
 			t.Fatalf("stderr=%q missing %q", stderr, expected)
 		}
 	}
 }
 
-func TestRunVerifyRejectsAliasDuplicateBeanOutput(t *testing.T) {
+func TestRunVerifyRejectsAmbiguousAliasBeanOutput(t *testing.T) {
 	t.Parallel()
 	root := writeGoSource(t, `package sample
 
@@ -98,13 +109,19 @@ func AliasProvider() Alias { panic("must not execute") }
 
 // @Bean
 func DistinctProvider() Distinct { panic("must not execute") }
+
+type Consumer struct{}
+
+// @Bean
+func NewConsumer(value Original) Consumer { panic("must not execute") }
 `)
 	code, stdout, stderr := runModule(root, "verify", ".")
-	if code != 1 || stdout != "" || !strings.Contains(stderr, "1 provider catalog error(s)") {
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "1 provider graph error(s)") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	for _, expected := range []string{
-		"exact type example.com/fixture.Alias",
+		"multiple explicit providers match",
+		"example.com/fixture.Original",
 		"example.com/fixture.AliasProvider",
 		"example.com/fixture.OriginalProvider",
 	} {

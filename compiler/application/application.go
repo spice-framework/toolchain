@@ -9,6 +9,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
@@ -358,6 +359,17 @@ func BuildWithOptions(
 		model.diagnostics = asyncDiagnostics(diagnostics)
 		return model
 	}
+	if diagnostics := scopedComponentDiagnostics(
+		providerCatalog.Providers(),
+		model.controllers,
+		lifecycleCatalog.Components(),
+		scheduleCatalog.Jobs(),
+		asyncCatalog.Tasks(),
+		model.events,
+	); len(diagnostics) != 0 {
+		model.diagnostics = diagnostics
+		return model
+	}
 
 	model.providers = providerGraph.ConstructionOrder()
 	model.edges = providerGraph.Edges()
@@ -391,6 +403,112 @@ func BuildWithOptions(
 		model.edges,
 	)
 	return model
+}
+
+type scopedProviderUse struct {
+	providerID       string
+	stage            Stage
+	role             string
+	position         token.Position
+	physicalPosition token.Position
+	symbolID         string
+}
+
+func scopedComponentDiagnostics(
+	providers []provider.Provider,
+	controllers []controller.Controller,
+	components []lifecycle.Component,
+	jobs []compilerschedule.Job,
+	tasks []compilerasync.Task,
+	events []compilerevent.Topic,
+) []Diagnostic {
+	byID := make(map[string]provider.Provider, len(providers))
+	for _, item := range providers {
+		byID[item.SymbolID] = item
+	}
+	var uses []scopedProviderUse
+	for _, item := range controllers {
+		uses = append(uses, scopedProviderUse{
+			providerID:       item.ProviderID,
+			stage:            StageController,
+			role:             "HTTP controller",
+			position:         item.Position,
+			physicalPosition: item.PhysicalPosition,
+			symbolID:         item.SymbolID,
+		})
+	}
+	for _, item := range components {
+		hook := item.Start
+		if hook == nil {
+			hook = item.Stop
+		}
+		if hook == nil {
+			continue
+		}
+		uses = append(uses, scopedProviderUse{
+			providerID:       item.Provider.SymbolID,
+			stage:            StageLifecycle,
+			role:             "lifecycle component",
+			position:         hook.Position,
+			physicalPosition: hook.PhysicalPosition,
+			symbolID:         hook.MethodID,
+		})
+	}
+	for _, item := range jobs {
+		uses = append(uses, scopedProviderUse{
+			providerID:       item.ProviderID,
+			stage:            StageSchedule,
+			role:             "scheduled component",
+			position:         item.Position,
+			physicalPosition: item.PhysicalPosition,
+			symbolID:         item.MethodID,
+		})
+	}
+	for _, item := range tasks {
+		uses = append(uses, scopedProviderUse{
+			providerID:       item.ProviderID,
+			stage:            StageAsync,
+			role:             "asynchronous component",
+			position:         item.Position,
+			physicalPosition: item.PhysicalPosition,
+			symbolID:         item.MethodID,
+		})
+	}
+	for _, topic := range events {
+		for _, listener := range topic.Listeners() {
+			uses = append(uses, scopedProviderUse{
+				providerID:       listener.ProviderID,
+				stage:            StageEvent,
+				role:             "event listener",
+				position:         listener.Position,
+				physicalPosition: listener.PhysicalPosition,
+				symbolID:         listener.MethodID,
+			})
+		}
+	}
+	var diagnostics []Diagnostic
+	for _, use := range uses {
+		item, found := byID[use.providerID]
+		if !found || item.Scope == sdk.BeanScopeSingleton {
+			continue
+		}
+		diagnostics = append(diagnostics, Diagnostic{
+			Stage:            use.stage,
+			Position:         use.position,
+			PhysicalPosition: use.physicalPosition,
+			SymbolID:         use.symbolID,
+			Kind:             "scoped-component",
+			Message: fmt.Sprintf(
+				"%s %q is owned by bean %q with %s scope; framework-owned components require singleton scope because no caller lease exists to own cleanup",
+				use.role,
+				use.symbolID,
+				item.Name,
+				item.Scope,
+			),
+		})
+	}
+	sortDiagnostics(diagnostics)
+	return diagnostics
 }
 
 func buildProviderMetadata(
@@ -944,17 +1062,22 @@ func applicationRoots(
 			item.Position = fileSet.PositionFor(parameter.Pos(), true)
 			item.PhysicalPosition = fileSet.PositionFor(parameter.Pos(), false)
 		}
-		match, ok := exactProvider(parameter.Type(), providers)
-		if !ok {
+		match, problem := exactProvider(
+			parameter.Type(),
+			parameter.Name(),
+			providers,
+		)
+		if problem != "" {
 			diagnostics = append(diagnostics, rootDiagnostic(
 				occurrence,
 				symbol,
 				item,
 				fmt.Sprintf(
-					"@Application marker %s root %s requires exact provider type %s, but no @Bean provider produces that type",
+					"@Application marker %s root %s requires exact provider type %s, but %s",
 					symbolLabel(symbol),
 					parameterLabel(item),
 					item.TypeID,
+					problem,
 				),
 			))
 			continue
@@ -965,13 +1088,92 @@ func applicationRoots(
 	return roots, diagnostics
 }
 
-func exactProvider(required types.Type, providers []provider.Provider) (provider.Provider, bool) {
+func exactProvider(
+	required types.Type,
+	parameterName string,
+	providers []provider.Provider,
+) (provider.Provider, string) {
+	candidates := exactProviderCandidates(required, providers)
+	if len(candidates) == 0 {
+		return provider.Provider{},
+			"no @Bean provider produces that type"
+	}
+	candidates = selectRootCandidates(candidates, parameterName)
+	if len(candidates) != 1 {
+		return provider.Provider{}, ambiguousRootProviders(candidates)
+	}
+	if candidates[0].Scope != sdk.BeanScopeSingleton {
+		return provider.Provider{},
+			fmt.Sprintf(
+				"selected bean %q has %s scope; application roots must be singleton",
+				candidates[0].Name,
+				candidates[0].Scope,
+			)
+	}
+	return candidates[0], ""
+}
+
+func exactProviderCandidates(
+	required types.Type,
+	providers []provider.Provider,
+) []provider.Provider {
+	var candidates []provider.Provider
 	for _, candidate := range providers {
 		if types.Identical(required, candidate.Output) {
-			return candidate, true
+			candidates = append(candidates, candidate)
 		}
 	}
-	return provider.Provider{}, false
+	return candidates
+}
+
+func selectRootCandidates(
+	candidates []provider.Provider,
+	parameterName string,
+) []provider.Provider {
+	var regular []provider.Provider
+	for _, candidate := range candidates {
+		if !candidate.Fallback {
+			regular = append(regular, candidate)
+		}
+	}
+	if len(regular) != 0 {
+		candidates = regular
+	}
+	if len(candidates) > 1 {
+		var primary []provider.Provider
+		for _, candidate := range candidates {
+			if candidate.Primary {
+				primary = append(primary, candidate)
+			}
+		}
+		if len(primary) != 0 {
+			candidates = primary
+		}
+	}
+	if len(candidates) > 1 && parameterName != "" {
+		var named []provider.Provider
+		for _, candidate := range candidates {
+			if candidate.Name == parameterName ||
+				slices.Contains(candidate.Aliases, parameterName) {
+				named = append(named, candidate)
+			}
+		}
+		if len(named) != 0 {
+			candidates = named
+		}
+	}
+	return candidates
+}
+
+func ambiguousRootProviders(candidates []provider.Provider) string {
+	labels := make([]string, len(candidates))
+	for index, candidate := range candidates {
+		labels[index] = candidate.Name + " (" +
+			candidate.SymbolID + ")"
+	}
+	sort.Strings(labels)
+	return "multiple beans remain after fallback, primary, and parameter-name selection: " +
+		strings.Join(labels, ", ")
 }
 
 func orderedComponents(

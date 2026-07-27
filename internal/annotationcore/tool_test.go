@@ -32,7 +32,7 @@ func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Describe() error = %v", err)
 	}
-	if len(description.Handlers) != 22 {
+	if len(description.Handlers) != 30 {
 		t.Fatalf("Describe() = %+v", description)
 	}
 	foundApplication := false

@@ -26,6 +26,14 @@ func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 		handlerCase("application", coreannotation.ApplicationHandler, "core", "Application", sdk.ContributionApplication),
 		handlerCase("bean", coreannotation.BeanHandler, "core", "Bean", sdk.ContributionProvider),
 		handlerCaseWithArguments("implements", coreannotation.ImplementsHandler, "core", "Implements", sdk.ContributionInterface, positionalIdentifierToolArgument("payments.Processor")),
+		handlerCaseWithArguments("qualifier", coreannotation.QualifierHandler, "core", "Qualifier", sdk.ContributionBeanMetadata, positionalToolArgument("stripe")),
+		handlerCase("primary", coreannotation.PrimaryHandler, "core", "Primary", sdk.ContributionBeanMetadata),
+		handlerCase("fallback", coreannotation.FallbackHandler, "core", "Fallback", sdk.ContributionBeanMetadata),
+		handlerCaseWithArguments("order", coreannotation.OrderHandler, "core", "Order", sdk.ContributionBeanMetadata, positionalIntegerToolArgument(-10)),
+		handlerCase("singleton", coreannotation.SingletonHandler, "core", "Singleton", sdk.ContributionBeanMetadata),
+		handlerCase("prototype", coreannotation.PrototypeHandler, "core", "Prototype", sdk.ContributionBeanMetadata),
+		handlerCase("request scope", coreannotation.RequestScopeHandler, "core", "RequestScope", sdk.ContributionBeanMetadata),
+		handlerCase("session scope", coreannotation.SessionScopeHandler, "core", "SessionScope", sdk.ContributionBeanMetadata),
 		handlerCase("repository", coreannotation.RepositoryHandler, "core", "Repository", sdk.ContributionStereotype),
 		handlerCase("service", coreannotation.ServiceHandler, "core", "Service", sdk.ContributionStereotype),
 		handlerCaseWithArguments("configuration", coreannotation.ConfigurationHandler, "core", "Configuration", sdk.ContributionConfiguration, stringToolArgument("prefix", "server")),
@@ -180,6 +188,12 @@ func positionalToolArgument(value string) sdk.InvocationArgument {
 
 func positionalIdentifierToolArgument(value string) sdk.InvocationArgument {
 	argument := toolArgument("", sdk.KindIdentifier, value)
+	argument.Positional = true
+	return argument
+}
+
+func positionalIntegerToolArgument(value int64) sdk.InvocationArgument {
+	argument := toolArgument("", sdk.KindInteger, value)
 	argument.Positional = true
 	return argument
 }

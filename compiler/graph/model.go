@@ -29,6 +29,8 @@ type Edge struct {
 	RequiredTypeID   string
 	ParameterIndex   int
 	ParameterName    string
+	DependencyKind   provider.DependencyKind
+	CollectionIndex  int
 	Position         token.Position
 	PhysicalPosition token.Position
 	consumer         *provider.Provider
@@ -110,6 +112,14 @@ func cloneProvider(item *provider.Provider) provider.Provider {
 	}
 	result := *item
 	result.Dependencies = append([]provider.Dependency(nil), item.Dependencies...)
+	for index := range result.Dependencies {
+		result.Dependencies[index].Qualifiers = append(
+			[]string(nil),
+			item.Dependencies[index].Qualifiers...,
+		)
+	}
+	result.Aliases = append([]string(nil), item.Aliases...)
+	result.Qualifiers = append([]string(nil), item.Qualifiers...)
 	result.Interfaces = append(
 		[]provider.InterfaceBinding(nil),
 		item.Interfaces...,

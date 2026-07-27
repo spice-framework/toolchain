@@ -20,12 +20,13 @@ import (
 type Target = annotation.Target
 
 const (
-	TargetPackage  = annotation.TargetPackage
-	TargetType     = annotation.TargetType
-	TargetFunction = annotation.TargetFunction
-	TargetMethod   = annotation.TargetMethod
-	TargetVariable = annotation.TargetVariable
-	TargetConstant = annotation.TargetConstant
+	TargetPackage   = annotation.TargetPackage
+	TargetType      = annotation.TargetType
+	TargetFunction  = annotation.TargetFunction
+	TargetMethod    = annotation.TargetMethod
+	TargetParameter = annotation.TargetParameter
+	TargetVariable  = annotation.TargetVariable
+	TargetConstant  = annotation.TargetConstant
 )
 
 // Occurrence associates one annotation with a Go declaration.
@@ -112,7 +113,12 @@ func scanFile(set *token.FileSet, path string) ([]Occurrence, error) {
 		occurrences = append(occurrences, packageOccurrences...)
 	}
 	for _, declaration := range file.Decls {
-		declarationOccurrences, err := scanDeclaration(set, declaration, path)
+		declarationOccurrences, err := scanDeclaration(
+			set,
+			file,
+			declaration,
+			path,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -121,10 +127,15 @@ func scanFile(set *token.FileSet, path string) ([]Occurrence, error) {
 	return occurrences, nil
 }
 
-func scanDeclaration(set *token.FileSet, declaration ast.Decl, path string) ([]Occurrence, error) {
+func scanDeclaration(
+	set *token.FileSet,
+	file *ast.File,
+	declaration ast.Decl,
+	path string,
+) ([]Occurrence, error) {
 	switch node := declaration.(type) {
 	case *ast.FuncDecl:
-		return scanFunction(set, node, path)
+		return scanFunction(set, file, node, path)
 	case *ast.GenDecl:
 		return scanGeneralDeclaration(set, node, path)
 	default:
@@ -132,15 +143,92 @@ func scanDeclaration(set *token.FileSet, declaration ast.Decl, path string) ([]O
 	}
 }
 
-func scanFunction(set *token.FileSet, declaration *ast.FuncDecl, path string) ([]Occurrence, error) {
-	if declaration.Doc == nil {
-		return nil, nil
-	}
+func scanFunction(
+	set *token.FileSet,
+	file *ast.File,
+	declaration *ast.FuncDecl,
+	path string,
+) ([]Occurrence, error) {
 	target := TargetFunction
 	if declaration.Recv != nil {
 		target = TargetMethod
 	}
-	return parseGroup(set, declaration.Doc, target, declaration.Name.Name, path)
+	var result []Occurrence
+	if declaration.Doc != nil {
+		values, err := parseGroup(
+			set,
+			declaration.Doc,
+			target,
+			declaration.Name.Name,
+			path,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, values...)
+	}
+	if declaration.Type.Params == nil {
+		return result, nil
+	}
+	lowerBound := declaration.Type.Params.Opening
+	for _, field := range declaration.Type.Params.List {
+		documentation := field.Doc
+		if documentation == nil {
+			documentation = scanParameterDocumentation(
+				set,
+				file,
+				field,
+				lowerBound,
+			)
+		}
+		if documentation == nil {
+			lowerBound = field.End()
+			continue
+		}
+		name := "<parameter>"
+		if len(field.Names) == 1 {
+			name = field.Names[0].Name
+		}
+		values, err := parseGroup(
+			set,
+			documentation,
+			TargetParameter,
+			name,
+			path,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, values...)
+		lowerBound = field.End()
+	}
+	return result, nil
+}
+
+func scanParameterDocumentation(
+	set *token.FileSet,
+	file *ast.File,
+	field *ast.Field,
+	lowerBound token.Pos,
+) *ast.CommentGroup {
+	if set == nil || file == nil || field == nil {
+		return nil
+	}
+	fieldLine := set.Position(field.Pos()).Line
+	var selected *ast.CommentGroup
+	for _, group := range file.Comments {
+		if group == nil || group.Pos() <= lowerBound ||
+			group.End() >= field.Pos() {
+			continue
+		}
+		if set.Position(group.End()).Line+1 != fieldLine {
+			continue
+		}
+		if selected == nil || group.Pos() > selected.Pos() {
+			selected = group
+		}
+	}
+	return selected
 }
 
 func scanGeneralDeclaration(

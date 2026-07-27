@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
@@ -116,18 +117,28 @@ type Annotation struct {
 
 // ProviderDependency is one exact provider input.
 type ProviderDependency struct {
-	Index  int
-	Name   string
-	TypeID string
+	Index         int
+	Name          string
+	TypeID        string
+	Kind          provider.DependencyKind
+	ElementTypeID string
+	Qualifiers    []string
 }
 
 // Provider is one dependency-first provider summary.
 type Provider struct {
 	ID             string
 	Name           string
+	ExplicitName   bool
 	PackagePath    string
 	OutputTypeID   string
 	Source         provider.Source
+	Aliases        []string
+	Qualifiers     []string
+	Primary        bool
+	Fallback       bool
+	Order          int64
+	Scope          sdk.BeanScope
 	Dependencies   []ProviderDependency
 	ReturnsCleanup bool
 	ReturnsError   bool
@@ -135,11 +146,13 @@ type Provider struct {
 
 // ProviderEdge is one exact-type provider dependency edge.
 type ProviderEdge struct {
-	ConsumerID     string
-	DependencyID   string
-	RequiredTypeID string
-	ParameterIndex int
-	ParameterName  string
+	ConsumerID      string
+	DependencyID    string
+	RequiredTypeID  string
+	ParameterIndex  int
+	ParameterName   string
+	DependencyKind  provider.DependencyKind
+	CollectionIndex int
 }
 
 // ProviderGraph is the immutable exact-type construction graph.

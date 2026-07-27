@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,11 +23,25 @@ import (
 
 const (
 	acceptedSignature  = "func(dependencies...) T, func(dependencies...) (T, error), func(dependencies...) (T, lifecycle.Cleanup), or func(dependencies...) (T, lifecycle.Cleanup, error)"
+	beanPackagePath    = "github.com/StevenBuglione/spice/bean"
 	cleanupPackagePath = "github.com/StevenBuglione/spice/lifecycle"
 	cleanupTypeName    = "Cleanup"
 )
 
 var errorType = types.Universe.Lookup("error").Type()
+
+// DependencyKind identifies how generated Go supplies one constructor
+// parameter.
+type DependencyKind string
+
+const (
+	DependencySingle   DependencyKind = "single"
+	DependencySlice    DependencyKind = "slice"
+	DependencyMap      DependencyKind = "map"
+	DependencyOptional DependencyKind = "optional"
+	DependencyLazy     DependencyKind = "lazy"
+	DependencyProvider DependencyKind = "provider"
+)
 
 // Dependency describes one required provider input in declaration order.
 // Type is live semantic data owned by the Program used to build the catalog;
@@ -38,6 +53,18 @@ type Dependency struct {
 	TypeID           string
 	Position         token.Position
 	PhysicalPosition token.Position
+	Qualifiers       []string
+	Kind             DependencyKind
+	Element          types.Type
+	ElementTypeID    string
+}
+
+// MatchType returns the exact bean type selected for this constructor input.
+func (dependency Dependency) MatchType() types.Type {
+	if dependency.Element != nil {
+		return dependency.Element
+	}
+	return dependency.Type
 }
 
 // InterfaceBinding describes one explicit concrete-to-interface exposure.
@@ -88,6 +115,13 @@ type Provider struct {
 	Constructor      load.Symbol
 	SymbolID         string
 	Name             string
+	ExplicitName     bool
+	Aliases          []string
+	Qualifiers       []string
+	Primary          bool
+	Fallback         bool
+	Order            int64
+	Scope            sdk.BeanScope
 	PackagePath      string
 	Position         token.Position
 	PhysicalPosition token.Position
@@ -146,6 +180,17 @@ func (c Catalog) Providers() []Provider {
 	copy(result, c.providers)
 	for i := range result {
 		result[i].Dependencies = append([]Dependency(nil), result[i].Dependencies...)
+		for dependencyIndex := range result[i].Dependencies {
+			result[i].Dependencies[dependencyIndex].Qualifiers = append(
+				[]string(nil),
+				result[i].Dependencies[dependencyIndex].Qualifiers...,
+			)
+		}
+		result[i].Aliases = append([]string(nil), result[i].Aliases...)
+		result[i].Qualifiers = append(
+			[]string(nil),
+			result[i].Qualifiers...,
+		)
 		result[i].Interfaces = append(
 			[]InterfaceBinding(nil),
 			result[i].Interfaces...,
@@ -169,6 +214,17 @@ func Add(catalog Catalog, additions ...Provider) Catalog {
 	}
 	for _, addition := range additions {
 		addition.Dependencies = append([]Dependency(nil), addition.Dependencies...)
+		for dependencyIndex := range addition.Dependencies {
+			addition.Dependencies[dependencyIndex].Qualifiers = append(
+				[]string(nil),
+				addition.Dependencies[dependencyIndex].Qualifiers...,
+			)
+		}
+		addition.Aliases = append([]string(nil), addition.Aliases...)
+		addition.Qualifiers = append(
+			[]string(nil),
+			addition.Qualifiers...,
+		)
 		addition.Interfaces = append(
 			[]InterfaceBinding(nil),
 			addition.Interfaces...,
@@ -178,8 +234,12 @@ func Add(catalog Catalog, additions ...Provider) Catalog {
 	sort.SliceStable(result.providers, func(i, j int) bool {
 		return result.providers[i].SymbolID < result.providers[j].SymbolID
 	})
+	normalizeProviderMetadata(result.providers)
 	if len(result.diagnostics) == 0 {
-		result.diagnostics = duplicateDiagnostics(result.providers)
+		result.diagnostics = append(
+			beanIdentityDiagnostics(result.providers),
+			nonSelectableDuplicateDiagnostics(result.providers)...,
+		)
 	}
 	sortDiagnostics(result.diagnostics)
 	return result
@@ -196,8 +256,12 @@ func Merge(catalogs ...Catalog) Catalog {
 	sort.SliceStable(result.providers, func(i, j int) bool {
 		return result.providers[i].SymbolID < result.providers[j].SymbolID
 	})
+	normalizeProviderMetadata(result.providers)
 	if len(result.diagnostics) == 0 {
-		result.diagnostics = duplicateDiagnostics(result.providers)
+		result.diagnostics = append(
+			beanIdentityDiagnostics(result.providers),
+			nonSelectableDuplicateDiagnostics(result.providers)...,
+		)
 	}
 	sortDiagnostics(result.diagnostics)
 	return result
@@ -291,7 +355,15 @@ func BuildEntrypoints(program *load.Program, entrypoints []Entrypoint) Catalog {
 	sort.SliceStable(catalog.providers, func(i, j int) bool {
 		return catalog.providers[i].SymbolID < catalog.providers[j].SymbolID
 	})
-	catalog.diagnostics = append(catalog.diagnostics, duplicateDiagnostics(catalog.providers)...)
+	normalizeProviderMetadata(catalog.providers)
+	catalog.diagnostics = append(
+		catalog.diagnostics,
+		beanIdentityDiagnostics(catalog.providers)...,
+	)
+	catalog.diagnostics = append(
+		catalog.diagnostics,
+		nonSelectableDuplicateDiagnostics(catalog.providers)...,
+	)
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
 }
@@ -339,7 +411,10 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 	build := newBuildContext(program)
 
 	for _, occurrence := range resolution.Occurrences {
-		if !occurrence.UsesContribution(
+		contribution, contributed := occurrence.Contribution(
+			sdk.ContributionProvider,
+		)
+		if !contributed && !occurrence.UsesContribution(
 			sdk.ContributionProvider,
 			"Bean",
 		) {
@@ -368,6 +443,19 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 			catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
 			continue
 		}
+		if contributed {
+			provider.Name = contribution.Provider.Name
+			provider.ExplicitName =
+				contribution.Provider.Name != ""
+			provider.Aliases = append(
+				[]string(nil),
+				contribution.Provider.Aliases...,
+			)
+		}
+		if provider.Name == "" {
+			provider.Name = lowerInitial(symbol.Name)
+		}
+		provider.Scope = sdk.BeanScopeSingleton
 		catalog.providers = append(catalog.providers, provider)
 	}
 
@@ -398,10 +486,19 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 	}
 
 	attachInterfaceBindings(&catalog, build, resolution)
+	attachBeanMetadata(&catalog, resolution)
+	normalizeProviderMetadata(catalog.providers)
 	sort.SliceStable(catalog.providers, func(i, j int) bool {
 		return catalog.providers[i].SymbolID < catalog.providers[j].SymbolID
 	})
-	catalog.diagnostics = append(catalog.diagnostics, duplicateDiagnostics(catalog.providers)...)
+	catalog.diagnostics = append(
+		catalog.diagnostics,
+		beanIdentityDiagnostics(catalog.providers)...,
+	)
+	catalog.diagnostics = append(
+		catalog.diagnostics,
+		nonSelectableDuplicateDiagnostics(catalog.providers)...,
+	)
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
 }
@@ -535,6 +632,12 @@ func (build buildContext) stereotypeProvider(
 	item.Symbol = symbol
 	item.SymbolID = symbol.ID
 	item.Name = lowerInitial(symbol.Name)
+	if contribution.Name != "" {
+		item.Name = contribution.Name
+		item.ExplicitName = true
+	}
+	item.Aliases = append([]string(nil), contribution.Aliases...)
+	item.Scope = sdk.BeanScopeSingleton
 	item.PackagePath = symbol.PackagePath
 	item.Position = occurrence.DisplayPosition
 	item.PhysicalPosition = occurrence.PhysicalPosition
@@ -607,6 +710,7 @@ func allocatedStereotypeProvider(
 		PhysicalPosition: occurrence.PhysicalPosition,
 		Output:           output,
 		OutputTypeID:     TypeID(output),
+		Scope:            sdk.BeanScopeSingleton,
 	}
 }
 
@@ -846,8 +950,13 @@ func attachInterfaceBindings(
 	resolution resolve.Result,
 ) {
 	index := make(map[string]int, len(catalog.providers))
+	constructorIndex := make(map[string]int, len(catalog.providers))
 	for providerIndex := range catalog.providers {
 		index[catalog.providers[providerIndex].SymbolID] = providerIndex
+		constructorID := catalog.providers[providerIndex].Constructor.ID
+		if constructorID != "" {
+			constructorIndex[constructorID] = providerIndex
+		}
 	}
 	for _, occurrence := range resolution.Occurrences {
 		contribution, present := occurrence.Contribution(
@@ -857,6 +966,9 @@ func attachInterfaceBindings(
 			continue
 		}
 		providerIndex, found := index[occurrence.SymbolID]
+		if !found && occurrence.Target == annotation.TargetParameter {
+			providerIndex, found = constructorIndex[occurrence.SymbolID]
+		}
 		if !found {
 			catalog.diagnostics = append(
 				catalog.diagnostics,
@@ -938,6 +1050,220 @@ func attachInterfaceBindings(
 				item.Interfaces[j].TypeID
 		})
 	}
+}
+
+func attachBeanMetadata(
+	catalog *Catalog,
+	resolution resolve.Result,
+) {
+	index := make(map[string]int, len(catalog.providers))
+	for providerIndex := range catalog.providers {
+		index[catalog.providers[providerIndex].SymbolID] = providerIndex
+	}
+	orderSeen := make(map[string]resolve.Occurrence)
+	scopeSeen := make(map[string]resolve.Occurrence)
+	for _, occurrence := range resolution.Occurrences {
+		contribution, present := occurrence.Contribution(
+			sdk.ContributionBeanMetadata,
+		)
+		if !present {
+			continue
+		}
+		providerIndex, found := index[occurrence.SymbolID]
+		if !found {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"bean-metadata-provider",
+					fmt.Sprintf(
+						"@%s requires a constructible stereotype or @Bean declaration",
+						occurrence.Annotation.Name,
+					),
+				),
+			)
+			continue
+		}
+		item := &catalog.providers[providerIndex]
+		if occurrence.Target == annotation.TargetParameter {
+			attachParameterMetadata(
+				catalog,
+				item,
+				occurrence,
+				*contribution.BeanMetadata,
+			)
+			continue
+		}
+		attachProviderMetadata(
+			catalog,
+			item,
+			occurrence,
+			*contribution.BeanMetadata,
+			orderSeen,
+			scopeSeen,
+		)
+	}
+	for index := range catalog.providers {
+		item := &catalog.providers[index]
+		if item.Primary && item.Fallback {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				Diagnostic{
+					Position:         item.Position,
+					PhysicalPosition: item.PhysicalPosition,
+					ProviderID:       item.SymbolID,
+					Kind:             "conflicting-selection",
+					Message: fmt.Sprintf(
+						"bean %q cannot be both @Primary and @Fallback",
+						item.Name,
+					),
+				},
+			)
+		}
+	}
+}
+
+func attachParameterMetadata(
+	catalog *Catalog,
+	item *Provider,
+	occurrence resolve.Occurrence,
+	metadata sdk.BeanMetadataContribution,
+) {
+	if metadata.Primary || metadata.Fallback ||
+		metadata.Order != nil || metadata.Scope != "" {
+		catalog.diagnostics = append(
+			catalog.diagnostics,
+			occurrenceDiagnostic(
+				occurrence,
+				"parameter-metadata",
+				fmt.Sprintf(
+					"@%s contributes bean metadata that is not valid on a constructor parameter",
+					occurrence.Annotation.Name,
+				),
+			),
+		)
+		return
+	}
+	if occurrence.ParameterIndex < 0 ||
+		occurrence.ParameterIndex >= len(item.Dependencies) {
+		catalog.diagnostics = append(
+			catalog.diagnostics,
+			occurrenceDiagnostic(
+				occurrence,
+				"parameter-index",
+				fmt.Sprintf(
+					"@%s parameter index %d is outside constructor %s",
+					occurrence.Annotation.Name,
+					occurrence.ParameterIndex,
+					item.Constructor.DisplayLabel,
+				),
+			),
+		)
+		return
+	}
+	dependency := &item.Dependencies[occurrence.ParameterIndex]
+	for _, qualifier := range metadata.Qualifiers {
+		if slices.Contains(dependency.Qualifiers, qualifier) {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"duplicate-qualifier",
+					fmt.Sprintf(
+						"constructor parameter %d %q repeats qualifier %q",
+						dependency.Index,
+						dependency.Name,
+						qualifier,
+					),
+				),
+			)
+			continue
+		}
+		dependency.Qualifiers = append(
+			dependency.Qualifiers,
+			qualifier,
+		)
+	}
+	sort.Strings(dependency.Qualifiers)
+	if occurrence.ParameterPosition.IsValid() {
+		dependency.Position = occurrence.ParameterPosition
+	}
+	if occurrence.ParameterPhysicalPosition.IsValid() {
+		dependency.PhysicalPosition = occurrence.ParameterPhysicalPosition
+	}
+}
+
+func attachProviderMetadata(
+	catalog *Catalog,
+	item *Provider,
+	occurrence resolve.Occurrence,
+	metadata sdk.BeanMetadataContribution,
+	orderSeen map[string]resolve.Occurrence,
+	scopeSeen map[string]resolve.Occurrence,
+) {
+	for _, qualifier := range metadata.Qualifiers {
+		if slices.Contains(item.Qualifiers, qualifier) {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"duplicate-qualifier",
+					fmt.Sprintf(
+						"bean %q repeats qualifier %q",
+						item.Name,
+						qualifier,
+					),
+				),
+			)
+			continue
+		}
+		item.Qualifiers = append(item.Qualifiers, qualifier)
+	}
+	if metadata.Primary {
+		item.Primary = true
+	}
+	if metadata.Fallback {
+		item.Fallback = true
+	}
+	if metadata.Order != nil {
+		if previous, duplicate := orderSeen[item.SymbolID]; duplicate {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"duplicate-order",
+					fmt.Sprintf(
+						"bean %q repeats @Order; first declaration is at %s",
+						item.Name,
+						renderedPosition(previous.DisplayPosition),
+					),
+				),
+			)
+		} else {
+			orderSeen[item.SymbolID] = occurrence
+			item.Order = *metadata.Order
+		}
+	}
+	if metadata.Scope != "" {
+		if previous, duplicate := scopeSeen[item.SymbolID]; duplicate {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"duplicate-scope",
+					fmt.Sprintf(
+						"bean %q declares multiple scopes; first declaration is at %s",
+						item.Name,
+						renderedPosition(previous.DisplayPosition),
+					),
+				),
+			)
+		} else {
+			scopeSeen[item.SymbolID] = occurrence
+			item.Scope = metadata.Scope
+		}
+	}
+	sort.Strings(item.Qualifiers)
 }
 
 func (build buildContext) resolveInterfaceBinding(
@@ -1232,6 +1558,7 @@ func analyzeProvider(
 		ReturnsError:     results.returnsError,
 		SourceID:         sourceID,
 		SourceVersion:    sourceVersion,
+		Scope:            sdk.BeanScopeSingleton,
 	}, nil
 }
 
@@ -1245,12 +1572,6 @@ func providerSignature(
 		return nil, &providerProblem{
 			kind:    "invalid-target",
 			message: fmt.Sprintf("%s must target a package-level function; provider methods and other declarations are not supported", targetLabel),
-		}
-	}
-	if len(occurrence.Annotation.Arguments) != 0 {
-		return nil, &providerProblem{
-			kind:    "arguments",
-			message: fmt.Sprintf("%s does not accept annotation arguments", label),
 		}
 	}
 	signature := symbol.Signature
@@ -1411,7 +1732,9 @@ func providerDependencies(signature *types.Signature, fileSet *token.FileSet) []
 			Name:   parameter.Name(),
 			Type:   parameter.Type(),
 			TypeID: TypeID(parameter.Type()),
+			Kind:   DependencySingle,
 		}
+		classifyDependency(&dependency)
 		if fileSet != nil && parameter.Pos().IsValid() {
 			dependency.Position = fileSet.PositionFor(parameter.Pos(), true)
 			dependency.PhysicalPosition = fileSet.PositionFor(parameter.Pos(), false)
@@ -1419,6 +1742,49 @@ func providerDependencies(signature *types.Signature, fileSet *token.FileSet) []
 		dependencies[index] = dependency
 	}
 	return dependencies
+}
+
+func classifyDependency(dependency *Dependency) {
+	if dependency == nil || dependency.Type == nil {
+		return
+	}
+	switch value := types.Unalias(dependency.Type).(type) {
+	case *types.Slice:
+		dependency.Kind = DependencySlice
+		dependency.Element = value.Elem()
+	case *types.Map:
+		if types.Identical(value.Key(), types.Typ[types.String]) {
+			dependency.Kind = DependencyMap
+			dependency.Element = value.Elem()
+		}
+	case *types.Named:
+		classifyBeanHandle(dependency, value)
+	}
+	if dependency.Element != nil {
+		dependency.ElementTypeID = TypeID(dependency.Element)
+	}
+}
+
+func classifyBeanHandle(
+	dependency *Dependency,
+	value *types.Named,
+) {
+	if value.Obj() == nil || value.Obj().Pkg() == nil ||
+		value.Obj().Pkg().Path() != beanPackagePath ||
+		value.TypeArgs() == nil || value.TypeArgs().Len() != 1 {
+		return
+	}
+	switch value.Obj().Name() {
+	case "Optional":
+		dependency.Kind = DependencyOptional
+	case "Lazy":
+		dependency.Kind = DependencyLazy
+	case "Provider":
+		dependency.Kind = DependencyProvider
+	default:
+		return
+	}
+	dependency.Element = value.TypeArgs().At(0)
 }
 
 func signatureProblem(kind, label, reason string) *providerProblem {
@@ -1515,17 +1881,99 @@ func TypeID(value types.Type) string {
 	})
 }
 
-func duplicateDiagnostics(providers []Provider) []Diagnostic {
-	// OutputTypeID is a deterministic display/serialization form, but it is not
-	// semantic identity: valid aliases may render differently from the type they
-	// denote. Build groups from the live go/types universe first, then choose a
-	// deterministic display name independently.
+func normalizeProviderMetadata(providers []Provider) {
+	for index := range providers {
+		item := &providers[index]
+		if item.Name == "" {
+			item.Name = lowerInitial(item.Symbol.Name)
+		}
+		if item.Name == "" {
+			item.Name = item.SymbolID
+		}
+		if item.Scope == "" {
+			item.Scope = sdk.BeanScopeSingleton
+		}
+		sort.Strings(item.Aliases)
+		sort.Strings(item.Qualifiers)
+		for dependencyIndex := range item.Dependencies {
+			sort.Strings(item.Dependencies[dependencyIndex].Qualifiers)
+		}
+	}
+}
+
+func beanIdentityDiagnostics(providers []Provider) []Diagnostic {
+	type owner struct {
+		provider int
+		explicit bool
+	}
+	owners := make(map[string]owner)
+	var diagnostics []Diagnostic
+	for index := range providers {
+		item := &providers[index]
+		names := append([]string{item.Name}, item.Aliases...)
+		seen := make(map[string]struct{}, len(names))
+		for nameIndex, name := range names {
+			explicit := item.ExplicitName || nameIndex > 0
+			if _, duplicate := seen[name]; duplicate {
+				diagnostics = append(
+					diagnostics,
+					beanIdentityDiagnostic(
+						item,
+						"duplicate-bean-alias",
+						fmt.Sprintf(
+							"bean %q repeats name or alias %q",
+							item.Name,
+							name,
+						),
+					),
+				)
+				continue
+			}
+			seen[name] = struct{}{}
+			if previous, duplicate := owners[name]; duplicate &&
+				(previous.explicit || explicit) {
+				other := &providers[previous.provider]
+				diagnostics = append(
+					diagnostics,
+					beanIdentityDiagnostic(
+						item,
+						"duplicate-bean-name",
+						fmt.Sprintf(
+							"bean name or alias %q is owned by both %s at %s and %s at %s",
+							name,
+							providerLabel(other),
+							renderedPosition(other.Position),
+							providerLabel(item),
+							renderedPosition(item.Position),
+						),
+					),
+				)
+				continue
+			}
+			owners[name] = owner{
+				provider: index,
+				explicit: explicit,
+			}
+		}
+	}
+	return diagnostics
+}
+
+func nonSelectableDuplicateDiagnostics(
+	providers []Provider,
+) []Diagnostic {
 	var groups [][]int
 	for index := range providers {
 		placed := false
 		for groupIndex := range groups {
-			if types.Identical(providers[index].Output, providers[groups[groupIndex][0]].Output) {
-				groups[groupIndex] = append(groups[groupIndex], index)
+			if types.Identical(
+				providers[index].Output,
+				providers[groups[groupIndex][0]].Output,
+			) {
+				groups[groupIndex] = append(
+					groups[groupIndex],
+					index,
+				)
 				placed = true
 				break
 			}
@@ -1534,35 +1982,72 @@ func duplicateDiagnostics(providers []Provider) []Diagnostic {
 			groups = append(groups, []int{index})
 		}
 	}
-
 	var diagnostics []Diagnostic
 	for _, group := range groups {
-		if len(group) < 2 {
+		if len(group) < 2 || allSelectableProviders(group, providers) {
 			continue
 		}
-		displayTypeID := providers[group[0]].OutputTypeID
-		conflicts := make([]string, len(group))
-		for i, index := range group {
-			provider := providers[index]
-			if provider.OutputTypeID < displayTypeID {
-				displayTypeID = provider.OutputTypeID
-			}
-			conflicts[i] = fmt.Sprintf("%s at %s", provider.Symbol.DisplayLabel, renderedPosition(provider.Position))
+		labels := make([]string, len(group))
+		for index, providerIndex := range group {
+			item := &providers[providerIndex]
+			labels[index] = fmt.Sprintf(
+				"%s at %s",
+				providerLabel(item),
+				renderedPosition(item.Position),
+			)
 		}
-		first := providers[group[0]]
+		first := &providers[group[0]]
 		diagnostics = append(diagnostics, Diagnostic{
 			Position:         first.Position,
 			PhysicalPosition: first.PhysicalPosition,
 			ProviderID:       first.SymbolID,
 			Kind:             "duplicate-output",
 			Message: fmt.Sprintf(
-				"multiple providers produce exact type %s: %s; qualifiers and implicit interface bindings are not supported",
-				displayTypeID,
-				strings.Join(conflicts, ", "),
+				"multiple providers produce exact type %s where generated sources are not selectable: %s",
+				first.OutputTypeID,
+				strings.Join(labels, ", "),
 			),
 		})
 	}
 	return diagnostics
+}
+
+func allSelectableProviders(
+	group []int,
+	providers []Provider,
+) bool {
+	for _, index := range group {
+		if providers[index].Source != SourceBean &&
+			providers[index].Source != SourceStereotype &&
+			providers[index].Source != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func beanIdentityDiagnostic(
+	item *Provider,
+	kind string,
+	message string,
+) Diagnostic {
+	return Diagnostic{
+		Position:         item.Position,
+		PhysicalPosition: item.PhysicalPosition,
+		ProviderID:       item.SymbolID,
+		Kind:             kind,
+		Message:          message,
+	}
+}
+
+func providerLabel(item *Provider) string {
+	if item.Symbol.DisplayLabel != "" {
+		return item.Symbol.DisplayLabel
+	}
+	if item.Name != "" {
+		return item.Name
+	}
+	return item.SymbolID
 }
 
 func occurrenceDiagnostic(occurrence resolve.Occurrence, kind, message string) Diagnostic {

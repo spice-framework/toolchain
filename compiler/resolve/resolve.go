@@ -22,18 +22,22 @@ import (
 // loaded source identity. PhysicalFile and PhysicalOffset are retained for
 // compatibility.
 type Occurrence struct {
-	Annotation       annotation.Annotation
-	Spelling         string
-	Definition       annotation.DefinitionReference
-	Target           annotation.Target
-	Name             string
-	SymbolID         string
-	PackagePath      string
-	PhysicalFile     string
-	PhysicalOffset   int
-	PhysicalPosition token.Position
-	DisplayPosition  token.Position
-	Contributions    []sdk.Contribution
+	Annotation                annotation.Annotation
+	Spelling                  string
+	Definition                annotation.DefinitionReference
+	Target                    annotation.Target
+	Name                      string
+	SymbolID                  string
+	PackagePath               string
+	PhysicalFile              string
+	PhysicalOffset            int
+	PhysicalPosition          token.Position
+	DisplayPosition           token.Position
+	Contributions             []sdk.Contribution
+	ParameterIndex            int
+	ParameterName             string
+	ParameterPosition         token.Position
+	ParameterPhysicalPosition token.Position
 }
 
 // HasContribution reports whether a validated tool contribution is attached
@@ -320,7 +324,15 @@ func resolveFile(
 	for _, declaration := range file.Decls {
 		switch node := declaration.(type) {
 		case *ast.FuncDecl:
-			resolveFunction(result, pkg, node, index, imports, definitions)
+			resolveFunction(
+				result,
+				pkg,
+				file,
+				node,
+				index,
+				imports,
+				definitions,
+			)
 		case *ast.GenDecl:
 			resolveGeneralDeclaration(
 				result,
@@ -337,27 +349,175 @@ func resolveFile(
 func resolveFunction(
 	result *Result,
 	pkg load.Package,
+	file *ast.File,
 	declaration *ast.FuncDecl,
 	index symbolIndex,
 	imports fileImports,
 	definitions DefinitionIndex,
 ) {
-	if declaration.Doc == nil {
+	target := annotation.TargetFunction
+	if declaration.Recv != nil {
+		target = annotation.TargetMethod
+	}
+	if declaration.Doc != nil {
+		directives, diagnostics := parseGroup(pkg, declaration.Doc)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		directives, diagnostics = bindImports(
+			directives,
+			imports,
+			definitions,
+		)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		resolveIdentifierDirectives(
+			result,
+			pkg,
+			declaration.Name,
+			directives,
+			target,
+			index,
+		)
+	}
+	resolveParameters(
+		result,
+		pkg,
+		file,
+		declaration,
+		index,
+		imports,
+		definitions,
+	)
+}
+
+func resolveParameters(
+	result *Result,
+	pkg load.Package,
+	file *ast.File,
+	declaration *ast.FuncDecl,
+	index symbolIndex,
+	imports fileImports,
+	definitions DefinitionIndex,
+) {
+	if declaration.Type.Params == nil {
 		return
 	}
-	directives, diagnostics := parseGroup(pkg, declaration.Doc)
+	object := pkg.TypesInfo.Defs[declaration.Name]
+	symbol, found := index.objects[object]
+	if object == nil || !found {
+		return
+	}
+	parameterIndex := 0
+	lowerBound := declaration.Type.Params.Opening
+	for _, field := range declaration.Type.Params.List {
+		width := len(field.Names)
+		if width == 0 {
+			width = 1
+		}
+		documentation := field.Doc
+		if documentation == nil {
+			documentation = precedingParameterDocumentation(
+				pkg.Raw.Fset,
+				file,
+				field,
+				lowerBound,
+			)
+		}
+		if documentation != nil {
+			resolveParameterDirectives(
+				result,
+				pkg,
+				field,
+				documentation,
+				symbol,
+				parameterIndex,
+				imports,
+				definitions,
+			)
+		}
+		parameterIndex += width
+		lowerBound = field.End()
+	}
+}
+
+func precedingParameterDocumentation(
+	fileSet *token.FileSet,
+	file *ast.File,
+	field *ast.Field,
+	lowerBound token.Pos,
+) *ast.CommentGroup {
+	if fileSet == nil || file == nil || field == nil {
+		return nil
+	}
+	fieldLine := fileSet.PositionFor(field.Pos(), false).Line
+	var selected *ast.CommentGroup
+	for _, group := range file.Comments {
+		if group == nil || group.Pos() <= lowerBound ||
+			group.End() >= field.Pos() {
+			continue
+		}
+		endLine := fileSet.PositionFor(group.End(), false).Line
+		if endLine+1 != fieldLine {
+			continue
+		}
+		if selected == nil || group.Pos() > selected.Pos() {
+			selected = group
+		}
+	}
+	return selected
+}
+
+func resolveParameterDirectives(
+	result *Result,
+	pkg load.Package,
+	field *ast.Field,
+	documentation *ast.CommentGroup,
+	symbol load.Symbol,
+	parameterIndex int,
+	imports fileImports,
+	definitions DefinitionIndex,
+) {
+	directives, diagnostics := parseGroup(pkg, documentation)
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
 	directives, diagnostics = bindImports(directives, imports, definitions)
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
 	if len(directives) == 0 {
 		return
 	}
-
-	target := annotation.TargetFunction
-	if declaration.Recv != nil {
-		target = annotation.TargetMethod
+	if len(field.Names) > 1 {
+		for _, directive := range directives {
+			result.Diagnostics = append(
+				result.Diagnostics,
+				ambiguityDiagnostic(
+					directive,
+					fmt.Sprintf(
+						"annotation @%s is ambiguous on a parameter declaration with %d names; split the parameters",
+						directive.annotation.Name,
+						len(field.Names),
+					),
+				),
+			)
+		}
+		return
 	}
-	resolveIdentifierDirectives(result, pkg, declaration.Name, directives, target, index)
+	name := ""
+	position := field.Type.Pos()
+	if len(field.Names) == 1 {
+		name = field.Names[0].Name
+		position = field.Names[0].Pos()
+	}
+	display := pkg.Raw.Fset.PositionFor(position, true)
+	physical := pkg.Raw.Fset.PositionFor(position, false)
+	for _, directive := range directives {
+		value := occurrence(
+			directive,
+			symbol,
+			annotation.TargetParameter,
+		)
+		value.ParameterIndex = parameterIndex
+		value.ParameterName = name
+		value.ParameterPosition = display
+		value.ParameterPhysicalPosition = physical
+		result.Occurrences = append(result.Occurrences, value)
+	}
 }
 
 func resolveGeneralDeclaration(

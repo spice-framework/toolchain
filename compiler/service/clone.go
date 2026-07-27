@@ -14,6 +14,15 @@ func cloneProviderGraph(graph ProviderGraph) ProviderGraph {
 	for index, item := range graph.Providers {
 		result.Providers[index] = item
 		result.Providers[index].Dependencies = slices.Clone(item.Dependencies)
+		result.Providers[index].Aliases = slices.Clone(item.Aliases)
+		result.Providers[index].Qualifiers = slices.Clone(item.Qualifiers)
+		for dependencyIndex := range result.Providers[index].Dependencies {
+			result.Providers[index].
+				Dependencies[dependencyIndex].
+				Qualifiers = slices.Clone(
+				item.Dependencies[dependencyIndex].Qualifiers,
+			)
+		}
 	}
 	return result
 }
