@@ -21,6 +21,7 @@ func TestParseComment(t *testing.T) {
 		{name: "qualified", input: `// @security.Authorize(roles=["admin", "operator"])`, annotation: "security.Authorize", arguments: 1},
 		{name: "marker", input: `// @Service`, annotation: "Service", arguments: 0},
 		{name: "positional", input: `// @Profile("production")`, annotation: "Profile", arguments: 1},
+		{name: "generic identifiers", input: `// @Implements(api.Repository[Order], api.Reader[*Order])`, annotation: "Implements", arguments: 2},
 		{name: "typed values", input: `// @Retry(max=3, enabled=true, strategy=exponential)`, annotation: "Retry", arguments: 3},
 	}
 

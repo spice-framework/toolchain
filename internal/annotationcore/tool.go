@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"runtime/debug"
+	"sort"
 	"strings"
 
 	asyncannotation "github.com/StevenBuglione/spice/annotation/async"
@@ -188,6 +189,16 @@ func handlerRegistrations() []handlerRegistration {
 			coreannotation.Service,
 		),
 		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Repository"},
+			sdk.ContributionStereotype,
+			coreannotation.Repository,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Implements"},
+			sdk.ContributionInterface,
+			coreannotation.Implements,
+		),
+		newHandlerRegistration(
 			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Bean"},
 			sdk.ContributionProvider,
 			coreannotation.Bean,
@@ -201,6 +212,7 @@ func handlerRegistrations() []handlerRegistration {
 			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Controller"},
 			sdk.ContributionController,
 			webannotation.Controller,
+			sdk.ContributionStereotype,
 		),
 		newHandlerRegistration(
 			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Get"},
@@ -284,12 +296,19 @@ func newHandlerRegistration(
 	descriptor sdk.Symbol,
 	capability sdk.ContributionKind,
 	definition func() sdk.Definition,
+	additional ...sdk.ContributionKind,
 ) handlerRegistration {
 	value := definition()
+	capabilities := make([]string, 1, 1+len(additional))
+	capabilities[0] = string(capability)
+	for _, item := range additional {
+		capabilities = append(capabilities, string(item))
+	}
+	sort.Strings(capabilities)
 	return handlerRegistration{
 		description: protocol.Handler{
 			Descriptor:   descriptor,
-			Capabilities: []string{string(capability)},
+			Capabilities: capabilities,
 		},
 		handle: value.Implementation.Handler,
 	}

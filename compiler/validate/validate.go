@@ -319,7 +319,8 @@ func annotationArguments(occurrence scan.Occurrence, definition annotation.Defin
 
 		if argumentName == "" {
 			positionalCount++
-			if positionalCount > 1 {
+			if positionalCount > 1 &&
+				(positional == nil || !positional.Variadic) {
 				diagnostics = append(diagnostics, argumentDiagnostic(occurrence, diagnosticTooManyPositional, ""))
 				continue
 			}
@@ -343,7 +344,7 @@ func annotationArguments(occurrence scan.Occurrence, definition annotation.Defin
 		}
 
 		assigned[argumentName]++
-		if assigned[argumentName] > 1 {
+		if assigned[argumentName] > 1 && !argumentDefinition.Variadic {
 			diagnostics = append(diagnostics, argumentDiagnostic(occurrence, diagnosticDuplicateAssignment, argumentName))
 		}
 		if !kindAccepted(suppliedArgument.Value.Kind, argumentDefinition.Kinds) {

@@ -3,6 +3,8 @@ package graph
 import (
 	"context"
 	"fmt"
+	"go/token"
+	"go/types"
 	"io"
 	"math/bits"
 	"os"
@@ -15,6 +17,148 @@ import (
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
+
+func TestGraphResolvesOnlyExplicitInterfaceBindings(t *testing.T) {
+	pkg := types.NewPackage("example.com/interfaces", "interfaces")
+	errorResult := types.NewTuple(
+		types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type()),
+	)
+	methodSignature := types.NewSignatureType(
+		nil,
+		nil,
+		nil,
+		types.NewTuple(),
+		errorResult,
+		false,
+	)
+	method := types.NewFunc(
+		token.NoPos,
+		pkg,
+		"Process",
+		methodSignature,
+	)
+	contract := types.NewInterfaceType([]*types.Func{method}, nil)
+	contract.Complete()
+	contractType := types.NewNamed(
+		types.NewTypeName(token.NoPos, pkg, "Processor", nil),
+		contract,
+		nil,
+	)
+	implementation := types.NewNamed(
+		types.NewTypeName(token.NoPos, pkg, "Stripe", nil),
+		types.NewStruct(nil, nil),
+		nil,
+	)
+	implementation.AddMethod(types.NewFunc(
+		token.NoPos,
+		pkg,
+		"Process",
+		types.NewSignatureType(
+			types.NewVar(
+				token.NoPos,
+				pkg,
+				"",
+				types.NewPointer(implementation),
+			),
+			nil,
+			nil,
+			types.NewTuple(),
+			errorResult,
+			false,
+		),
+	))
+	consumer := types.NewNamed(
+		types.NewTypeName(token.NoPos, pkg, "Checkout", nil),
+		types.NewStruct(nil, nil),
+		nil,
+	)
+	catalog := provider.Add(
+		provider.Catalog{},
+		provider.Provider{
+			Source:       provider.SourceStereotype,
+			SymbolID:     "stripe",
+			Name:         "stripe",
+			Output:       types.NewPointer(implementation),
+			OutputTypeID: "*example.com/interfaces.Stripe",
+			Interfaces: []provider.InterfaceBinding{{
+				Type:   contractType,
+				TypeID: "example.com/interfaces.Processor",
+			}},
+		},
+		provider.Provider{
+			Source:       provider.SourceBean,
+			SymbolID:     "checkout",
+			Name:         "checkout",
+			Output:       types.NewPointer(consumer),
+			OutputTypeID: "*example.com/interfaces.Checkout",
+			Dependencies: []provider.Dependency{{
+				Index:  0,
+				Name:   "processor",
+				Type:   contractType,
+				TypeID: "example.com/interfaces.Processor",
+			}},
+		},
+	)
+	result := Build(catalog)
+	if diagnostics := result.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Diagnostics() = %v", diagnostics)
+	}
+	edges := result.Edges()
+	if len(edges) != 1 ||
+		edges[0].DependencyID != "stripe" ||
+		edges[0].ConsumerID != "checkout" {
+		t.Fatalf("Edges() = %#v", edges)
+	}
+
+	implicit := catalog.Providers()
+	stripeIndex := -1
+	for index := range implicit {
+		if implicit[index].SymbolID == "stripe" {
+			stripeIndex = index
+			break
+		}
+	}
+	if stripeIndex < 0 {
+		t.Fatal("stripe provider missing")
+	}
+	implicit[stripeIndex].Interfaces = nil
+	implicitCatalog := provider.Add(
+		provider.Catalog{},
+		implicit...,
+	)
+	missing := Build(implicitCatalog).Diagnostics()
+	if len(missing) != 1 ||
+		missing[0].Kind != "missing-dependency" {
+		t.Fatalf("implicit diagnostics = %#v", missing)
+	}
+
+	duplicate := implicit[stripeIndex]
+	duplicate.SymbolID = "square"
+	duplicate.Name = "square"
+	square := types.NewNamed(
+		types.NewTypeName(token.NoPos, pkg, "Square", nil),
+		types.NewStruct(nil, nil),
+		nil,
+	)
+	duplicate.Output = types.NewPointer(square)
+	duplicate.OutputTypeID = "*example.com/interfaces.Square"
+	duplicate.Interfaces = []provider.InterfaceBinding{{
+		Type:   contractType,
+		TypeID: "example.com/interfaces.Processor",
+	}}
+	implicit[stripeIndex].Interfaces = duplicate.Interfaces
+	ambiguousCatalog := provider.Add(
+		provider.Catalog{},
+		append(implicit, duplicate)...,
+	)
+	ambiguous := Build(ambiguousCatalog).Diagnostics()
+	if len(ambiguous) != 1 ||
+		ambiguous[0].Kind != "ambiguous-dependency" ||
+		!strings.Contains(ambiguous[0].Message, "square") ||
+		!strings.Contains(ambiguous[0].Message, "stripe") {
+		t.Fatalf("ambiguous diagnostics = %#v", ambiguous)
+	}
+}
 
 func TestGraphValidDiamond(t *testing.T) {
 	root := writeModule(t, map[string]string{

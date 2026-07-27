@@ -25,6 +25,8 @@ func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 	tests := []handlerTestCase{
 		handlerCase("application", coreannotation.ApplicationHandler, "core", "Application", sdk.ContributionApplication),
 		handlerCase("bean", coreannotation.BeanHandler, "core", "Bean", sdk.ContributionProvider),
+		handlerCaseWithArguments("implements", coreannotation.ImplementsHandler, "core", "Implements", sdk.ContributionInterface, positionalIdentifierToolArgument("payments.Processor")),
+		handlerCase("repository", coreannotation.RepositoryHandler, "core", "Repository", sdk.ContributionStereotype),
 		handlerCase("service", coreannotation.ServiceHandler, "core", "Service", sdk.ContributionStereotype),
 		handlerCaseWithArguments("configuration", coreannotation.ConfigurationHandler, "core", "Configuration", sdk.ContributionConfiguration, stringToolArgument("prefix", "server")),
 		handlerCaseWithArguments("controller", webannotation.ControllerHandler, "web", "Controller", sdk.ContributionController, stringToolArgument("prefix", "/api")),
@@ -51,7 +53,7 @@ func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("handler error = %v", err)
 			}
-			if len(result.Contributions) != 1 ||
+			if len(result.Contributions) == 0 ||
 				result.Contributions[0].Kind != test.kind {
 				t.Fatalf(
 					"contributions = %+v, want one %q",
@@ -172,6 +174,12 @@ func annotationPackage(domain string) string {
 
 func positionalToolArgument(value string) sdk.InvocationArgument {
 	argument := stringToolArgument("", value)
+	argument.Positional = true
+	return argument
+}
+
+func positionalIdentifierToolArgument(value string) sdk.InvocationArgument {
+	argument := toolArgument("", sdk.KindIdentifier, value)
 	argument.Positional = true
 	return argument
 }

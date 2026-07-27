@@ -220,6 +220,7 @@ type AnnotationArgument struct {
 	Default          string
 	Required         bool
 	Positional       bool
+	Variadic         bool
 }
 
 // AnnotationExample is one descriptor-owned editor example.

@@ -155,7 +155,7 @@ func (p *commentParser) parseValue() (annotation.Value, error) {
 	}
 
 	start := p.offset
-	identifier := p.parseIdentifier()
+	identifier := p.parseValueIdentifier()
 	if identifier == "true" || identifier == "false" {
 		return annotation.Value{Kind: annotation.KindBoolean, Boolean: identifier == "true"}, nil
 	}
@@ -174,6 +174,39 @@ func (p *commentParser) parseValue() (annotation.Value, error) {
 	}
 
 	return annotation.Value{}, p.errorf("unsupported argument value")
+}
+
+func (p *commentParser) parseValueIdentifier() string {
+	start := p.offset
+	if p.parseIdentifier() == "" {
+		return ""
+	}
+	if p.eof() || p.peek() != '[' {
+		return p.input[start:p.offset]
+	}
+	depth := 0
+	for !p.eof() {
+		switch p.peek() {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth < 0 {
+				return ""
+			}
+		case ')':
+			if depth > 0 {
+				p.offset = start
+				return ""
+			}
+		}
+		p.offset++
+		if depth == 0 {
+			return strings.TrimSpace(p.input[start:p.offset])
+		}
+	}
+	p.offset = start
+	return ""
 }
 
 func (p *commentParser) parseList() (annotation.Value, error) {

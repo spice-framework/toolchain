@@ -1333,6 +1333,10 @@ func sortDiagnostics(diagnostics []Diagnostic) {
 
 func cloneProvider(item provider.Provider) provider.Provider {
 	item.Dependencies = append([]provider.Dependency(nil), item.Dependencies...)
+	item.Interfaces = append(
+		[]provider.InterfaceBinding(nil),
+		item.Interfaces...,
+	)
 	return item
 }
 

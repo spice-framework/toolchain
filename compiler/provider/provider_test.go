@@ -11,9 +11,320 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
+
+func TestConstructibleStereotypeBindsExplicitInterfaces(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/interfacebeans\n\ngo 1.26.0\n",
+		"api/api.go": `package api
+
+type Processor interface { Process() error }
+type Repository[T any] interface { Save(T) error }
+`,
+		"app/app.go": `package app
+
+import "example.com/interfacebeans/api"
+
+type Order struct{}
+type Config struct{}
+
+// @Bean
+func NewConfig() Config { return Config{} }
+
+// @Service
+// @Implements(api.Processor, api.Repository[Order])
+type Stripe struct{ config Config }
+
+var _ api.Processor = (*Stripe)(nil)
+var _ api.Repository[Order] = (*Stripe)(nil)
+
+func NewStripe(config Config) *Stripe { return &Stripe{config: config} }
+func (*Stripe) Process() error { return nil }
+func (*Stripe) Save(Order) error { return nil }
+
+type Checkout struct{}
+
+// @Bean
+func NewCheckout(
+	processor api.Processor,
+	repository api.Repository[Order],
+) *Checkout {
+	return &Checkout{}
+}
+`,
+	})
+	program, resolved := loadAndResolve(t, root, "./...")
+	resolved = attachProviderTestContributions(t, resolved)
+	catalog := buildQuiet(t, program, resolved)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf(
+			"Build() diagnostics = %v",
+			diagnosticStrings(diagnostics),
+		)
+	}
+	stripe := providerByName(catalog.Providers(), "stripe")
+	if stripe == nil {
+		t.Fatalf("stereotype provider missing: %#v", catalog.Providers())
+	}
+	if stripe.Source != SourceStereotype ||
+		stripe.Construction != ConstructionFactory ||
+		stripe.Constructor.Name != "NewStripe" ||
+		stripe.OutputTypeID != "*example.com/interfacebeans/app.Stripe" ||
+		len(stripe.Interfaces) != 2 {
+		t.Fatalf("stereotype provider = %#v", stripe)
+	}
+	if stripe.Interfaces[0].TypeID !=
+		"example.com/interfacebeans/api.Processor" ||
+		stripe.Interfaces[1].TypeID !=
+			"example.com/interfacebeans/api.Repository[example.com/interfacebeans/app.Order]" {
+		t.Fatalf("interface bindings = %#v", stripe.Interfaces)
+	}
+	copyOne := catalog.Providers()
+	copyOne[0].Interfaces = append(
+		copyOne[0].Interfaces,
+		InterfaceBinding{TypeID: "mutated"},
+	)
+	if len(catalog.Providers()[0].Interfaces) ==
+		len(copyOne[0].Interfaces) {
+		t.Fatal("Providers() exposed interface binding storage")
+	}
+}
+
+func TestInterfaceBindingRequiresGoAssertion(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/missingassertion\n\ngo 1.26.0\n",
+		"app.go": `package missingassertion
+
+type Processor interface { Process() error }
+
+// @Service
+// @Implements(Processor)
+type Stripe struct{}
+
+func (*Stripe) Process() error { return nil }
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	resolved = attachProviderTestContributions(t, resolved)
+	catalog := buildQuiet(t, program, resolved)
+	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
+	if !strings.Contains(joined, "requires an ordinary Go compile-time assertion") ||
+		!strings.Contains(
+			joined,
+			"var _ Processor = (*Stripe)(nil)",
+		) {
+		t.Fatalf("diagnostics = %s", joined)
+	}
+}
+
+func TestStereotypeConstructorDiscovery(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/constructors\n\ngo 1.26.0\n",
+		"constructors.go": `package constructors
+
+type Dependency struct{}
+
+// @Bean
+func DependencyProvider() Dependency { return Dependency{} }
+
+// @Service(constructor=BuildExplicit)
+type Explicit struct{}
+
+func BuildExplicit(Dependency) (*Explicit, error) { return &Explicit{}, nil }
+
+// @Service
+type Conventional struct{}
+
+func NewConventional(Dependency) *Conventional { return &Conventional{} }
+
+// @Service
+type Allocated struct{}
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	resolved = attachProviderTestContributions(t, resolved)
+	catalog := buildQuiet(t, program, resolved)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	explicit := providerByName(catalog.Providers(), "explicit")
+	if explicit == nil ||
+		explicit.Constructor.Name != "BuildExplicit" ||
+		!explicit.ReturnsError ||
+		len(explicit.Dependencies) != 1 {
+		t.Fatalf("explicit provider = %#v", explicit)
+	}
+	conventional := providerByName(catalog.Providers(), "conventional")
+	if conventional == nil ||
+		conventional.Constructor.Name != "NewConventional" ||
+		conventional.Construction != ConstructionFactory {
+		t.Fatalf("conventional provider = %#v", conventional)
+	}
+	allocated := providerByName(catalog.Providers(), "allocated")
+	if allocated == nil ||
+		allocated.Construction != ConstructionAllocate ||
+		allocated.OutputTypeID !=
+			"*example.com/constructors.Allocated" {
+		t.Fatalf("allocated provider = %#v", allocated)
+	}
+}
+
+func TestStereotypeValidationFailsClosed(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/badstereotypes\n\ngo 1.26.0\n",
+		"invalid.go": `package badstereotypes
+
+type Base struct{}
+
+// @Service
+type Alias = Base
+
+// @Service
+type private struct{}
+
+// @Service
+type Generic[T any] struct{}
+
+// @Service
+type Scalar string
+
+// @Service
+type Wrong struct{}
+
+func NewWrong() int { return 1 }
+
+// @Service(constructor=Missing)
+type MissingConstructor struct{}
+
+var Missing int
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	resolved = attachProviderTestContributions(t, resolved)
+	catalog := buildQuiet(t, program, resolved)
+	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
+	for _, expected := range []string{
+		"defined named type",
+		"must be exported",
+		"must not declare type parameters",
+		"struct underlying type",
+		"must return Wrong or *Wrong",
+		"does not name a function",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("diagnostics missing %q:\n%s", expected, joined)
+		}
+	}
+}
+
+func TestInterfaceBindingValidationFailsClosed(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/badinterfaces\n\ngo 1.26.0\n",
+		"invalid.go": `package badinterfaces
+
+type Processor interface { Process() error }
+type NotInterface struct{}
+type Constraint interface { ~int }
+
+// @Service
+// @Implements(Processor, Missing, NotInterface, Constraint)
+type Valid struct{}
+
+func (*Valid) Process() error { return nil }
+
+// @Service(constructor=NewValue)
+// @Implements(Processor)
+type Value struct{}
+
+func NewValue() Value { return Value{} }
+func (*Value) Process() error { return nil }
+
+// @Bean
+// @Implements(Processor)
+func Exact() Processor { return nil }
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	resolved = attachProviderTestContributions(t, resolved)
+	catalog := buildQuiet(t, program, resolved)
+	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
+	for _, expected := range []string{
+		"requires an ordinary Go compile-time assertion",
+		"cannot be resolved",
+		"not an interface",
+		"constraint-only",
+		"does not implement",
+		"is redundant",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("diagnostics missing %q:\n%s", expected, joined)
+		}
+	}
+}
+
+func attachProviderTestContributions(
+	t *testing.T,
+	resolved resolve.Result,
+) resolve.Result {
+	t.Helper()
+	var err error
+	for index, occurrence := range resolved.Occurrences {
+		var contributions []sdk.Contribution
+		switch occurrence.Annotation.Name {
+		case "Service":
+			constructor := ""
+			for _, argument := range occurrence.Annotation.Arguments {
+				if argument.Name == "constructor" &&
+					argument.Value.Kind == annotation.KindIdentifier {
+					constructor = argument.Value.Identifier
+				}
+			}
+			contributions = []sdk.Contribution{{
+				Kind: sdk.ContributionStereotype,
+				Stereotype: &sdk.StereotypeContribution{
+					Role:        "service",
+					Construct:   true,
+					Constructor: constructor,
+				},
+			}}
+		case "Implements":
+			interfaces := make(
+				[]string,
+				len(occurrence.Annotation.Arguments),
+			)
+			for argumentIndex, argument := range occurrence.Annotation.Arguments {
+				if argument.Name != "" ||
+					argument.Value.Kind != annotation.KindIdentifier {
+					t.Fatalf(
+						"invalid Implements fixture argument: %#v",
+						argument,
+					)
+				}
+				interfaces[argumentIndex] = argument.Value.Identifier
+			}
+			contributions = []sdk.Contribution{{
+				Kind: sdk.ContributionInterface,
+				Interface: &sdk.InterfaceBindingContribution{
+					Interfaces: interfaces,
+				},
+			}}
+		default:
+			continue
+		}
+		resolved, err = resolved.WithContributions(
+			index,
+			contributions,
+		)
+		if err != nil {
+			t.Fatalf("WithContributions() error = %v", err)
+		}
+	}
+	return resolved
+}
 
 func TestCatalogValidProviders(t *testing.T) {
 	root := writeModule(t, map[string]string{

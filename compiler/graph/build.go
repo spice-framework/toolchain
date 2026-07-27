@@ -31,11 +31,24 @@ func Build(catalog provider.Catalog) Result {
 	for consumerIndex := range result.providers {
 		consumer := &result.providers[consumerIndex]
 		for _, input := range consumer.Dependencies {
-			dependencyIndex, ok := index.lookup(input.Type, result.providers)
-			if !ok {
+			candidates := index.lookup(input.Type, result.providers)
+			if len(candidates) == 0 {
 				result.diagnostics = append(result.diagnostics, missingDiagnostic(consumer, input))
 				continue
 			}
+			if len(candidates) > 1 {
+				result.diagnostics = append(
+					result.diagnostics,
+					ambiguousDiagnostic(
+						consumer,
+						input,
+						candidates,
+						result.providers,
+					),
+				)
+				continue
+			}
+			dependencyIndex := candidates[0]
 			dependency := &result.providers[dependencyIndex]
 			result.edges = append(result.edges, Edge{
 				consumer:         consumer,
@@ -85,17 +98,35 @@ func buildTypeIndex(providers []provider.Provider) typeIndex {
 	for providerIndex := range providers {
 		key := semanticTypeKey(providers[providerIndex].Output)
 		index[key] = append(index[key], providerIndex)
+		for _, binding := range providers[providerIndex].Interfaces {
+			key = semanticTypeKey(binding.Type)
+			index[key] = append(index[key], providerIndex)
+		}
+	}
+	for key := range index {
+		index[key] = sortedUnique(index[key], providers)
 	}
 	return index
 }
 
-func (index typeIndex) lookup(required types.Type, providers []provider.Provider) (int, bool) {
+func (index typeIndex) lookup(
+	required types.Type,
+	providers []provider.Provider,
+) []int {
+	var result []int
 	for _, providerIndex := range index[semanticTypeKey(required)] {
 		if types.Identical(required, providers[providerIndex].Output) {
-			return providerIndex, true
+			result = append(result, providerIndex)
+			continue
+		}
+		for _, binding := range providers[providerIndex].Interfaces {
+			if types.Identical(required, binding.Type) {
+				result = append(result, providerIndex)
+				break
+			}
 		}
 	}
-	return 0, false
+	return sortedUnique(result, providers)
 }
 
 func semanticTypeKey(value types.Type) string {
@@ -138,12 +169,52 @@ func missingDiagnostic(consumer *provider.Provider, input provider.Dependency) D
 	}
 }
 
+func ambiguousDiagnostic(
+	consumer *provider.Provider,
+	input provider.Dependency,
+	candidates []int,
+	providers []provider.Provider,
+) Diagnostic {
+	position := preferredPosition(input.Position, consumer.Position)
+	physical := preferredPosition(
+		input.PhysicalPosition,
+		consumer.PhysicalPosition,
+	)
+	labels := make([]string, len(candidates))
+	for index, candidate := range candidates {
+		item := &providers[candidate]
+		labels[index] = fmt.Sprintf(
+			"%s (%s) at %s",
+			providerLabel(item),
+			item.SymbolID,
+			renderPosition(item.Position),
+		)
+	}
+	return Diagnostic{
+		Position:         position,
+		PhysicalPosition: physical,
+		ProviderID:       consumer.SymbolID,
+		Kind:             "ambiguous-dependency",
+		Message: fmt.Sprintf(
+			"%s %s (%s) requires type %s for %s, but multiple explicit providers match: %s",
+			providerRole(consumer),
+			providerLabel(consumer),
+			consumer.SymbolID,
+			input.TypeID,
+			parameterLabel(input),
+			strings.Join(labels, ", "),
+		),
+	}
+}
+
 func providerRole(item *provider.Provider) string {
 	switch item.Source {
 	case provider.SourceBean:
 		return "@Bean provider"
 	case provider.SourceStarter:
 		return "starter entrypoint"
+	case provider.SourceStereotype:
+		return "stereotype bean"
 	case provider.SourceConfiguration:
 		return "configuration provider"
 	case provider.SourceEvent:

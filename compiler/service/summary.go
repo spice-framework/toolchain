@@ -233,6 +233,7 @@ func summarizeDefinitions(
 				),
 				Required:   argument.Required,
 				Positional: argument.Positional,
+				Variadic:   argument.Variadic,
 			}
 		}
 		result[index] = AnnotationDefinition{

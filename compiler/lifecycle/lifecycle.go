@@ -78,6 +78,10 @@ func (c Catalog) Components() []Component {
 	copy(result, c.components)
 	for index := range result {
 		result[index].Provider.Dependencies = append([]provider.Dependency(nil), result[index].Provider.Dependencies...)
+		result[index].Provider.Interfaces = append(
+			[]provider.InterfaceBinding(nil),
+			result[index].Provider.Interfaces...,
+		)
 		if result[index].Start != nil {
 			copyHook := *result[index].Start
 			result[index].Start = &copyHook
@@ -300,6 +304,10 @@ func componentFor(components map[string]*Component, owner provider.Provider) *Co
 	if component == nil {
 		copyProvider := owner
 		copyProvider.Dependencies = append([]provider.Dependency(nil), owner.Dependencies...)
+		copyProvider.Interfaces = append(
+			[]provider.InterfaceBinding(nil),
+			owner.Interfaces...,
+		)
 		component = &Component{Provider: copyProvider}
 		components[owner.SymbolID] = component
 	}

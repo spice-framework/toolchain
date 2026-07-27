@@ -110,5 +110,9 @@ func cloneProvider(item *provider.Provider) provider.Provider {
 	}
 	result := *item
 	result.Dependencies = append([]provider.Dependency(nil), item.Dependencies...)
+	result.Interfaces = append(
+		[]provider.InterfaceBinding(nil),
+		item.Interfaces...,
+	)
 	return result
 }

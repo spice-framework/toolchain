@@ -32,6 +32,8 @@ func TestEveryOfficialDescriptorHasOneDeclaredToolHandler(t *testing.T) {
 		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Application"}, coreannotation.Application()},
 		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Bean"}, coreannotation.Bean()},
 		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Configuration"}, coreannotation.Configuration()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Implements"}, coreannotation.Implements()},
+		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Repository"}, coreannotation.Repository()},
 		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/core", Name: "Service"}, coreannotation.Service()},
 		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/data", Name: "Transactional"}, dataannotation.Transactional()},
 		{sdk.Symbol{Package: "github.com/StevenBuglione/spice/annotation/event", Name: "Listener"}, eventannotation.Listener()},

@@ -561,6 +561,24 @@ func writeProviders(
 				dependencies[item.SymbolID],
 				providerModules[item.SymbolID],
 			)
+		case provider.SourceStereotype:
+			if item.Construction == provider.ConstructionAllocate {
+				writeProviderAllocation(
+					source,
+					item,
+					index,
+					aliases,
+				)
+				continue
+			}
+			writeProviderCall(
+				source,
+				item,
+				index,
+				aliases,
+				dependencies[item.SymbolID],
+				providerModules[item.SymbolID],
+			)
 		case provider.SourceConfiguration:
 			configType, ok := configByProvider[item.SymbolID]
 			if !ok {
@@ -1713,7 +1731,13 @@ func writeProviderCall(
 ) {
 	variable := providerVariable(index)
 	cleanup := fmt.Sprintf("cleanup%d", index)
-	call := aliases[item.PackagePath] + "." + item.Name + "(" + strings.Join(dependencies, ", ") + ")"
+	constructor := item.Constructor
+	if constructor.PackagePath == "" {
+		constructor.PackagePath = item.PackagePath
+		constructor.Name = item.Name
+	}
+	call := aliases[constructor.PackagePath] + "." +
+		constructor.Name + "(" + strings.Join(dependencies, ", ") + ")"
 	switch {
 	case item.ReturnsCleanup && item.ReturnsError:
 		fmt.Fprintf(source, "\t%s, %s, err := %s\n", variable, cleanup, call)
@@ -1749,6 +1773,21 @@ func writeProviderCall(
 		source.WriteString("\t}\n")
 	}
 	fmt.Fprintf(source, "\t_ = %s\n", variable)
+}
+
+func writeProviderAllocation(
+	source *bytes.Buffer,
+	item provider.Provider,
+	index int,
+	aliases map[string]string,
+) {
+	fmt.Fprintf(
+		source,
+		"\t%s := new(%s.%s)\n",
+		providerVariable(index),
+		aliases[item.PackagePath],
+		item.Symbol.Name,
+	)
 }
 
 func writeAsyncApplicationFields(
@@ -2278,16 +2317,7 @@ func importNames(
 	aliases map[string]string,
 ) map[string]string {
 	names := make(map[string]string)
-	for _, item := range providers {
-		if _, fixed := aliases[item.PackagePath]; fixed {
-			continue
-		}
-		name := "provider"
-		if item.Symbol.Object != nil && item.Symbol.Object.Pkg() != nil {
-			name = item.Symbol.Object.Pkg().Name()
-		}
-		names[item.PackagePath] = name
-	}
+	addProviderImportNames(names, aliases, providers)
 	for _, configType := range configTypes {
 		for _, field := range configType.Fields() {
 			addTypeImportName(names, aliases, field.Type)
@@ -2313,6 +2343,36 @@ func importNames(
 		addTypeImportName(names, aliases, boundary.Value)
 	}
 	return names
+}
+
+func addProviderImportNames(
+	names map[string]string,
+	aliases map[string]string,
+	providers []provider.Provider,
+) {
+	for _, item := range providers {
+		if _, fixed := aliases[item.PackagePath]; !fixed {
+			name := "provider"
+			if item.Symbol.Object != nil &&
+				item.Symbol.Object.Pkg() != nil {
+				name = item.Symbol.Object.Pkg().Name()
+			}
+			names[item.PackagePath] = name
+		}
+		constructorPath := item.Constructor.PackagePath
+		if constructorPath == "" || constructorPath == item.PackagePath {
+			continue
+		}
+		if _, fixed := aliases[constructorPath]; fixed {
+			continue
+		}
+		name := "constructor"
+		if item.Constructor.Object != nil &&
+			item.Constructor.Object.Pkg() != nil {
+			name = item.Constructor.Object.Pkg().Name()
+		}
+		names[constructorPath] = name
+	}
 }
 
 func addTypeImportName(names, aliases map[string]string, value types.Type) {
@@ -2553,19 +2613,29 @@ func providerVisibilityDiagnostics(
 					target.PackagePath,
 				),
 			))
-		case !token.IsExported(item.Name):
+		case !providerConstructionExported(item):
 			diagnostics = append(diagnostics, providerRenderDiagnostic(
 				applicationTarget,
 				item,
 				"unexported-provider",
 				fmt.Sprintf(
-					"provider %s is unexported; target-scoped generated packages require exported @Bean functions",
+					"provider %s construction is unexported; target-scoped generated packages require exported @Bean functions or exported stereotype types and constructors",
 					item.SymbolID,
 				),
 			))
 		}
 	}
 	return diagnostics
+}
+
+func providerConstructionExported(item provider.Provider) bool {
+	if item.Construction == provider.ConstructionAllocate {
+		return token.IsExported(item.Symbol.Name)
+	}
+	if item.Constructor.Name != "" {
+		return token.IsExported(item.Constructor.Name)
+	}
+	return token.IsExported(item.Name)
 }
 
 func lifecycleVisibilityDiagnostics(
@@ -2785,6 +2855,9 @@ type modelHashProvider struct {
 	SourceVersion string                `json:"source_version,omitempty"`
 	Module        string                `json:"module,omitempty"`
 	Output        string                `json:"output"`
+	Construction  provider.Construction `json:"construction,omitempty"`
+	Constructor   string                `json:"constructor,omitempty"`
+	Interfaces    []string              `json:"interfaces,omitempty"`
 	Cleanup       bool                  `json:"cleanup"`
 	Error         bool                  `json:"error"`
 	Inputs        []modelHashDependency `json:"inputs"`
@@ -2947,10 +3020,18 @@ func modelHash(
 			SourceVersion: item.SourceVersion,
 			Module:        providerModules[item.SymbolID],
 			Output:        item.OutputTypeID,
+			Construction:  item.Construction,
+			Constructor:   item.Constructor.ID,
 			Cleanup:       item.ReturnsCleanup,
 			Error:         item.ReturnsError,
 			Inputs:        inputs,
 		})
+		for _, binding := range item.Interfaces {
+			value.Providers[len(value.Providers)-1].Interfaces = append(
+				value.Providers[len(value.Providers)-1].Interfaces,
+				binding.TypeID,
+			)
+		}
 	}
 	for _, configType := range model.Configurations() {
 		item := modelHashConfiguration{

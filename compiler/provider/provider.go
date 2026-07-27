@@ -3,10 +3,16 @@ package provider
 
 import (
 	"fmt"
+	"go/ast"
+	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
@@ -34,12 +40,26 @@ type Dependency struct {
 	PhysicalPosition token.Position
 }
 
+// InterfaceBinding describes one explicit concrete-to-interface exposure.
+// Type is resolved from the annotation source file in the Program's existing
+// type universe; Expression preserves the developer-authored Go spelling.
+type InterfaceBinding struct {
+	Expression       string
+	Type             types.Type
+	TypeID           string
+	Position         token.Position
+	PhysicalPosition token.Position
+}
+
 // Source identifies how a provider value is constructed.
 type Source string
 
 const (
 	// SourceBean identifies a direct package-level @Bean factory call.
 	SourceBean Source = "bean"
+	// SourceStereotype identifies a constructible @Service, @Controller, or
+	// repository stereotype type.
+	SourceStereotype Source = "stereotype"
 	// SourceConfiguration identifies a generated typed configuration binder.
 	SourceConfiguration Source = "configuration"
 	// SourceEvent identifies a generated typed event topic marker.
@@ -48,12 +68,24 @@ const (
 	SourceStarter Source = "starter"
 )
 
+// Construction identifies the generated construction form.
+type Construction string
+
+const (
+	// ConstructionFactory calls one validated ordinary Go constructor.
+	ConstructionFactory Construction = "factory"
+	// ConstructionAllocate emits new(T) for one exported concrete struct.
+	ConstructionAllocate Construction = "allocate"
+)
+
 // Provider describes one exact-type construction node. Bean providers call a
 // validated package-level function; configuration providers are synthesized
 // from validated @Configuration metadata.
 type Provider struct {
 	Source           Source
+	Construction     Construction
 	Symbol           load.Symbol
+	Constructor      load.Symbol
 	SymbolID         string
 	Name             string
 	PackagePath      string
@@ -62,6 +94,7 @@ type Provider struct {
 	Output           types.Type
 	OutputTypeID     string
 	Dependencies     []Dependency
+	Interfaces       []InterfaceBinding
 	ReturnsCleanup   bool
 	ReturnsError     bool
 	SourceID         string
@@ -113,6 +146,10 @@ func (c Catalog) Providers() []Provider {
 	copy(result, c.providers)
 	for i := range result {
 		result[i].Dependencies = append([]Dependency(nil), result[i].Dependencies...)
+		result[i].Interfaces = append(
+			[]InterfaceBinding(nil),
+			result[i].Interfaces...,
+		)
 	}
 	return result
 }
@@ -132,6 +169,10 @@ func Add(catalog Catalog, additions ...Provider) Catalog {
 	}
 	for _, addition := range additions {
 		addition.Dependencies = append([]Dependency(nil), addition.Dependencies...)
+		addition.Interfaces = append(
+			[]InterfaceBinding(nil),
+			addition.Interfaces...,
+		)
 		result.providers = append(result.providers, addition)
 	}
 	sort.SliceStable(result.providers, func(i, j int) bool {
@@ -285,9 +326,9 @@ func entrypointProblem(entrypoint Entrypoint) string {
 	}
 }
 
-// Build validates resolved @Bean annotations using the exact live symbols and
-// types already owned by program. It never reloads, reparses, reflects on, or
-// executes provider functions.
+// Build validates explicit factories, constructible stereotypes, and explicit
+// interface bindings using the exact live symbols and types already owned by
+// program. It never reloads, reflects on, or executes application code.
 func Build(program *load.Program, resolution resolve.Result) Catalog {
 	catalog := Catalog{}
 	if program == nil {
@@ -295,17 +336,7 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 		return catalog
 	}
 
-	symbols := make(map[string]load.Symbol)
-	for _, symbol := range program.Symbols() {
-		symbols[symbol.ID] = symbol
-	}
-	cleanupType := canonicalCleanupType(program)
-	fileSets := make(map[string]*token.FileSet)
-	for _, pkg := range program.Packages() {
-		if pkg.Raw != nil && pkg.Raw.Fset != nil {
-			fileSets[pkg.Path] = pkg.Raw.Fset
-		}
-	}
+	build := newBuildContext(program)
 
 	for _, occurrence := range resolution.Occurrences {
 		if !occurrence.UsesContribution(
@@ -314,7 +345,7 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 		) {
 			continue
 		}
-		symbol, ok := symbols[occurrence.SymbolID]
+		symbol, ok := build.symbols[occurrence.SymbolID]
 		if !ok {
 			catalog.diagnostics = append(catalog.diagnostics, occurrenceDiagnostic(
 				occurrence,
@@ -326,8 +357,8 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 		provider, diagnostic := analyzeProvider(
 			occurrence,
 			symbol,
-			fileSets[symbol.PackagePath],
-			cleanupType,
+			build.fileSets[symbol.PackagePath],
+			build.cleanupType,
 			SourceBean,
 			"",
 			"",
@@ -340,12 +371,806 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 		catalog.providers = append(catalog.providers, provider)
 	}
 
+	stereotypesByPackage := stereotypeCounts(resolution)
+	for _, occurrence := range resolution.Occurrences {
+		contribution, present := occurrence.Contribution(
+			sdk.ContributionStereotype,
+		)
+		if !present {
+			continue
+		}
+		if !contribution.Stereotype.Construct {
+			continue
+		}
+		item, diagnostic := build.stereotypeProvider(
+			occurrence,
+			*contribution.Stereotype,
+			stereotypesByPackage[occurrence.PackagePath],
+		)
+		if diagnostic != nil {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				*diagnostic,
+			)
+			continue
+		}
+		catalog.providers = append(catalog.providers, item)
+	}
+
+	attachInterfaceBindings(&catalog, build, resolution)
 	sort.SliceStable(catalog.providers, func(i, j int) bool {
 		return catalog.providers[i].SymbolID < catalog.providers[j].SymbolID
 	})
 	catalog.diagnostics = append(catalog.diagnostics, duplicateDiagnostics(catalog.providers)...)
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
+}
+
+type buildContext struct {
+	program     *load.Program
+	symbols     map[string]load.Symbol
+	packages    map[string]load.Package
+	fileSets    map[string]*token.FileSet
+	cleanupType types.Type
+}
+
+func newBuildContext(program *load.Program) buildContext {
+	result := buildContext{
+		program:  program,
+		symbols:  make(map[string]load.Symbol),
+		packages: make(map[string]load.Package),
+		fileSets: make(map[string]*token.FileSet),
+	}
+	for _, symbol := range program.Symbols() {
+		result.symbols[symbol.ID] = symbol
+	}
+	for _, pkg := range program.Packages() {
+		result.packages[pkg.Path] = pkg
+		if pkg.Raw != nil && pkg.Raw.Fset != nil {
+			result.fileSets[pkg.Path] = pkg.Raw.Fset
+		}
+	}
+	result.cleanupType = canonicalCleanupType(program)
+	return result
+}
+
+func stereotypeCounts(resolution resolve.Result) map[string]int {
+	result := make(map[string]int)
+	for _, occurrence := range resolution.Occurrences {
+		contribution, present := occurrence.Contribution(
+			sdk.ContributionStereotype,
+		)
+		if present && contribution.Stereotype.Construct {
+			result[occurrence.PackagePath]++
+		}
+	}
+	return result
+}
+
+func (build buildContext) stereotypeProvider(
+	occurrence resolve.Occurrence,
+	contribution sdk.StereotypeContribution,
+	packageStereotypes int,
+) (Provider, *Diagnostic) {
+	symbol, found := build.symbols[occurrence.SymbolID]
+	if !found {
+		diagnostic := occurrenceDiagnostic(
+			occurrence,
+			"missing-symbol",
+			fmt.Sprintf(
+				"@%s target %q has no stable typed symbol in the loaded program",
+				occurrence.Annotation.Name,
+				occurrence.Name,
+			),
+		)
+		return Provider{}, &diagnostic
+	}
+	named, problem := stereotypeType(symbol, contribution.Role)
+	if problem != nil {
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			problem.kind,
+			problem.message,
+		)
+		return Provider{}, &diagnostic
+	}
+
+	constructor, found, lookupProblem := build.selectConstructor(
+		occurrence,
+		symbol,
+		contribution.Constructor,
+		packageStereotypes,
+	)
+	if lookupProblem != nil {
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			lookupProblem.kind,
+			lookupProblem.message,
+		)
+		return Provider{}, &diagnostic
+	}
+	if !found {
+		return allocatedStereotypeProvider(
+			occurrence,
+			symbol,
+			named,
+		), nil
+	}
+
+	constructorOccurrence := occurrence
+	constructorOccurrence.Target = annotation.TargetFunction
+	constructorOccurrence.Annotation.Arguments = nil
+	item, diagnostic := analyzeProvider(
+		constructorOccurrence,
+		constructor,
+		build.fileSets[constructor.PackagePath],
+		build.cleanupType,
+		SourceStereotype,
+		"",
+		"",
+		"@"+occurrence.Annotation.Name+" constructor",
+	)
+	if diagnostic != nil {
+		return Provider{}, diagnostic
+	}
+	if !stereotypeResult(item.Output, named) {
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			"constructor-result",
+			fmt.Sprintf(
+				"@%s %s constructor %s returns %s; it must return %s or *%s as its exact provided value",
+				occurrence.Annotation.Name,
+				symbol.DisplayLabel,
+				constructor.DisplayLabel,
+				item.OutputTypeID,
+				symbol.Name,
+				symbol.Name,
+			),
+		)
+		return Provider{}, &diagnostic
+	}
+	item.Symbol = symbol
+	item.SymbolID = symbol.ID
+	item.Name = lowerInitial(symbol.Name)
+	item.PackagePath = symbol.PackagePath
+	item.Position = occurrence.DisplayPosition
+	item.PhysicalPosition = occurrence.PhysicalPosition
+	item.Constructor = constructor
+	return item, nil
+}
+
+func stereotypeType(
+	symbol load.Symbol,
+	role string,
+) (*types.Named, *providerProblem) {
+	typeName, ok := symbol.Object.(*types.TypeName)
+	if symbol.Kind != load.SymbolType || !ok || typeName.IsAlias() {
+		return nil, &providerProblem{
+			kind: "invalid-stereotype",
+			message: fmt.Sprintf(
+				"@%s %s must target a defined named type",
+				role,
+				symbol.DisplayLabel,
+			),
+		}
+	}
+	named, ok := types.Unalias(typeName.Type()).(*types.Named)
+	if !ok {
+		return nil, &providerProblem{
+			kind:    "invalid-stereotype",
+			message: fmt.Sprintf("@%s %s must target a defined named type", role, symbol.DisplayLabel),
+		}
+	}
+	if !token.IsExported(symbol.Name) {
+		return nil, &providerProblem{
+			kind:    "unexported-stereotype",
+			message: fmt.Sprintf("@%s %s must be exported", role, symbol.DisplayLabel),
+		}
+	}
+	if named.TypeParams() != nil && named.TypeParams().Len() != 0 {
+		return nil, &providerProblem{
+			kind:    "generic-stereotype",
+			message: fmt.Sprintf("@%s %s must not declare type parameters", role, symbol.DisplayLabel),
+		}
+	}
+	if _, ok := named.Underlying().(*types.Struct); !ok {
+		return nil, &providerProblem{
+			kind:    "invalid-stereotype",
+			message: fmt.Sprintf("@%s %s must have a struct underlying type", role, symbol.DisplayLabel),
+		}
+	}
+	return named, nil
+}
+
+func stereotypeResult(output types.Type, named *types.Named) bool {
+	return types.Identical(output, named) ||
+		types.Identical(output, types.NewPointer(named))
+}
+
+func allocatedStereotypeProvider(
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	named *types.Named,
+) Provider {
+	output := types.NewPointer(named)
+	return Provider{
+		Source:           SourceStereotype,
+		Construction:     ConstructionAllocate,
+		Symbol:           symbol,
+		SymbolID:         symbol.ID,
+		Name:             lowerInitial(symbol.Name),
+		PackagePath:      symbol.PackagePath,
+		Position:         occurrence.DisplayPosition,
+		PhysicalPosition: occurrence.PhysicalPosition,
+		Output:           output,
+		OutputTypeID:     TypeID(output),
+	}
+}
+
+func (build buildContext) selectConstructor(
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	explicit string,
+	packageStereotypes int,
+) (load.Symbol, bool, *providerProblem) {
+	if explicit != "" {
+		constructor, err := build.resolveFunction(
+			occurrence,
+			explicit,
+		)
+		if err != nil {
+			return load.Symbol{}, false, &providerProblem{
+				kind: "constructor",
+				message: fmt.Sprintf(
+					"@%s %s constructor %q is invalid: %v",
+					occurrence.Annotation.Name,
+					symbol.DisplayLabel,
+					explicit,
+					err,
+				),
+			}
+		}
+		return constructor, true, nil
+	}
+	if constructor, found := build.packageFunction(
+		symbol.PackagePath,
+		"New"+symbol.Name,
+	); found {
+		return constructor, true, nil
+	}
+	if packageStereotypes == 1 {
+		if constructor, found := build.packageFunction(
+			symbol.PackagePath,
+			"New",
+		); found {
+			return constructor, true, nil
+		}
+	}
+	return load.Symbol{}, false, nil
+}
+
+func (build buildContext) packageFunction(
+	packagePath string,
+	name string,
+) (load.Symbol, bool) {
+	for _, symbol := range build.symbols {
+		if symbol.PackagePath == packagePath &&
+			symbol.Name == name &&
+			symbol.Kind == load.SymbolFunction &&
+			symbol.Receiver == "" {
+			return symbol, true
+		}
+	}
+	return load.Symbol{}, false
+}
+
+func lowerInitial(name string) string {
+	if name == "" {
+		return ""
+	}
+	first, size := utf8.DecodeRuneInString(name)
+	return string(unicode.ToLower(first)) + name[size:]
+}
+
+func (build buildContext) resolveFunction(
+	occurrence resolve.Occurrence,
+	expression string,
+) (load.Symbol, error) {
+	parsed, err := goparser.ParseExpr(expression)
+	if err != nil {
+		return load.Symbol{}, fmt.Errorf("parse Go symbol: %w", err)
+	}
+	object, err := build.resolveObject(occurrence, parsed)
+	if err != nil {
+		return load.Symbol{}, err
+	}
+	function, ok := object.(*types.Func)
+	if !ok {
+		return load.Symbol{}, fmt.Errorf("%q does not name a function", expression)
+	}
+	signature, ok := function.Type().(*types.Signature)
+	if !ok || signature.Recv() != nil {
+		return load.Symbol{}, fmt.Errorf(
+			"%q must name a package-level function",
+			expression,
+		)
+	}
+	for _, symbol := range build.symbols {
+		if symbol.Object == function {
+			return symbol, nil
+		}
+	}
+	pkg := function.Pkg()
+	if pkg == nil {
+		return load.Symbol{}, fmt.Errorf(
+			"%q has no source package",
+			expression,
+		)
+	}
+	position := token.Position{}
+	if loaded, found := build.packages[pkg.Path()]; found &&
+		loaded.Raw != nil &&
+		loaded.Raw.Fset != nil {
+		position = loaded.Raw.Fset.PositionFor(function.Pos(), true)
+	}
+	return load.Symbol{
+		ID:               pkg.Path() + "." + function.Name(),
+		DisplayLabel:     pkg.Name() + "." + function.Name(),
+		Kind:             load.SymbolFunction,
+		Name:             function.Name(),
+		PackagePath:      pkg.Path(),
+		Position:         position,
+		PhysicalPosition: position,
+		Object:           function,
+		Signature:        signature,
+	}, nil
+}
+
+func (build buildContext) resolveObject(
+	occurrence resolve.Occurrence,
+	expression ast.Expr,
+) (types.Object, error) {
+	pkg, file, err := build.sourceFile(occurrence)
+	if err != nil {
+		return nil, err
+	}
+	switch value := expression.(type) {
+	case *ast.Ident:
+		if object := pkg.Types.Scope().Lookup(value.Name); object != nil {
+			return object, nil
+		}
+		if object := types.Universe.Lookup(value.Name); object != nil {
+			return object, nil
+		}
+		return nil, fmt.Errorf(
+			"go symbol %q is not declared in package %s",
+			value.Name,
+			pkg.Path,
+		)
+	case *ast.SelectorExpr:
+		qualifier, ok := value.X.(*ast.Ident)
+		if !ok {
+			return nil, fmt.Errorf(
+				"go symbol must be an identifier or package-qualified selector",
+			)
+		}
+		imported, importErr := importedPackage(
+			pkg,
+			file,
+			qualifier.Name,
+		)
+		if importErr != nil {
+			return nil, importErr
+		}
+		object := imported.Scope().Lookup(value.Sel.Name)
+		if object == nil {
+			return nil, fmt.Errorf(
+				"package %s has no exported symbol %q",
+				imported.Path(),
+				value.Sel.Name,
+			)
+		}
+		if !object.Exported() {
+			return nil, fmt.Errorf(
+				"symbol %s.%s is not accessible",
+				qualifier.Name,
+				value.Sel.Name,
+			)
+		}
+		return object, nil
+	default:
+		return nil, fmt.Errorf(
+			"go symbol must be an identifier or package-qualified selector",
+		)
+	}
+}
+
+func (build buildContext) sourceFile(
+	occurrence resolve.Occurrence,
+) (load.Package, *ast.File, error) {
+	pkg, found := build.packages[occurrence.PackagePath]
+	if !found || pkg.Types == nil {
+		return load.Package{}, nil, fmt.Errorf(
+			"package %q is not available in the typed program",
+			occurrence.PackagePath,
+		)
+	}
+	physical := filepath.Clean(occurrence.PhysicalFile)
+	for _, source := range pkg.Files {
+		if filepath.Clean(source.PhysicalPath) == physical &&
+			source.Syntax != nil {
+			return pkg, source.Syntax, nil
+		}
+	}
+	return load.Package{}, nil, fmt.Errorf(
+		"source file %q is not available in package %s",
+		occurrence.PhysicalFile,
+		occurrence.PackagePath,
+	)
+}
+
+func importedPackage(
+	pkg load.Package,
+	file *ast.File,
+	qualifier string,
+) (*types.Package, error) {
+	for _, spec := range file.Imports {
+		pathValue, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		imported := pkg.Raw.Imports[pathValue]
+		if imported == nil || imported.Types == nil {
+			continue
+		}
+		name := imported.Types.Name()
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		if name == qualifier {
+			return imported.Types, nil
+		}
+	}
+	return nil, fmt.Errorf(
+		"package qualifier %q is not imported by the annotation source file",
+		qualifier,
+	)
+}
+
+func attachInterfaceBindings(
+	catalog *Catalog,
+	build buildContext,
+	resolution resolve.Result,
+) {
+	index := make(map[string]int, len(catalog.providers))
+	for providerIndex := range catalog.providers {
+		index[catalog.providers[providerIndex].SymbolID] = providerIndex
+	}
+	for _, occurrence := range resolution.Occurrences {
+		contribution, present := occurrence.Contribution(
+			sdk.ContributionInterface,
+		)
+		if !present {
+			continue
+		}
+		providerIndex, found := index[occurrence.SymbolID]
+		if !found {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"interface-binding-provider",
+					fmt.Sprintf(
+						"@%s requires the same declaration to be a constructible stereotype or concrete-returning @Bean",
+						occurrence.Annotation.Name,
+					),
+				),
+			)
+			continue
+		}
+		item := &catalog.providers[providerIndex]
+		if _, isInterface := types.Unalias(
+			item.Output,
+		).Underlying().(*types.Interface); isInterface {
+			catalog.diagnostics = append(
+				catalog.diagnostics,
+				occurrenceDiagnostic(
+					occurrence,
+					"redundant-interface-binding",
+					fmt.Sprintf(
+						"@%s is redundant on %s because its factory already returns exact interface type %s",
+						occurrence.Annotation.Name,
+						item.SymbolID,
+						item.OutputTypeID,
+					),
+				),
+			)
+			continue
+		}
+		for _, expression := range contribution.Interface.Interfaces {
+			binding, problem := build.resolveInterfaceBinding(
+				occurrence,
+				expression,
+				item.Output,
+			)
+			if problem != nil {
+				catalog.diagnostics = append(
+					catalog.diagnostics,
+					occurrenceDiagnostic(
+						occurrence,
+						problem.kind,
+						problem.message,
+					),
+				)
+				continue
+			}
+			if !build.hasInterfaceAssertion(
+				occurrence.PackagePath,
+				binding.Type,
+				item.Output,
+			) {
+				catalog.diagnostics = append(
+					catalog.diagnostics,
+					occurrenceDiagnostic(
+						occurrence,
+						"missing-interface-assertion",
+						fmt.Sprintf(
+							"@%s binding from %s to %s requires an ordinary Go compile-time assertion such as %s",
+							occurrence.Annotation.Name,
+							item.OutputTypeID,
+							binding.TypeID,
+							assertionExample(
+								expression,
+								item.Output,
+							),
+						),
+					),
+				)
+				continue
+			}
+			item.Interfaces = append(item.Interfaces, binding)
+		}
+		sort.SliceStable(item.Interfaces, func(i, j int) bool {
+			return item.Interfaces[i].TypeID <
+				item.Interfaces[j].TypeID
+		})
+	}
+}
+
+func (build buildContext) resolveInterfaceBinding(
+	occurrence resolve.Occurrence,
+	expression string,
+	output types.Type,
+) (InterfaceBinding, *providerProblem) {
+	parsed, err := goparser.ParseExpr(expression)
+	if err != nil {
+		return InterfaceBinding{}, &providerProblem{
+			kind: "interface-expression",
+			message: fmt.Sprintf(
+				"@%s interface expression %q is not valid Go: %v",
+				occurrence.Annotation.Name,
+				expression,
+				err,
+			),
+		}
+	}
+	value, err := build.resolveType(occurrence, parsed)
+	if err != nil {
+		return InterfaceBinding{}, &providerProblem{
+			kind: "interface-expression",
+			message: fmt.Sprintf(
+				"@%s interface expression %q cannot be resolved: %v",
+				occurrence.Annotation.Name,
+				expression,
+				err,
+			),
+		}
+	}
+	named, ok := types.Unalias(value).(*types.Named)
+	if !ok {
+		return InterfaceBinding{}, &providerProblem{
+			kind: "interface-expression",
+			message: fmt.Sprintf(
+				"@%s expression %q must name a Go interface type; anonymous and pointer-to-interface expressions are not supported",
+				occurrence.Annotation.Name,
+				expression,
+			),
+		}
+	}
+	contract, ok := named.Underlying().(*types.Interface)
+	if !ok {
+		return InterfaceBinding{}, &providerProblem{
+			kind: "interface-expression",
+			message: fmt.Sprintf(
+				"@%s expression %q resolves to %s, not an interface",
+				occurrence.Annotation.Name,
+				expression,
+				TypeID(value),
+			),
+		}
+	}
+	contract.Complete()
+	if !contract.IsMethodSet() {
+		return InterfaceBinding{}, &providerProblem{
+			kind: "constraint-interface",
+			message: fmt.Sprintf(
+				"@%s interface %q is constraint-only and cannot be a runtime dependency",
+				occurrence.Annotation.Name,
+				expression,
+			),
+		}
+	}
+	if !types.Implements(output, contract) {
+		return InterfaceBinding{}, &providerProblem{
+			kind: "interface-method-set",
+			message: fmt.Sprintf(
+				"@%s bean output %s does not implement %s; pointer and value method sets are checked exactly",
+				occurrence.Annotation.Name,
+				TypeID(output),
+				TypeID(value),
+			),
+		}
+	}
+	return InterfaceBinding{
+		Expression:       expression,
+		Type:             value,
+		TypeID:           TypeID(value),
+		Position:         occurrence.DisplayPosition,
+		PhysicalPosition: occurrence.PhysicalPosition,
+	}, nil
+}
+
+func (build buildContext) resolveType(
+	occurrence resolve.Occurrence,
+	expression ast.Expr,
+) (types.Type, error) {
+	switch value := expression.(type) {
+	case *ast.ParenExpr:
+		return build.resolveType(occurrence, value.X)
+	case *ast.StarExpr:
+		element, err := build.resolveType(occurrence, value.X)
+		if err != nil {
+			return nil, err
+		}
+		return types.NewPointer(element), nil
+	case *ast.Ident, *ast.SelectorExpr:
+		object, err := build.resolveObject(occurrence, value)
+		if err != nil {
+			return nil, err
+		}
+		typeName, ok := object.(*types.TypeName)
+		if !ok {
+			return nil, fmt.Errorf("%q does not name a type", object.Name())
+		}
+		return typeName.Type(), nil
+	case *ast.IndexExpr:
+		return build.instantiateType(
+			occurrence,
+			value.X,
+			[]ast.Expr{value.Index},
+		)
+	case *ast.IndexListExpr:
+		return build.instantiateType(
+			occurrence,
+			value.X,
+			value.Indices,
+		)
+	default:
+		return nil, fmt.Errorf(
+			"only named interfaces and instantiated named generic interfaces are supported",
+		)
+	}
+}
+
+func (build buildContext) instantiateType(
+	occurrence resolve.Occurrence,
+	base ast.Expr,
+	arguments []ast.Expr,
+) (types.Type, error) {
+	baseType, err := build.resolveType(occurrence, base)
+	if err != nil {
+		return nil, err
+	}
+	named, ok := types.Unalias(baseType).(*types.Named)
+	if !ok {
+		return nil, fmt.Errorf("generic interface base is not a named type")
+	}
+	typeArguments := make([]types.Type, len(arguments))
+	for index, argument := range arguments {
+		typeArguments[index], err = build.resolveType(
+			occurrence,
+			argument,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"type argument %d: %w",
+				index,
+				err,
+			)
+		}
+	}
+	instantiated, err := types.Instantiate(
+		nil,
+		named,
+		typeArguments,
+		true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("instantiate generic interface: %w", err)
+	}
+	return instantiated, nil
+}
+
+func (build buildContext) hasInterfaceAssertion(
+	packagePath string,
+	interfaceType types.Type,
+	output types.Type,
+) bool {
+	pkg, found := build.packages[packagePath]
+	if !found || pkg.TypesInfo == nil {
+		return false
+	}
+	for _, file := range pkg.Syntax {
+		for _, declaration := range file.Decls {
+			generic, ok := declaration.(*ast.GenDecl)
+			if !ok || generic.Tok != token.VAR {
+				continue
+			}
+			for _, specification := range generic.Specs {
+				value, ok := specification.(*ast.ValueSpec)
+				if !ok || value.Type == nil {
+					continue
+				}
+				if !types.Identical(
+					pkg.TypesInfo.TypeOf(value.Type),
+					interfaceType,
+				) {
+					continue
+				}
+				for index, name := range value.Names {
+					if name.Name != "_" || index >= len(value.Values) {
+						continue
+					}
+					if types.Identical(
+						pkg.TypesInfo.TypeOf(value.Values[index]),
+						output,
+					) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func assertionExample(
+	interfaceExpression string,
+	output types.Type,
+) string {
+	switch typed := types.Unalias(output).(type) {
+	case *types.Pointer:
+		if named, ok := types.Unalias(typed.Elem()).(*types.Named); ok {
+			return fmt.Sprintf(
+				"`var _ %s = (*%s)(nil)`",
+				interfaceExpression,
+				named.Obj().Name(),
+			)
+		}
+	case *types.Named:
+		return fmt.Sprintf(
+			"`var _ %s = %s{}`",
+			interfaceExpression,
+			typed.Obj().Name(),
+		)
+	}
+	return fmt.Sprintf(
+		"`var _ %s = <bean-output>`",
+		interfaceExpression,
+	)
 }
 
 type providerProblem struct {
@@ -392,7 +1217,9 @@ func analyzeProvider(
 	dependencies := providerDependencies(signature, fileSet)
 	return Provider{
 		Source:           source,
+		Construction:     ConstructionFactory,
 		Symbol:           symbol,
+		Constructor:      symbol,
 		SymbolID:         symbol.ID,
 		Name:             symbol.Name,
 		PackagePath:      symbol.PackagePath,

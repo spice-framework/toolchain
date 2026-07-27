@@ -95,6 +95,7 @@ func (descriptor Descriptor) RegistryDefinition() (annotation.Definition, error)
 			),
 			Required:   argument.Required,
 			Positional: argument.Positional,
+			Variadic:   argument.Variadic,
 		}
 	}
 	return annotation.Definition{
@@ -614,6 +615,7 @@ func decodeArgument(
 		"Default":          {},
 		"Required":         {},
 		"Positional":       {},
+		"Variadic":         {},
 	})
 	if err != nil {
 		return sdk.Argument{}, err
@@ -656,6 +658,10 @@ func decodeArgument(
 		return sdk.Argument{}, err
 	}
 	result.Positional, err = optionalBool(info, fields, "Positional")
+	if err != nil {
+		return sdk.Argument{}, err
+	}
+	result.Variadic, err = optionalBool(info, fields, "Variadic")
 	if err != nil {
 		return sdk.Argument{}, err
 	}
