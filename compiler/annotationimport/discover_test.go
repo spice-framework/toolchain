@@ -1,0 +1,93 @@
+package annotationimport
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/StevenBuglione/spice/annotation"
+)
+
+func TestDiscoverFindsStableImportsAndHonorsOverlays(t *testing.T) {
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "app/main.go", `package app
+
+const ignored = "// @spice.import { Fake } from \"example.com/fake\""
+
+// @spice.import { Application } from "example.com/core"
+`)
+	writeDiscoveryFile(t, root, "app/other.go", `package app
+
+// @spice.import * as web from "example.com/old"
+`)
+	writeDiscoveryFile(t, root, "app/other_test.go", `package app
+
+// @spice.import { Test } from "example.com/test"
+`)
+	writeDiscoveryFile(t, root, "vendor/example.com/x/x.go", `package x
+
+// @spice.import { Vendor } from "example.com/vendor"
+`)
+	other := filepath.Join(root, "app", "other.go")
+	discovery, err := Discover(root, map[string][]byte{
+		other: []byte(`package app
+
+// @spice.import { Controller, Get as GET } from "example.com/web"
+`),
+	})
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if want := []string{"example.com/core", "example.com/web"}; !reflect.DeepEqual(
+		discovery.Packages,
+		want,
+	) {
+		t.Fatalf("packages = %#v, want %#v", discovery.Packages, want)
+	}
+	wantReferences := []annotation.DefinitionReference{
+		{Package: "example.com/core", Symbol: "Application"},
+		{Package: "example.com/web", Symbol: "Controller"},
+		{Package: "example.com/web", Symbol: "Get"},
+	}
+	if !reflect.DeepEqual(discovery.References, wantReferences) {
+		t.Fatalf(
+			"references = %#v, want %#v",
+			discovery.References,
+			wantReferences,
+		)
+	}
+}
+
+func TestDiscoverIncludesNewOverlaySourceInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "new.go")
+	discovery, err := Discover(root, map[string][]byte{
+		file: []byte(`package app
+// @spice.import { Application } from "example.com/core"
+`),
+	})
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if len(discovery.Directives) != 1 ||
+		discovery.Directives[0].Position.Filename != file {
+		t.Fatalf("discovery = %#v", discovery)
+	}
+}
+
+func writeDiscoveryFile(
+	t *testing.T,
+	root string,
+	name string,
+	content string,
+) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}

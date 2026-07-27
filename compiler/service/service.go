@@ -18,8 +18,10 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
+	"github.com/StevenBuglione/spice/compiler/descriptor"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	diagnosticadapt "github.com/StevenBuglione/spice/compiler/diagnostic/adapt"
 	"github.com/StevenBuglione/spice/compiler/generate"
@@ -258,36 +260,40 @@ func (service *Service) analyze(
 		result.actions = actionsFromDiagnostics(result.diagnostics)
 		return result, nil
 	}
-	options := service.analysisLoadOptions(request)
-	program, loadErr := service.config.loader(
+	program, discovery, loadDiagnostics, err := service.loadAnalysisProgram(
 		ctx,
-		options,
-		request.patterns...,
+		request,
 	)
-	if err := ctx.Err(); err != nil {
+	if err != nil {
 		return Result{}, err
 	}
-	if loadErr != nil {
-		if program != nil {
-			result.diagnostics = versionDiagnostics(
-				overlaySafeFixes(
-					diagnosticadapt.Load(request.root, program.Diagnostics()),
-					request.overlay,
-				),
-				request.overlay,
-			)
-		} else {
-			result.diagnostics = diagnosticadapt.Failure(
-				"load",
-				"operation",
-				loadErr.Error(),
-			)
-		}
+	if !loadDiagnostics.Empty() {
+		result.diagnostics = loadDiagnostics
 		result.actions = actionsFromDiagnostics(result.diagnostics)
 		return result, nil
 	}
 
-	resolution := resolve.Annotations(program)
+	descriptorState, err := prepareDescriptors(
+		service.config.registry,
+		program,
+		discovery.References,
+	)
+	if err != nil {
+		result.diagnostics = diagnosticadapt.Failure(
+			"annotation",
+			"descriptor",
+			err.Error(),
+		)
+		return result, nil
+	}
+	result.definitions = summarizeDefinitions(
+		descriptorState.registry,
+		service.config.bootstrapDefinitions,
+	)
+	resolution := resolve.AnnotationsWithDefinitions(
+		program,
+		descriptorState.index,
+	)
 	result.annotations = summarizeAnnotations(request.root, resolution)
 	if len(resolution.Diagnostics) != 0 {
 		result.diagnostics = versionDiagnostics(
@@ -303,7 +309,7 @@ func (service *Service) analyze(
 
 	validationDiagnostics := validateOccurrences(
 		resolution.Occurrences,
-		service.config.registry,
+		descriptorState.registry,
 	)
 	if len(validationDiagnostics) != 0 {
 		result.diagnostics = versionDiagnostics(
@@ -426,6 +432,50 @@ func (service *Service) analyze(
 	return result, nil
 }
 
+func (service *Service) loadAnalysisProgram(
+	ctx context.Context,
+	request normalizedRequest,
+) (*load.Program, annotationimport.Discovery, diagnostic.Set, error) {
+	options := service.analysisLoadOptions(request)
+	discovery, err := annotationimport.Discover(
+		request.root,
+		options.Overlay,
+	)
+	if err != nil {
+		return nil, annotationimport.Discovery{}, diagnostic.Set{}, err
+	}
+	options.AuxiliaryPackages = append(
+		options.AuxiliaryPackages,
+		discovery.Packages...,
+	)
+	program, loadErr := service.config.loader(
+		ctx,
+		options,
+		request.patterns...,
+	)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, annotationimport.Discovery{}, diagnostic.Set{}, contextErr
+	}
+	if loadErr == nil {
+		return program, discovery, diagnostic.Set{}, nil
+	}
+	if program == nil {
+		return nil, discovery, diagnosticadapt.Failure(
+			"load",
+			"operation",
+			loadErr.Error(),
+		), nil
+	}
+	diagnostics := versionDiagnostics(
+		overlaySafeFixes(
+			diagnosticadapt.Load(request.root, program.Diagnostics()),
+			request.overlay,
+		),
+		request.overlay,
+	)
+	return program, discovery, diagnostics, nil
+}
+
 func (service *Service) starterDependencyDiagnostics(
 	ctx context.Context,
 	request normalizedRequest,
@@ -483,7 +533,58 @@ func (service *Service) analysisLoadOptions(
 		service.config.starterCatalog.EntryPointPackages()...,
 	)
 	options.AllowGeneratedMainBridge = true
-	return withAnalysisBuildTag(options)
+	return withOfflineModuleResolution(
+		withAnalysisBuildTag(options),
+		request.root,
+	)
+}
+
+func withOfflineModuleResolution(
+	options load.Options,
+	root string,
+) load.Options {
+	result := cloneLoadOptions(options)
+	if result.Env == nil {
+		result.Env = os.Environ()
+	}
+	result.Env = replaceEnvironment(result.Env, "GOPROXY", "off")
+	flags := make([]string, 0, len(result.BuildFlags)+1)
+	for index := 0; index < len(result.BuildFlags); index++ {
+		flag := result.BuildFlags[index]
+		if flag == "-mod" {
+			if index+1 < len(result.BuildFlags) {
+				index++
+			}
+			continue
+		}
+		if strings.HasPrefix(flag, "-mod=") {
+			continue
+		}
+		flags = append(flags, flag)
+	}
+	mode := "readonly"
+	if _, err := os.Stat(filepath.Join(root, "vendor", "modules.txt")); err == nil {
+		mode = "vendor"
+	}
+	flags = append(flags, "-mod="+mode)
+	result.BuildFlags = flags
+	return result
+}
+
+func replaceEnvironment(
+	environment []string,
+	name string,
+	value string,
+) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		key, _, found := strings.Cut(entry, "=")
+		if found && strings.EqualFold(key, name) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, name+"="+value)
 }
 
 func (service *Service) normalizeRequest(
@@ -650,6 +751,70 @@ func validateOccurrences(
 		diagnostics = append(diagnostics, items...)
 	}
 	return diagnostics
+}
+
+func descriptorDefinitionIndex(
+	descriptors []descriptor.Descriptor,
+) resolve.DefinitionIndex {
+	result := make(resolve.DefinitionIndex, len(descriptors))
+	for _, item := range descriptors {
+		result[annotation.DefinitionReference{
+			Package: item.Package,
+			Symbol:  item.Symbol,
+		}] = item.Definition.Name
+	}
+	return result
+}
+
+type preparedDescriptors struct {
+	index    resolve.DefinitionIndex
+	registry annotation.Registry
+}
+
+func prepareDescriptors(
+	base annotation.Registry,
+	program *load.Program,
+	references []annotation.DefinitionReference,
+) (preparedDescriptors, error) {
+	descriptors, err := descriptor.DecodeAll(program, references)
+	if err != nil {
+		return preparedDescriptors{}, err
+	}
+	registry, err := registryWithDescriptors(base, descriptors)
+	if err != nil {
+		return preparedDescriptors{}, err
+	}
+	return preparedDescriptors{
+		index:    descriptorDefinitionIndex(descriptors),
+		registry: registry,
+	}, nil
+}
+
+func registryWithDescriptors(
+	base annotation.Registry,
+	descriptors []descriptor.Descriptor,
+) (annotation.Registry, error) {
+	definitions := make(map[string]annotation.Definition)
+	for _, definition := range base.Definitions() {
+		definitions[definition.Name] = definition
+	}
+	for _, item := range descriptors {
+		definition, err := item.RegistryDefinition()
+		if err != nil {
+			return annotation.Registry{}, err
+		}
+		definitions[definition.Name] = definition
+	}
+	names := make([]string, 0, len(definitions))
+	for name := range definitions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	merged := make([]annotation.Definition, 0, len(names))
+	for _, name := range names {
+		merged = append(merged, definitions[name])
+	}
+	return annotation.NewRegistry(merged...)
 }
 
 func selectTarget(

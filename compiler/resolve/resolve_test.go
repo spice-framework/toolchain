@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/load"
 )
 
@@ -160,6 +161,138 @@ func TestAnnotationsReportsMissingDefinitionDeterministically(t *testing.T) {
 		}
 	}
 	if joined := strings.Join(first, "\n"); !strings.Contains(joined, "has no stable Spice symbol") {
+		t.Fatalf("diagnostics = %q", joined)
+	}
+}
+
+func TestAnnotationsResolveExplicitFileScopedImports(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/imports\n\ngo 1.26.0\n",
+		"app/app.go": `package app
+
+// @Application
+func Main() {}
+
+// @web.Controller
+type Orders struct{}
+
+// @GET("/")
+func (Orders) List() {}
+
+// @spice.import { Application } from "example.com/annotations/core"
+// @spice.import { Get as GET } from "example.com/annotations/web"
+// @spice.import * as web from "example.com/annotations/web"
+`,
+	})
+	definitions := DefinitionIndex{
+		{
+			Package: "example.com/annotations/core",
+			Symbol:  "Application",
+		}: "Application",
+		{
+			Package: "example.com/annotations/web",
+			Symbol:  "Controller",
+		}: "Controller",
+		{
+			Package: "example.com/annotations/web",
+			Symbol:  "Get",
+		}: "Get",
+	}
+	result := AnnotationsWithDefinitions(
+		mustLoad(t, dir, "./app"),
+		definitions,
+	)
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics = %v", diagnosticMessages(result.Diagnostics))
+	}
+	got := make([]string, len(result.Occurrences))
+	for index, occurrence := range result.Occurrences {
+		got[index] = occurrence.Spelling + "=>" +
+			occurrence.Annotation.Name + "@" +
+			occurrence.Definition.Package + "." +
+			occurrence.Definition.Symbol
+	}
+	want := []string{
+		"Application=>Application@example.com/annotations/core.Application",
+		"web.Controller=>Controller@example.com/annotations/web.Controller",
+		"GET=>Get@example.com/annotations/web.Get",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("occurrences = %#v, want %#v", got, want)
+	}
+}
+
+func TestAnnotationsFailClosedForExplicitImports(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/imports\n\ngo 1.26.0\n",
+		"app/app.go": `package app
+
+// @spice.import { Application } from "example.com/annotations/core"
+// @spice.import * as web from "example.com/annotations/web"
+
+// @Application
+func Main() {}
+
+// @Controller
+type MissingImport struct{}
+
+// @web.Missing
+type MissingDescriptor struct{}
+`,
+		"app/legacy.go": `package app
+
+// @Service
+type LegacyCompatibility struct{}
+`,
+	})
+	result := AnnotationsWithDefinitions(
+		mustLoad(t, dir, "./app"),
+		DefinitionIndex{{
+			Package: "example.com/annotations/core",
+			Symbol:  "Application",
+		}: "Application"},
+	)
+	if len(result.Occurrences) != 2 {
+		t.Fatalf("occurrences = %#v", result.Occurrences)
+	}
+	legacy := occurrenceByName(result.Occurrences, "LegacyCompatibility")
+	if legacy == nil || legacy.Annotation.Name != "Service" ||
+		legacy.Definition != (annotation.DefinitionReference{}) {
+		t.Fatalf("legacy occurrence = %#v", legacy)
+	}
+	joined := strings.Join(diagnosticMessages(result.Diagnostics), "\n")
+	for _, expected := range []string{
+		"@Controller is not imported in this file",
+		"web.Missing",
+		"descriptor is unavailable",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("diagnostics = %q, missing %q", joined, expected)
+		}
+	}
+}
+
+func TestAnnotationsRejectImportCollisionsAtDirective(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/imports\n\ngo 1.26.0\n",
+		"app/app.go": `package app
+
+// @spice.import { Application as App } from "example.com/annotations/core"
+// @spice.import * as App from "example.com/annotations/web"
+
+// @App
+func Main() {}
+`,
+	})
+	result := AnnotationsWithDefinitions(
+		mustLoad(t, dir, "./app"),
+		DefinitionIndex{{
+			Package: "example.com/annotations/core",
+			Symbol:  "Application",
+		}: "Application"},
+	)
+	joined := strings.Join(diagnosticMessages(result.Diagnostics), "\n")
+	if !strings.Contains(joined, `annotation import name "App" conflicts`) {
 		t.Fatalf("diagnostics = %q", joined)
 	}
 }

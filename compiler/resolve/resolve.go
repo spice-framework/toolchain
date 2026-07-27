@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/load"
 	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 )
@@ -21,6 +22,8 @@ import (
 // compatibility.
 type Occurrence struct {
 	Annotation       annotation.Annotation
+	Spelling         string
+	Definition       annotation.DefinitionReference
 	Target           annotation.Target
 	Name             string
 	SymbolID         string
@@ -76,16 +79,32 @@ type symbolIndex struct {
 
 type parsedDirective struct {
 	annotation       annotation.Annotation
+	spelling         string
+	definition       annotation.DefinitionReference
 	physicalFile     string
 	physicalOffset   int
 	physicalPosition token.Position
 	displayPosition  token.Position
 }
 
+// DefinitionIndex maps an explicitly imported descriptor source to the
+// canonical annotation name contributed by that descriptor.
+type DefinitionIndex map[annotation.DefinitionReference]string
+
 // Annotations resolves declaration documentation annotations against the exact
 // AST and go/types universe already owned by program. It never reparses or
 // reloads source.
 func Annotations(program *load.Program) Result {
+	return AnnotationsWithDefinitions(program, nil)
+}
+
+// AnnotationsWithDefinitions resolves explicit file-scoped imports against
+// descriptors decoded from the same typed program. Files without import
+// directives retain the pre-1.0 built-in spelling compatibility path.
+func AnnotationsWithDefinitions(
+	program *load.Program,
+	definitions DefinitionIndex,
+) Result {
 	if program == nil {
 		return Result{Diagnostics: []Diagnostic{{Kind: "internal", Message: "typed annotation resolution requires a loaded program"}}}
 	}
@@ -94,13 +113,19 @@ func Annotations(program *load.Program) Result {
 	result := Result{}
 	seenFiles := make(map[string]struct{})
 	for _, pkg := range program.PrimaryPackages() {
-		resolvePackage(&result, pkg, index, seenFiles)
+		resolvePackage(&result, pkg, index, seenFiles, definitions)
 	}
 	sortResult(&result)
 	return result
 }
 
-func resolvePackage(result *Result, pkg load.Package, index symbolIndex, seenFiles map[string]struct{}) {
+func resolvePackage(
+	result *Result,
+	pkg load.Package,
+	index symbolIndex,
+	seenFiles map[string]struct{},
+	definitions DefinitionIndex,
+) {
 	if pkg.Raw == nil || pkg.Raw.Fset == nil || pkg.TypesInfo == nil {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
 			Kind:    "internal",
@@ -126,7 +151,7 @@ func resolvePackage(result *Result, pkg load.Package, index symbolIndex, seenFil
 		}
 		seenFiles[fileKey] = struct{}{}
 		result.Files++
-		resolveFile(result, pkg, source.Syntax, index)
+		resolveFile(result, pkg, source.Syntax, index, definitions)
 	}
 }
 
@@ -181,9 +206,19 @@ func buildSymbolIndex(symbols []load.Symbol) symbolIndex {
 	return index
 }
 
-func resolveFile(result *Result, pkg load.Package, file *ast.File, index symbolIndex) {
+func resolveFile(
+	result *Result,
+	pkg load.Package,
+	file *ast.File,
+	index symbolIndex,
+	definitions DefinitionIndex,
+) {
+	imports, importDiagnostics := resolveFileImports(pkg, file)
+	result.Diagnostics = append(result.Diagnostics, importDiagnostics...)
 	if file.Doc != nil {
 		directives, diagnostics := parseGroup(pkg, file.Doc)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		directives, diagnostics = bindImports(directives, imports, definitions)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		for _, directive := range directives {
 			symbol, ok := index.packages[pkg.Path]
@@ -198,18 +233,34 @@ func resolveFile(result *Result, pkg load.Package, file *ast.File, index symbolI
 	for _, declaration := range file.Decls {
 		switch node := declaration.(type) {
 		case *ast.FuncDecl:
-			resolveFunction(result, pkg, node, index)
+			resolveFunction(result, pkg, node, index, imports, definitions)
 		case *ast.GenDecl:
-			resolveGeneralDeclaration(result, pkg, node, index)
+			resolveGeneralDeclaration(
+				result,
+				pkg,
+				node,
+				index,
+				imports,
+				definitions,
+			)
 		}
 	}
 }
 
-func resolveFunction(result *Result, pkg load.Package, declaration *ast.FuncDecl, index symbolIndex) {
+func resolveFunction(
+	result *Result,
+	pkg load.Package,
+	declaration *ast.FuncDecl,
+	index symbolIndex,
+	imports fileImports,
+	definitions DefinitionIndex,
+) {
 	if declaration.Doc == nil {
 		return
 	}
 	directives, diagnostics := parseGroup(pkg, declaration.Doc)
+	result.Diagnostics = append(result.Diagnostics, diagnostics...)
+	directives, diagnostics = bindImports(directives, imports, definitions)
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
 	if len(directives) == 0 {
 		return
@@ -222,13 +273,22 @@ func resolveFunction(result *Result, pkg load.Package, declaration *ast.FuncDecl
 	resolveIdentifierDirectives(result, pkg, declaration.Name, directives, target, index)
 }
 
-func resolveGeneralDeclaration(result *Result, pkg load.Package, declaration *ast.GenDecl, index symbolIndex) {
+func resolveGeneralDeclaration(
+	result *Result,
+	pkg load.Package,
+	declaration *ast.GenDecl,
+	index symbolIndex,
+	imports fileImports,
+	definitions DefinitionIndex,
+) {
 	if declaration.Tok != token.TYPE && declaration.Tok != token.VAR && declaration.Tok != token.CONST {
 		return
 	}
 
 	if declaration.Doc != nil {
 		directives, diagnostics := parseGroup(pkg, declaration.Doc)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		directives, diagnostics = bindImports(directives, imports, definitions)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		if len(directives) > 0 {
 			if len(declaration.Specs) != 1 {
@@ -250,6 +310,8 @@ func resolveGeneralDeclaration(result *Result, pkg load.Package, declaration *as
 			continue
 		}
 		directives, diagnostics := parseGroup(pkg, group)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		directives, diagnostics = bindImports(directives, imports, definitions)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		resolveSpecDirectives(result, pkg, specification, declaration.Tok, directives, index)
 	}
@@ -326,6 +388,13 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 		}
 		display := pkg.Raw.Fset.PositionFor(comment.Pos(), true)
 		physical := pkg.Raw.Fset.PositionFor(comment.Pos(), false)
+		_, importComment, importErr := annotationparser.ParseImportComment(
+			comment.Text,
+			display,
+		)
+		if importComment || importErr != nil {
+			continue
+		}
 		parsed, ok, err := annotationparser.ParseComment(comment.Text, display)
 		if err != nil {
 			diagnostics = append(diagnostics, Diagnostic{
@@ -344,6 +413,7 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 		}
 		directives = append(directives, parsedDirective{
 			annotation:       parsed,
+			spelling:         parsed.Name,
 			physicalFile:     filepath.Clean(physical.Filename),
 			physicalOffset:   physical.Offset,
 			physicalPosition: physical,
@@ -356,6 +426,8 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 func occurrence(directive parsedDirective, symbol load.Symbol, target annotation.Target) Occurrence {
 	return Occurrence{
 		Annotation:       directive.annotation,
+		Spelling:         directive.spelling,
+		Definition:       directive.definition,
 		Target:           target,
 		Name:             symbol.Name,
 		SymbolID:         symbol.ID,
@@ -364,6 +436,169 @@ func occurrence(directive parsedDirective, symbol load.Symbol, target annotation
 		PhysicalOffset:   directive.physicalOffset,
 		PhysicalPosition: directive.physicalPosition,
 		DisplayPosition:  directive.displayPosition,
+	}
+}
+
+type fileImports struct {
+	table    annotationimport.Table
+	explicit bool
+}
+
+func resolveFileImports(
+	pkg load.Package,
+	file *ast.File,
+) (fileImports, []Diagnostic) {
+	if pkg.Raw == nil || pkg.Raw.Fset == nil {
+		return fileImports{}, nil
+	}
+	var directives []annotation.ImportDirective
+	var diagnostics []Diagnostic
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			if comment == nil ||
+				!strings.HasPrefix(strings.TrimSpace(comment.Text), "//") {
+				continue
+			}
+			display := pkg.Raw.Fset.PositionFor(comment.Pos(), true)
+			physical := pkg.Raw.Fset.PositionFor(comment.Pos(), false)
+			directive, recognized, err := annotationparser.ParseImportComment(
+				comment.Text,
+				display,
+			)
+			if !recognized {
+				continue
+			}
+			if err != nil {
+				diagnostics = append(diagnostics, sourceDiagnostic(
+					display,
+					physical,
+					"annotation-import-parse",
+					err.Error(),
+					err.Error(),
+				))
+				continue
+			}
+			directive.PhysicalPosition = physical
+			directives = append(directives, directive)
+		}
+	}
+	table, bindingDiagnostics := annotationimport.Resolve(directives)
+	for _, item := range bindingDiagnostics {
+		physical := physicalImportPosition(directives, item.Position)
+		diagnostics = append(diagnostics, sourceDiagnostic(
+			item.Position,
+			physical,
+			"annotation-import-binding",
+			item.Message,
+			"",
+		))
+	}
+	return fileImports{
+		table:    table,
+		explicit: len(directives) != 0 || len(diagnostics) != 0,
+	}, diagnostics
+}
+
+func physicalImportPosition(
+	directives []annotation.ImportDirective,
+	display token.Position,
+) token.Position {
+	for _, directive := range directives {
+		if directive.Position.Offset == display.Offset {
+			return directive.PhysicalPosition
+		}
+	}
+	return display
+}
+
+func bindImports(
+	directives []parsedDirective,
+	imports fileImports,
+	definitions DefinitionIndex,
+) ([]parsedDirective, []Diagnostic) {
+	if !imports.explicit {
+		return directives, nil
+	}
+	resolved := make([]parsedDirective, 0, len(directives))
+	var diagnostics []Diagnostic
+	for _, directive := range directives {
+		spelling := directive.annotation.Name
+		reference, found := imports.table.Lookup(spelling)
+		if !found {
+			diagnostics = append(diagnostics, directiveDiagnostic(
+				directive,
+				"annotation-import",
+				fmt.Sprintf(
+					"annotation @%s is not imported in this file; add an explicit // @spice.import declaration",
+					spelling,
+				),
+			))
+			continue
+		}
+		if !token.IsExported(reference.Symbol) {
+			diagnostics = append(diagnostics, directiveDiagnostic(
+				directive,
+				"annotation-import",
+				fmt.Sprintf(
+					"annotation @%s selects unexported descriptor symbol %q",
+					spelling,
+					reference.Symbol,
+				),
+			))
+			continue
+		}
+		canonical, found := definitions[reference]
+		if !found {
+			diagnostics = append(diagnostics, directiveDiagnostic(
+				directive,
+				"annotation-descriptor",
+				fmt.Sprintf(
+					"annotation @%s resolves to %s.%s, but that descriptor is unavailable in the typed program",
+					spelling,
+					reference.Package,
+					reference.Symbol,
+				),
+			))
+			continue
+		}
+		directive.annotation.Name = canonical
+		directive.definition = reference
+		resolved = append(resolved, directive)
+	}
+	return resolved, diagnostics
+}
+
+func directiveDiagnostic(
+	directive parsedDirective,
+	kind string,
+	message string,
+) Diagnostic {
+	return Diagnostic{
+		Position:         directive.displayPosition,
+		PhysicalFile:     directive.physicalFile,
+		PhysicalOffset:   directive.physicalOffset,
+		PhysicalPosition: directive.physicalPosition,
+		Annotation:       directive.annotation.Name,
+		Kind:             kind,
+		Message:          message,
+	}
+}
+
+func sourceDiagnostic(
+	display token.Position,
+	physical token.Position,
+	kind string,
+	message string,
+	rendered string,
+) Diagnostic {
+	return Diagnostic{
+		Position:         display,
+		PhysicalFile:     filepath.Clean(physical.Filename),
+		PhysicalOffset:   physical.Offset,
+		PhysicalPosition: physical,
+		Kind:             kind,
+		Message:          message,
+		rendered:         rendered,
 	}
 }
 

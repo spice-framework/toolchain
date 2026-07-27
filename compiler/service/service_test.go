@@ -151,6 +151,122 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 	}
 }
 
+func TestServiceLoadsAndDecodesExplicitAnnotationImports(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	writeServiceFixtureFile(t, root, "main.go", `package main
+
+import "os"
+
+// @spice.import { Application as SpiceApplication } from "example.com/servicefixture/annotations/core"
+
+// @SpiceApplication
+func main() {
+	os.Exit(spiceMain(os.Args[1:]))
+}
+`)
+	writeServiceFixtureFile(
+		t,
+		root,
+		"annotations/core/application.go",
+		`package core
+
+import "github.com/StevenBuglione/spice/annotation/sdk"
+
+// Application marks the application process entrypoint. Spice analyzes its
+// signature and never executes its body.
+func Application() sdk.Definition {
+	return sdk.Definition{
+		Name: "Application",
+		Summary: "Marks the application process entrypoint.",
+		Targets: []sdk.Target{sdk.TargetFunction},
+		Examples: []sdk.Example{{
+			Title: "Application entrypoint",
+			Code: "// @Application",
+		}},
+		Compatibility: sdk.Compatibility{
+			Since: "0.1.0",
+			MinimumSpice: "0.1.0",
+		},
+		Implementation: sdk.Implementation{
+			Tool: "example.com/servicefixture/cmd/annotations",
+			Handler: "core/application",
+			Protocol: sdk.ProtocolV1Alpha1,
+			Source: sdk.Symbol{
+				Package: "example.com/servicefixture/internal/annotations",
+				Name: "ApplicationHandler",
+			},
+		},
+	}
+}
+`,
+	)
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := compiler.Analyze(context.Background(), Request{
+		WorkspaceRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if !result.Diagnostics().Empty() {
+		t.Fatalf("diagnostics = %+v", result.Diagnostics().Items())
+	}
+	if !result.GenerationReady() {
+		t.Fatal("GenerationReady() = false")
+	}
+	var imported *Annotation
+	for index := range result.annotations {
+		if result.annotations[index].Name == "Application" {
+			imported = &result.annotations[index]
+			break
+		}
+	}
+	if imported == nil || imported.Raw != "// @SpiceApplication" {
+		t.Fatalf("annotations = %+v", result.Annotations())
+	}
+}
+
+func TestAnalysisLoadOptionsDisableNetworkAndSelectModuleMode(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	compiler, err := New(Config{
+		LoadOptions: load.Options{
+			Env:        []string{"PATH=test", "GOPROXY=https://proxy.example"},
+			BuildFlags: []string{"-mod=mod", "-tags=local"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	options := compiler.analysisLoadOptions(normalizedRequest{root: root})
+	if !slices.Contains(options.Env, "GOPROXY=off") ||
+		slices.Contains(options.Env, "GOPROXY=https://proxy.example") {
+		t.Fatalf("environment = %#v", options.Env)
+	}
+	if !slices.Contains(options.BuildFlags, "-mod=readonly") ||
+		slices.Contains(options.BuildFlags, "-mod=mod") {
+		t.Fatalf("build flags = %#v", options.BuildFlags)
+	}
+	vendor := filepath.Join(root, "vendor")
+	if err := os.MkdirAll(vendor, 0o750); err != nil {
+		t.Fatalf("MkdirAll(vendor) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(vendor, "modules.txt"),
+		[]byte("# fixture\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile(modules.txt) error = %v", err)
+	}
+	options = compiler.analysisLoadOptions(normalizedRequest{root: root})
+	if !slices.Contains(options.BuildFlags, "-mod=vendor") {
+		t.Fatalf("vendor build flags = %#v", options.BuildFlags)
+	}
+}
+
 func TestServiceOffersVersionedRawAnnotationCommentFix(t *testing.T) {
 	t.Parallel()
 	root := writeServiceModule(t)
@@ -781,13 +897,23 @@ type Settings struct {
 `,
 	}
 	for relativePath, content := range files {
-		filePath := filepath.Join(root, filepath.FromSlash(relativePath))
-		if err := os.MkdirAll(filepath.Dir(filePath), 0o750); err != nil {
-			tb.Fatalf("MkdirAll(%s) error = %v", relativePath, err)
-		}
-		if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
-			tb.Fatalf("WriteFile(%s) error = %v", relativePath, err)
-		}
+		writeServiceFixtureFile(tb, root, relativePath, content)
 	}
 	return root
+}
+
+func writeServiceFixtureFile(
+	tb testingTB,
+	root string,
+	relativePath string,
+	content string,
+) {
+	tb.Helper()
+	filePath := filepath.Join(root, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o750); err != nil {
+		tb.Fatalf("MkdirAll(%s) error = %v", relativePath, err)
+	}
+	if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
+		tb.Fatalf("WriteFile(%s) error = %v", relativePath, err)
+	}
 }

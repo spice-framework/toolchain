@@ -12,6 +12,9 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/packages"
+
+	"github.com/StevenBuglione/spice/annotation"
+	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 )
 
 // Options configures one isolated package-loading operation.
@@ -412,7 +415,7 @@ func annotatedMainFunctions(file *ast.File) []*ast.FuncDecl {
 			function.Name == nil ||
 			function.Name.Name != "main" ||
 			function.Body == nil ||
-			!hasApplicationMarker(function.Doc) {
+			!hasApplicationMarker(file, function.Doc) {
 			continue
 		}
 		result = append(result, function)
@@ -474,18 +477,57 @@ func moduleDirectory(root *packages.Package) string {
 	return root.Module.Dir
 }
 
-func hasApplicationMarker(comments *ast.CommentGroup) bool {
+func hasApplicationMarker(
+	file *ast.File,
+	comments *ast.CommentGroup,
+) bool {
 	if comments == nil {
 		return false
 	}
+	names := applicationMarkerSpellings(file)
 	for _, comment := range comments.List {
 		value := strings.TrimSpace(comment.Text)
 		value = strings.TrimSpace(strings.TrimPrefix(value, "//"))
-		if value == "@Application" {
-			return true
+		if annotationName, annotationComment := strings.CutPrefix(value, "@"); annotationComment {
+			_, found := names[annotationName]
+			if found {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func applicationMarkerSpellings(file *ast.File) map[string]struct{} {
+	result := map[string]struct{}{"Application": {}}
+	if file == nil {
+		return result
+	}
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			if comment == nil {
+				continue
+			}
+			directive, recognized, err := annotationparser.ParseImportComment(
+				comment.Text,
+				token.Position{},
+			)
+			if !recognized || err != nil {
+				continue
+			}
+			switch directive.Kind {
+			case annotation.ImportNamed:
+				for _, binding := range directive.Bindings {
+					if binding.Imported == "Application" {
+						result[binding.Local] = struct{}{}
+					}
+				}
+			case annotation.ImportNamespace:
+				result[directive.Namespace+".Application"] = struct{}{}
+			}
+		}
+	}
+	return result
 }
 
 func generatedMainBridgeError(
