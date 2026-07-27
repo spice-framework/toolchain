@@ -1,6 +1,8 @@
 package lsp
 
 import (
+	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -375,6 +377,64 @@ func TestAnnotationImportCompletionShowsDescriptorProvenance(t *testing.T) {
 		!strings.Contains(paths[0].Detail, "example.com/sdk@v1.4.0") ||
 		!strings.Contains(paths[0].Detail, "go tool example.com/sdk/cmd/annotations") {
 		t.Fatalf("annotation import path completions = %+v", paths)
+	}
+}
+
+func TestCompletionDiscoversThirdPartyDescriptorsFromOfflineModuleGraph(
+	t *testing.T,
+) {
+	t.Parallel()
+	root, err := filepath.Abs(filepath.Join(
+		"..",
+		"..",
+		"testdata",
+		"annotationapp",
+	))
+	if err != nil {
+		t.Fatalf("resolve annotation application fixture: %v", err)
+	}
+	compiler, err := compilerservice.New(compilerservice.Config{})
+	if err != nil {
+		t.Fatalf("service.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := compiler.Close(context.Background()); closeErr != nil {
+			t.Errorf("Service.Close() error = %v", closeErr)
+		}
+	})
+	server := &Server{
+		workspaces: map[string]*workspace{
+			pathKey(root): {
+				root:    root,
+				service: compiler,
+			},
+		},
+	}
+	definitions := server.catalogCompletionDefinitions(root, nil)
+	content := []byte("package main\n\n@Fac")
+	items := completionItems(content, len(content), metadataView{
+		definitions: definitions,
+	})
+	if len(items) != 1 ||
+		items[0].Label != "@Factory" ||
+		len(items[0].AdditionalEdits) != 1 ||
+		!strings.Contains(
+			items[0].AdditionalEdits[0].NewText,
+			`// @spice.import { Factory } from "example.com/spice-annotation-fixture/annotation/wiring"`,
+		) ||
+		!strings.Contains(items[0].Detail, "v0.0.0") ||
+		!strings.Contains(items[0].Detail, "go tool") ||
+		!strings.Contains(items[0].Detail, "tool declared") ||
+		items[0].Documentation == nil ||
+		!strings.Contains(
+			items[0].Documentation.Value,
+			"local replacement",
+		) &&
+			!strings.Contains(
+				items[0].Documentation.Value,
+				"Replaced by",
+			) {
+		t.Fatalf("third-party catalog completion = %+v", items)
 	}
 }
 

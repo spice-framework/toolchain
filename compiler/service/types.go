@@ -247,13 +247,15 @@ type AnnotationProvenance struct {
 // AnnotationImplementation identifies the trusted Go tool handler and its
 // inspectable implementation symbol.
 type AnnotationImplementation struct {
-	Tool        string
-	Handler     string
-	Protocol    string
-	Package     string
-	Symbol      string
-	Location    diagnostic.Location
-	HasLocation bool
+	Tool               string
+	Handler            string
+	Protocol           string
+	Authorized         bool
+	AuthorizationKnown bool
+	Package            string
+	Symbol             string
+	Location           diagnostic.Location
+	HasLocation        bool
 }
 
 // AnnotationDefinition is one available built-in or selected extension.

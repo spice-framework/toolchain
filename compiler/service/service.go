@@ -15,10 +15,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/StevenBuglione/spice/compiler/annotationcatalog"
 	"github.com/StevenBuglione/spice/compiler/annotationhost"
 	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/application"
@@ -40,17 +42,25 @@ import (
 type Service struct {
 	config serviceConfig
 
-	mu      sync.Mutex
-	cache   map[[sha256.Size]byte]Result
-	order   [][sha256.Size]byte
-	latest  map[string]uint64
-	running map[string]runningRequest
+	mu           sync.Mutex
+	cache        map[[sha256.Size]byte]Result
+	order        [][sha256.Size]byte
+	latest       map[string]uint64
+	running      map[string]runningRequest
+	catalogCache map[string]catalogCacheEntry
 }
 
 type runningRequest struct {
 	sequence uint64
 	cancel   context.CancelFunc
 }
+
+type catalogCacheEntry struct {
+	expires     time.Time
+	definitions []AnnotationDefinition
+}
+
+const annotationCatalogCacheDuration = 5 * time.Second
 
 type serviceConfig struct {
 	loader               Loader
@@ -133,7 +143,117 @@ func New(config Config) (*Service, error) {
 		cache:   make(map[[sha256.Size]byte]Result),
 		latest:  make(map[string]uint64),
 		running: make(map[string]runningRequest),
+		catalogCache: make(
+			map[string]catalogCacheEntry,
+		),
 	}, nil
+}
+
+// AnnotationCatalog returns statically discoverable descriptors from source
+// already present in the target application's offline Go module graph. It does
+// not load packages, execute tools, download modules, or mutate module files.
+func (service *Service) AnnotationCatalog(
+	ctx context.Context,
+	workspaceRoot string,
+) ([]AnnotationDefinition, error) {
+	if ctx == nil {
+		return nil, errors.New(
+			"annotation catalog context must not be nil",
+		)
+	}
+	root, err := normalizedCatalogRoot(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	key := normalizedWorkspaceKey(root)
+	now := time.Now()
+	service.mu.Lock()
+	cached, found := service.catalogCache[key]
+	service.mu.Unlock()
+	if found && now.Before(cached.expires) {
+		return cloneDefinitions(cached.definitions), nil
+	}
+	candidates, err := annotationcatalog.Discover(
+		ctx,
+		root,
+		service.config.loadOptions.Env,
+	)
+	if err != nil {
+		return nil, err
+	}
+	definitions := catalogDefinitions(root, candidates)
+	service.mu.Lock()
+	service.catalogCache[key] = catalogCacheEntry{
+		expires:     time.Now().Add(annotationCatalogCacheDuration),
+		definitions: cloneDefinitions(definitions),
+	}
+	service.mu.Unlock()
+	return cloneDefinitions(definitions), nil
+}
+
+func normalizedCatalogRoot(root string) (string, error) {
+	if root == "" {
+		return "", errors.New(
+			"annotation catalog workspace root must not be empty",
+		)
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf(
+			"resolve annotation catalog workspace root: %w",
+			err,
+		)
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return "", fmt.Errorf(
+			"inspect annotation catalog workspace root: %w",
+			err,
+		)
+	}
+	if !info.IsDir() {
+		return "", errors.New(
+			"annotation catalog workspace root must be a directory",
+		)
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func catalogDefinitions(
+	workspaceRoot string,
+	candidates []annotationcatalog.Candidate,
+) []AnnotationDefinition {
+	result := make([]AnnotationDefinition, len(candidates))
+	for index, candidate := range candidates {
+		result[index] = AnnotationDefinition{
+			Name:              candidate.Symbol,
+			Summary:           candidate.Summary,
+			DescriptorPackage: candidate.Package,
+			DescriptorSymbol:  candidate.Symbol,
+			DescriptorLocation: symbolLocation(
+				workspaceRoot,
+				candidate.DescriptorPosition,
+				candidate.Symbol,
+			),
+			HasDescriptorLocation: candidate.DescriptorPosition.Filename != "",
+			Implementation: AnnotationImplementation{
+				Tool:               candidate.Tool,
+				Handler:            candidate.Handler,
+				Protocol:           candidate.Protocol,
+				Authorized:         candidate.ToolAuthorized,
+				AuthorizationKnown: true,
+			},
+			Provenance: AnnotationProvenance{
+				Module:             candidate.Module,
+				Version:            candidate.Version,
+				ReplacementModule:  candidate.ReplacementModule,
+				ReplacementVersion: candidate.ReplacementVersion,
+				ReplacementDir:     candidate.ReplacementDir,
+				LocalReplacement:   candidate.LocalReplacement,
+			},
+		}
+	}
+	return result
 }
 
 func normalizedSpiceVersion(value string) string {

@@ -2,12 +2,14 @@ package lsp
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"go/token"
 	"path"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -109,6 +111,8 @@ type metadataView struct {
 	actions        []diagnostic.SuggestedFix
 }
 
+const annotationCatalogTimeout = 5 * time.Second
+
 func (server *Server) completion(message rpcMessage) error {
 	if !message.request() {
 		return nil
@@ -138,11 +142,102 @@ func (server *Server) completion(message rpcMessage) error {
 			"completion position is outside the current document",
 		)
 	}
+	completionContext := inspectCompletionContext(source.content, offset)
+	if catalogCompletionContext(completionContext.kind) {
+		metadata.definitions = server.catalogCompletionDefinitions(
+			source.root,
+			metadata.definitions,
+		)
+	}
 	items := completionItems(source.content, offset, metadata)
 	return server.writer.response(
 		message.ID,
 		completionList{Items: items},
 	)
+}
+
+func catalogCompletionContext(kind completionContextKind) bool {
+	switch kind {
+	case completionAnnotation, completionImportSymbol, completionImportPath:
+		return true
+	case completionNone, completionArgument, completionConfiguration:
+		return false
+	}
+	return false
+}
+
+func (server *Server) catalogCompletionDefinitions(
+	root string,
+	current []compilerservice.AnnotationDefinition,
+) []compilerservice.AnnotationDefinition {
+	server.mu.Lock()
+	workspace := server.workspaces[root]
+	if workspace == nil {
+		workspace = server.workspaces[pathKey(root)]
+	}
+	var compiler *compilerservice.Service
+	if workspace != nil {
+		compiler = workspace.service
+	}
+	done := server.done
+	server.mu.Unlock()
+	if compiler == nil {
+		return current
+	}
+	select {
+	case <-done:
+		return current
+	default:
+	}
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		annotationCatalogTimeout,
+	)
+	defer cancel()
+	catalog, err := compiler.AnnotationCatalog(ctx, root)
+	if err != nil {
+		return current
+	}
+	return mergeAnnotationDefinitions(current, catalog)
+}
+
+func mergeAnnotationDefinitions(
+	current []compilerservice.AnnotationDefinition,
+	catalog []compilerservice.AnnotationDefinition,
+) []compilerservice.AnnotationDefinition {
+	result := slices.Clone(current)
+	positions := make(map[string]int, len(result))
+	for index, definition := range result {
+		key := annotationDefinitionKey(definition)
+		if key != "" {
+			positions[key] = index
+		}
+	}
+	for _, candidate := range catalog {
+		key := annotationDefinitionKey(candidate)
+		if index, found := positions[key]; found {
+			if result[index].Implementation.Tool ==
+				candidate.Implementation.Tool {
+				result[index].Implementation.Authorized = candidate.Implementation.Authorized
+				result[index].Implementation.AuthorizationKnown = candidate.Implementation.AuthorizationKnown
+			}
+			continue
+		}
+		positions[key] = len(result)
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func annotationDefinitionKey(
+	definition compilerservice.AnnotationDefinition,
+) string {
+	if definition.DescriptorPackage == "" ||
+		definition.DescriptorSymbol == "" {
+		return ""
+	}
+	return definition.DescriptorPackage + "\x00" +
+		definition.DescriptorSymbol
 }
 
 func completionItems(
@@ -377,7 +472,7 @@ func annotationCompletionItems(
 		item := completionItem{
 			Label:            "@" + definition.Name,
 			Kind:             14,
-			Detail:           annotationTargetDetail(definition),
+			Detail:           annotationCompletionDetail(definition),
 			Documentation:    &documentation,
 			SortText:         definition.Name,
 			FilterText:       "@" + definition.Name,
@@ -391,7 +486,6 @@ func annotationCompletionItems(
 			item.AdditionalEdits = []protocolEdit{
 				annotationImportEdit(content, candidate.importDirective),
 			}
-			item.Detail += " · " + definition.DescriptorPackage
 		}
 		items = append(items, item)
 	}
@@ -620,16 +714,47 @@ func annotationImportPathItems(
 func annotationProvenanceDetail(
 	definition compilerservice.AnnotationDefinition,
 ) string {
+	var details []string
 	version := definition.Provenance.Version
 	if version == "" {
 		version = "local"
 	}
-	return fmt.Sprintf(
-		"%s@%s · go tool %s",
-		definition.Provenance.Module,
-		version,
-		definition.Implementation.Tool,
-	)
+	if definition.Provenance.Module != "" {
+		details = append(
+			details,
+			definition.Provenance.Module+"@"+version,
+		)
+	}
+	if definition.Implementation.Tool != "" {
+		details = append(
+			details,
+			"go tool "+definition.Implementation.Tool,
+		)
+	}
+	if definition.Implementation.AuthorizationKnown {
+		status := "tool not declared"
+		if definition.Implementation.Authorized {
+			status = "tool declared"
+		}
+		details = append(details, status)
+	}
+	return strings.Join(details, " · ")
+}
+
+func annotationCompletionDetail(
+	definition compilerservice.AnnotationDefinition,
+) string {
+	var details []string
+	if targets := annotationTargetDetail(definition); targets != "" {
+		details = append(details, targets)
+	}
+	if definition.DescriptorPackage != "" {
+		details = append(details, definition.DescriptorPackage)
+	}
+	if provenance := annotationProvenanceDetail(definition); provenance != "" {
+		details = append(details, provenance)
+	}
+	return strings.Join(details, " · ")
 }
 
 func annotationSnippet(
@@ -1210,7 +1335,17 @@ func writeAnnotationOverview(
 		content.WriteString(definition.Documentation)
 		content.WriteString("\n\n")
 	}
-	fmt.Fprintf(content, "Valid targets: %s.", annotationTargetDetail(definition))
+	if len(definition.Targets) == 0 {
+		content.WriteString(
+			"Import this descriptor to load its typed targets and arguments.",
+		)
+	} else {
+		fmt.Fprintf(
+			content,
+			"Valid targets: %s.",
+			annotationTargetDetail(definition),
+		)
+	}
 	if definition.Repeatable {
 		content.WriteString(" Repeatable.")
 	}
@@ -1313,13 +1448,26 @@ func writeAnnotationImplementation(
 	if implementation.Tool != "" {
 		fmt.Fprintf(
 			content,
-			"\n\nImplementation: `go tool %s` handler `%s` (`%s.%s`, protocol `%s`).",
+			"\n\nImplementation: `go tool %s` handler `%s` using protocol `%s`.",
 			implementation.Tool,
 			implementation.Handler,
-			implementation.Package,
-			implementation.Symbol,
 			implementation.Protocol,
 		)
+		if implementation.Package != "" && implementation.Symbol != "" {
+			fmt.Fprintf(
+				content,
+				" Source: `%s.%s`.",
+				implementation.Package,
+				implementation.Symbol,
+			)
+		}
+		if implementation.AuthorizationKnown {
+			authorization := "not declared by the target go.mod"
+			if implementation.Authorized {
+				authorization = "authorized by the target go.mod"
+			}
+			fmt.Fprintf(content, " Tool is %s.", authorization)
+		}
 	}
 }
 
