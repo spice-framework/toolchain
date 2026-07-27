@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
 )
 
@@ -31,6 +33,11 @@ func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 	if len(handlers) != 1 || handlers[0].ID != "fixture/echo" {
 		t.Fatalf("Handlers() = %#v", handlers)
 	}
+	packages := client.DescriptorPackages()
+	if len(packages) != 1 ||
+		packages[0] != "example.com/annotationfixture/annotation" {
+		t.Fatalf("DescriptorPackages() = %#v", packages)
+	}
 	result, err := client.Analyze(context.Background(), protocol.AnalyzeParams{
 		Handler: "fixture/echo",
 		Invocation: protocol.Invocation{
@@ -51,6 +58,66 @@ func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 	defer cancel()
 	if err := client.Close(closeCtx); err != nil {
 		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestValidateDescriptorPackagesRejectsMissingDuplicateAndForeign(
+	t *testing.T,
+) {
+	t.Parallel()
+	for _, values := range [][]string{
+		nil,
+		{
+			"example.com/tool/annotation",
+			"example.com/tool/annotation",
+		},
+		{"example.net/foreign/annotation"},
+		{" example.com/tool/annotation"},
+	} {
+		if _, err := validateDescriptorPackages(
+			values,
+			"example.com/tool",
+		); err == nil {
+			t.Fatalf(
+				"validateDescriptorPackages(%q) error = nil",
+				values,
+			)
+		}
+	}
+}
+
+func TestValidateDescriptorRejectsPackageNotDeclaredByTool(t *testing.T) {
+	t.Parallel()
+	client := &Client{
+		provenance: PackageIdentity{
+			Path: fixtureTool,
+			Module: ModuleIdentity{
+				Path:    "example.com/annotationfixture",
+				Version: "v1.0.0",
+			},
+		},
+		descriptorPackages: []string{
+			"example.com/annotationfixture/annotation",
+		},
+	}
+	err := client.ValidateDescriptor(
+		"example.com/annotationfixture/other",
+		sdk.Definition{
+			Name: "Undeclared",
+			Implementation: sdk.Implementation{
+				Handler: "fixture/echo",
+			},
+		},
+		annotation.ModuleProvenance{
+			Path:    "example.com/annotationfixture",
+			Version: "v1.0.0",
+		},
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"package \"example.com/annotationfixture/other\" is not declared",
+	) {
+		t.Fatalf("ValidateDescriptor() error = %v", err)
 	}
 }
 
@@ -210,14 +277,19 @@ func main() {
 				ModulePath: modulePath,
 			}
 		case "describe":
-			result = protocol.DescribeResult{Handlers: []protocol.Handler{{
+			result = protocol.DescribeResult{
+				DescriptorPackages: []string{
+					"example.com/annotationfixture/annotation",
+				},
+				Handlers: []protocol.Handler{{
 				ID: "fixture/echo",
 				Capabilities: []string{"diagnostics"},
 				Source: sdk.Symbol{
 					Package: "example.com/annotationfixture/internal/handler",
 					Name: "Echo",
 				},
-			}}}
+				}},
+			}
 		case "analyze":
 			if mode == "hang-analyze" {
 				time.Sleep(time.Hour)

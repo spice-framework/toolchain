@@ -191,6 +191,21 @@ func (service *Service) AnnotationCatalog(
 	return cloneDefinitions(definitions), nil
 }
 
+// InvalidateAnnotationCatalog drops a workspace's brief completion cache after
+// an explicitly confirmed module-file change.
+func (service *Service) InvalidateAnnotationCatalog(
+	workspaceRoot string,
+) error {
+	root, err := normalizedCatalogRoot(workspaceRoot)
+	if err != nil {
+		return err
+	}
+	service.mu.Lock()
+	delete(service.catalogCache, normalizedWorkspaceKey(root))
+	service.mu.Unlock()
+	return nil
+}
+
 func normalizedCatalogRoot(root string) (string, error) {
 	if root == "" {
 		return "", errors.New(

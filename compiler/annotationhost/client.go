@@ -15,6 +15,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	"golang.org/x/mod/module"
 )
 
 const (
@@ -47,10 +48,11 @@ type Client struct {
 	wait        chan error
 	containment processContainment
 
-	mu       sync.Mutex
-	nextID   uint64
-	closed   bool
-	handlers map[string]protocol.Handler
+	mu                 sync.Mutex
+	nextID             uint64
+	closed             bool
+	handlers           map[string]protocol.Handler
+	descriptorPackages []string
 }
 
 // Start authorizes, resolves, launches, initializes, and describes one tool.
@@ -180,6 +182,17 @@ func (client *Client) Handlers() []protocol.Handler {
 	return result
 }
 
+// DescriptorPackages returns the stable public descriptor packages declared
+// by the tool during protocol negotiation.
+func (client *Client) DescriptorPackages() []string {
+	if client == nil {
+		return nil
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return append([]string(nil), client.descriptorPackages...)
+}
+
 // Analyze dispatches one invocation to an initialized declared handler.
 func (client *Client) Analyze(
 	ctx context.Context,
@@ -243,6 +256,17 @@ func (client *Client) initialize(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("describe annotation tool: %w", err)
 	}
+	descriptorPackages, err := validateDescriptorPackages(
+		described.DescriptorPackages,
+		client.provenance.Module.Path,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"annotation tool %q descriptor packages are invalid: %w",
+			client.config.ToolPath,
+			err,
+		)
+	}
 	handlers, err := validateHandlers(described.Handlers)
 	if err != nil {
 		return fmt.Errorf(
@@ -251,6 +275,7 @@ func (client *Client) initialize(ctx context.Context) error {
 			err,
 		)
 	}
+	client.descriptorPackages = descriptorPackages
 	client.handlers = handlers
 	return nil
 }
@@ -460,6 +485,45 @@ func boundedContext(
 		return context.WithCancel(parent)
 	}
 	return context.WithTimeout(parent, maximum)
+}
+
+func validateDescriptorPackages(
+	values []string,
+	modulePath string,
+) ([]string, error) {
+	if len(values) == 0 {
+		return nil, errors.New(
+			"at least one descriptor package is required",
+		)
+	}
+	result := append([]string(nil), values...)
+	for _, packagePath := range result {
+		if strings.TrimSpace(packagePath) != packagePath ||
+			module.CheckImportPath(packagePath) != nil {
+			return nil, fmt.Errorf(
+				"descriptor package %q is not a valid Go import path",
+				packagePath,
+			)
+		}
+		if packagePath != modulePath &&
+			!strings.HasPrefix(packagePath, modulePath+"/") {
+			return nil, fmt.Errorf(
+				"descriptor package %q is outside tool module %q",
+				packagePath,
+				modulePath,
+			)
+		}
+	}
+	sort.Strings(result)
+	for index := 1; index < len(result); index++ {
+		if result[index] == result[index-1] {
+			return nil, fmt.Errorf(
+				"duplicate descriptor package %q",
+				result[index],
+			)
+		}
+	}
+	return result, nil
 }
 
 func validateHandlers(

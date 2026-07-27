@@ -139,6 +139,7 @@ func (service *Service) annotationToolClient(
 		clients[implementation.Tool] = client
 	}
 	if err := client.ValidateDescriptor(
+		item.Package,
 		item.Definition,
 		item.Provenance,
 	); err != nil {

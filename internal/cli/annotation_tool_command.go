@@ -216,6 +216,7 @@ func doctorAnnotationDescriptors(
 			clients[tool] = client
 		}
 		if err := client.ValidateDescriptor(
+			item.Package,
 			item.Definition,
 			item.Provenance,
 		); err != nil {

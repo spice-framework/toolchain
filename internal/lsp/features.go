@@ -83,10 +83,17 @@ type parameterInformation struct {
 }
 
 type protocolCodeAction struct {
-	Title       string                `json:"title"`
-	Kind        string                `json:"kind"`
-	IsPreferred bool                  `json:"isPreferred"`
-	Edit        protocolWorkspaceEdit `json:"edit"`
+	Title       string                 `json:"title"`
+	Kind        string                 `json:"kind"`
+	IsPreferred bool                   `json:"isPreferred"`
+	Edit        *protocolWorkspaceEdit `json:"edit,omitempty"`
+	Command     *protocolCommand       `json:"command,omitempty"`
+}
+
+type protocolCommand struct {
+	Title     string `json:"title"`
+	Command   string `json:"command"`
+	Arguments []any  `json:"arguments,omitempty"`
 }
 
 type protocolWorkspaceEdit struct {
@@ -1160,6 +1167,18 @@ func (server *Server) codeAction(message rpcMessage) error {
 		params.Range,
 		metadata.actions,
 	)
+	metadata.definitions = server.catalogCompletionDefinitions(
+		source.root,
+		metadata.definitions,
+	)
+	actions = append(
+		actions,
+		server.annotationToolCodeActions(
+			source,
+			params.Range,
+			metadata,
+		)...,
+	)
 	return server.writer.response(message.ID, actions)
 }
 
@@ -1231,11 +1250,12 @@ func (server *Server) protocolCodeAction(
 			Edits: byDocument[uri],
 		})
 	}
+	edit := protocolWorkspaceEdit{DocumentChanges: changes}
 	return protocolCodeAction{
 		Title:       fix.Title,
 		Kind:        "quickfix",
 		IsPreferred: true,
-		Edit:        protocolWorkspaceEdit{DocumentChanges: changes},
+		Edit:        &edit,
 	}, relevant, true
 }
 

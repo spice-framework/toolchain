@@ -2,6 +2,7 @@ package annotationhost
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
@@ -10,6 +11,7 @@ import (
 // ValidateDescriptor proves that one statically decoded descriptor and its
 // declared handler belong to this client's standard Go-resolved tool.
 func (client *Client) ValidateDescriptor(
+	descriptorPackage string,
 	definition sdk.Definition,
 	provenance annotation.ModuleProvenance,
 ) error {
@@ -24,6 +26,16 @@ func (client *Client) ValidateDescriptor(
 		client.Provenance(),
 	); err != nil {
 		return err
+	}
+	if !slices.Contains(
+		client.DescriptorPackages(),
+		descriptorPackage,
+	) {
+		return fmt.Errorf(
+			"annotation descriptor %q package %q is not declared by its tool",
+			definition.Name,
+			descriptorPackage,
+		)
 	}
 	expected := definition.Implementation
 	for _, handler := range client.Handlers() {

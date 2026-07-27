@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StevenBuglione/spice/compiler/annotationinstall"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 )
 
@@ -52,20 +53,22 @@ type Config struct {
 type Server struct {
 	config serverConfig
 
-	mu           sync.Mutex
-	run          bool
-	initialized  bool
-	shutdown     bool
-	closing      bool
-	done         <-chan struct{}
-	cancel       context.CancelFunc
-	writer       *rpcWriter
-	target       string
-	patterns     []string
-	workspaces   map[string]*workspace
-	documents    map[string]*document
-	requests     map[string]context.CancelFunc
-	analysisWait sync.WaitGroup
+	mu               sync.Mutex
+	run              bool
+	initialized      bool
+	shutdown         bool
+	closing          bool
+	done             <-chan struct{}
+	cancel           context.CancelFunc
+	writer           *rpcWriter
+	target           string
+	patterns         []string
+	workspaces       map[string]*workspace
+	documents        map[string]*document
+	requests         map[string]context.CancelFunc
+	toolPreviews     map[string]annotationinstall.Preview
+	toolPreviewByKey map[string]string
+	analysisWait     sync.WaitGroup
 }
 
 type serverConfig struct {
@@ -126,6 +129,10 @@ func New(config Config) (*Server, error) {
 		workspaces: make(map[string]*workspace),
 		documents:  make(map[string]*document),
 		requests:   make(map[string]context.CancelFunc),
+		toolPreviews: make(
+			map[string]annotationinstall.Preview,
+		),
+		toolPreviewByKey: make(map[string]string),
 	}, nil
 }
 
@@ -310,6 +317,8 @@ func (server *Server) handleRequest(message rpcMessage) error {
 		return server.documentLinks(message)
 	case "textDocument/semanticTokens/full":
 		return server.semanticTokens(message)
+	case "workspace/executeCommand":
+		return server.executeCommand(message)
 	default:
 		return server.writer.failure(
 			message.ID,
@@ -426,6 +435,12 @@ func initializeResult() map[string]any {
 			"codeActionProvider": map[string]any{
 				"codeActionKinds": []string{"quickfix"},
 				"resolveProvider": false,
+			},
+			"executeCommandProvider": map[string]any{
+				"commands": []string{
+					annotationToolPreviewCommand,
+					annotationToolApplyCommand,
+				},
 			},
 			"documentLinkProvider": map[string]any{
 				"resolveProvider": false,

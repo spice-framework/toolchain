@@ -18,6 +18,21 @@ const (
 	modulePath = "github.com/StevenBuglione/spice"
 )
 
+var descriptorPackages = []string{
+	modulePath + "/annotation/async",
+	modulePath + "/annotation/cache",
+	modulePath + "/annotation/core",
+	modulePath + "/annotation/data",
+	modulePath + "/annotation/event",
+	modulePath + "/annotation/lifecycle",
+	modulePath + "/annotation/management",
+	modulePath + "/annotation/modulith",
+	modulePath + "/annotation/observability",
+	modulePath + "/annotation/schedule",
+	modulePath + "/annotation/security",
+	modulePath + "/annotation/web",
+}
+
 type handler func(
 	context.Context,
 	protocol.Invocation,
@@ -86,7 +101,13 @@ func (tool *Tool) Describe(
 	}
 	result := make([]protocol.Handler, len(tool.descriptions))
 	copy(result, tool.descriptions)
-	return protocol.DescribeResult{Handlers: result}, nil
+	return protocol.DescribeResult{
+		DescriptorPackages: append(
+			[]string(nil),
+			descriptorPackages...,
+		),
+		Handlers: result,
+	}, nil
 }
 
 // Analyze dispatches only a handler identity declared by Describe.
