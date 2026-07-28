@@ -195,6 +195,10 @@ func buildOpenAPIOperation(
 		}
 		return operation
 	}
+	formSchema := openAPISchema{
+		Type:       "object",
+		Properties: make(map[string]openAPISchema),
+	}
 	for _, binding := range route.Bindings() {
 		if binding.Location == controller.Body {
 			operation.RequestBody = &openAPIRequestBody{
@@ -205,6 +209,16 @@ func buildOpenAPIOperation(
 			}
 			continue
 		}
+		if binding.Location == controller.Form {
+			formSchema.Properties[binding.Name] = parameterSchema(binding)
+			if binding.Required {
+				formSchema.Required = append(
+					formSchema.Required,
+					binding.Name,
+				)
+			}
+			continue
+		}
 		operation.Parameters = append(operation.Parameters, openAPIParameter{
 			Name:     binding.Name,
 			In:       string(binding.Location),
@@ -212,9 +226,31 @@ func buildOpenAPIOperation(
 			Schema:   parameterSchema(binding),
 		})
 	}
-	if route.NoContent {
+	if len(formSchema.Properties) != 0 {
+		sort.Strings(formSchema.Required)
+		operation.RequestBody = &openAPIRequestBody{
+			Required: len(formSchema.Required) != 0,
+			Content: map[string]openAPIMedia{
+				"application/x-www-form-urlencoded": {
+					Schema: formSchema,
+				},
+			},
+		}
+	}
+	switch {
+	case route.NoContent:
 		operation.Responses["204"] = openAPIResponse{Description: "No Content"}
-	} else {
+	case route.View:
+		operation.Responses["200"] = openAPIResponse{
+			Description: http.StatusText(http.StatusOK),
+			Content: map[string]openAPIMedia{
+				"text/html": {Schema: openAPISchema{Type: "string"}},
+			},
+		}
+		operation.Responses["303"] = openAPIResponse{
+			Description: http.StatusText(http.StatusSeeOther),
+		}
+	default:
 		operation.Responses["200"] = openAPIResponse{
 			Description: http.StatusText(http.StatusOK),
 			Content: map[string]openAPIMedia{

@@ -62,6 +62,7 @@ const (
 	observabilityPath = "github.com/StevenBuglione/spice/observability"
 	schedulePath      = "github.com/StevenBuglione/spice/schedule"
 	securityPath      = "github.com/StevenBuglione/spice/security"
+	viewPath          = "github.com/StevenBuglione/spice/view"
 	webPath           = "github.com/StevenBuglione/spice/web"
 
 	shutdownConfigurationKey = "spice.shutdown-timeout"
@@ -1620,6 +1621,21 @@ func writeControllerRoutes(
 					route.SymbolID,
 				)
 			}
+			if route.View &&
+				providerVariables[route.ViewRendererID] == "" {
+				return fmt.Errorf(
+					"view route %s has no renderer provider variable",
+					route.SymbolID,
+				)
+			}
+			if route.BindingResult {
+				if _, cacheable := caches[route.SymbolID]; cacheable {
+					return fmt.Errorf(
+						"form route %s cannot be cacheable",
+						route.SymbolID,
+					)
+				}
+			}
 			writeTypedRoute(
 				source,
 				route,
@@ -1846,29 +1862,31 @@ func writeTypedRoute(
 		"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {\n",
 		strconv.Quote(pattern),
 	)
-	if !route.NoContent {
-		source.WriteString("\t\tif !spiceweb.AcceptsJSON(httpRequest.Header.Get(\"Accept\")) {\n")
-		source.WriteString("\t\t\tproblem := spiceweb.Problem{\n")
-		source.WriteString("\t\t\t\tType: \"about:blank\",\n")
-		source.WriteString("\t\t\t\tTitle: \"Not Acceptable\",\n")
-		source.WriteString("\t\t\t\tStatus: http.StatusNotAcceptable,\n")
-		source.WriteString("\t\t\t\tDetail: \"the endpoint produces application/json\",\n")
-		source.WriteString("\t\t\t}\n")
-		source.WriteString("\t\t\tif writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {\n")
-		source.WriteString("\t\t\t\treturn\n")
-		source.WriteString("\t\t\t}\n")
-		source.WriteString("\t\t\treturn\n")
-		source.WriteString("\t\t}\n")
-	}
+	writeRouteNegotiation(source, route)
 	fmt.Fprintf(source, "\t\trequestValue := %s{}\n", renderedType(route.Request, aliases))
+	if route.BindingResult {
+		writeFormSetup(source, route)
+	}
 	for _, binding := range route.Bindings() {
+		if binding.Location == controller.Form {
+			writeFormBinding(source, binding, aliases)
+			continue
+		}
 		writeRequestBinding(source, binding, aliases)
 	}
 	if route.ValidatorID != "" {
-		source.WriteString("\t\tif validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {\n")
-		writeGeneratedError(source, "validationErr", 3)
-		source.WriteString("\t\t\treturn\n")
-		source.WriteString("\t\t}\n")
+		if route.BindingResult {
+			source.WriteString("\t\tif bindingResult.Valid() {\n")
+			source.WriteString("\t\t\tif validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {\n")
+			writeBindingRejection(source, "validationErr", 4)
+			source.WriteString("\t\t\t}\n")
+			source.WriteString("\t\t}\n")
+		} else {
+			source.WriteString("\t\tif validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {\n")
+			writeGeneratedError(source, "validationErr", 3)
+			source.WriteString("\t\t\treturn\n")
+			source.WriteString("\t\t}\n")
+		}
 	}
 	boundary, transactional := transactions[route.SymbolID]
 	cache, cacheable := caches[route.SymbolID]
@@ -1896,6 +1914,13 @@ func writeTypedRoute(
 			receiver,
 			route.Name,
 		)
+	case route.BindingResult:
+		fmt.Fprintf(
+			source,
+			"\t\tresponseValue, routeErr := %s.%s(httpRequest.Context(), requestValue, bindingResult)\n",
+			receiver,
+			route.Name,
+		)
 	default:
 		fmt.Fprintf(
 			source,
@@ -1908,9 +1933,16 @@ func writeTypedRoute(
 	writeGeneratedError(source, "routeErr", 3)
 	source.WriteString("\t\t\treturn\n")
 	source.WriteString("\t\t}\n")
-	if route.NoContent {
+	switch {
+	case route.NoContent:
 		source.WriteString("\t\tif writeErr := spiceweb.WriteNoContent(writer); writeErr != nil {\n")
-	} else {
+	case route.View:
+		fmt.Fprintf(
+			source,
+			"\t\tif writeErr := %s.Respond(httpRequest.Context(), writer, responseValue); writeErr != nil {\n",
+			providerVariables[route.ViewRendererID],
+		)
+	default:
 		source.WriteString("\t\tif writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {\n")
 	}
 	source.WriteString("\t\t\treturn\n")
@@ -1922,6 +1954,39 @@ func writeTypedRoute(
 		middleware,
 	)
 	writeRouteRegistrationError(source, pattern)
+}
+
+func writeRouteNegotiation(
+	source *bytes.Buffer,
+	route controller.Route,
+) {
+	if route.View {
+		source.WriteString("\t\tif !spiceview.AcceptsHTML(httpRequest.Header.Get(\"Accept\")) {\n")
+		source.WriteString("\t\t\tproblem := spiceweb.Problem{\n")
+		source.WriteString("\t\t\t\tType: \"about:blank\",\n")
+		source.WriteString("\t\t\t\tTitle: \"Not Acceptable\",\n")
+		source.WriteString("\t\t\t\tStatus: http.StatusNotAcceptable,\n")
+		source.WriteString("\t\t\t\tDetail: \"the endpoint produces text/html\",\n")
+		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\tif writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {\n")
+		source.WriteString("\t\t\t\treturn\n")
+		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\treturn\n")
+		source.WriteString("\t\t}\n")
+	} else if !route.NoContent {
+		source.WriteString("\t\tif !spiceweb.AcceptsJSON(httpRequest.Header.Get(\"Accept\")) {\n")
+		source.WriteString("\t\t\tproblem := spiceweb.Problem{\n")
+		source.WriteString("\t\t\t\tType: \"about:blank\",\n")
+		source.WriteString("\t\t\t\tTitle: \"Not Acceptable\",\n")
+		source.WriteString("\t\t\t\tStatus: http.StatusNotAcceptable,\n")
+		source.WriteString("\t\t\t\tDetail: \"the endpoint produces application/json\",\n")
+		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\tif writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {\n")
+		source.WriteString("\t\t\t\treturn\n")
+		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\treturn\n")
+		source.WriteString("\t\t}\n")
+	}
 }
 
 func writeTransactionalRouteCall(
@@ -1955,14 +2020,22 @@ func writeTransactionalRouteCall(
 		source.WriteString("\t\t\tReadOnly: true,\n")
 	}
 	source.WriteString("\t\t}, func(transactionContext context.Context, executor spicedata.Executor) error {\n")
-	if route.NoContent {
+	switch {
+	case route.NoContent:
 		fmt.Fprintf(
 			source,
 			"\t\t\t_, transactionErr := %s.%s(transactionContext, executor, requestValue)\n",
 			receiver,
 			route.Name,
 		)
-	} else {
+	case route.BindingResult:
+		fmt.Fprintf(
+			source,
+			"\t\t\tvar transactionErr error\n\t\t\tresponseValue, transactionErr = %s.%s(transactionContext, executor, requestValue, bindingResult)\n",
+			receiver,
+			route.Name,
+		)
+	default:
 		fmt.Fprintf(
 			source,
 			"\t\t\tvar transactionErr error\n\t\t\tresponseValue, transactionErr = %s.%s(transactionContext, executor, requestValue)\n",
@@ -1972,6 +2045,122 @@ func writeTransactionalRouteCall(
 	}
 	source.WriteString("\t\t\treturn transactionErr\n")
 	source.WriteString("\t\t})\n")
+}
+
+func writeFormSetup(source *bytes.Buffer, route controller.Route) {
+	source.WriteString("\t\tbindingResult, bindingResultErr := spiceweb.NewBindingResult()\n")
+	source.WriteString("\t\tif bindingResultErr != nil {\n")
+	writeGeneratedError(source, "bindingResultErr", 3)
+	source.WriteString("\t\t\treturn\n")
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t\tformValues, formErr := spiceweb.DecodeForm(httpRequest, options.MaxRequestBodyBytes)\n")
+	source.WriteString("\t\tif formErr != nil {\n")
+	writeBindingRejection(source, "formErr", 3)
+	source.WriteString("\t\t} else if unknownFormErr := spiceweb.RejectUnknownForm(formValues, []string{")
+	first := true
+	for _, binding := range route.Bindings() {
+		if binding.Location != controller.Form {
+			continue
+		}
+		if !first {
+			source.WriteString(", ")
+		}
+		first = false
+		source.WriteString(strconv.Quote(binding.Name))
+	}
+	source.WriteString("}); unknownFormErr != nil {\n")
+	writeBindingRejection(source, "unknownFormErr", 3)
+	source.WriteString("\t\t}\n")
+}
+
+func writeFormBinding(
+	source *bytes.Buffer,
+	binding controller.Binding,
+	aliases map[string]string,
+) {
+	index := strconv.Itoa(binding.Index)
+	fmt.Fprintf(
+		source,
+		"\t\traw%s, present%s, bindErr%s := spiceweb.FormValue(formValues, %s, %t)\n",
+		index,
+		index,
+		index,
+		strconv.Quote(binding.Name),
+		binding.Required,
+	)
+	fmt.Fprintf(source, "\t\tif bindErr%s != nil {\n", index)
+	writeBindingRejection(source, "bindErr"+index, 3)
+	source.WriteString("\t\t} else if present" + index + " {\n")
+	writeFormScalarAssignment(source, binding, index, aliases)
+	source.WriteString("\t\t}\n")
+}
+
+func writeFormScalarAssignment(
+	source *bytes.Buffer,
+	binding controller.Binding,
+	index string,
+	aliases map[string]string,
+) {
+	typeName := renderedType(binding.Type, aliases)
+	if binding.Kind == controller.ScalarString {
+		fmt.Fprintf(
+			source,
+			"\t\t\trequestValue.%s = %s(raw%s)\n",
+			binding.Field,
+			typeName,
+			index,
+		)
+		return
+	}
+	accessor := "Boolean"
+	extra := ""
+	if binding.Kind == controller.ScalarInteger {
+		accessor = "Integer"
+		extra = ", " + strconv.Itoa(integerBitSize(binding.Type))
+	}
+	if binding.Kind == controller.ScalarDuration {
+		accessor = "Duration"
+	}
+	fmt.Fprintf(
+		source,
+		"\t\t\tparsed%s, parseErr%s := spiceweb.%s(spiceweb.LocationForm, %s, raw%s%s)\n",
+		index,
+		index,
+		accessor,
+		strconv.Quote(binding.Name),
+		index,
+		extra,
+	)
+	fmt.Fprintf(source, "\t\t\tif parseErr%s != nil {\n", index)
+	writeBindingRejection(source, "parseErr"+index, 4)
+	source.WriteString("\t\t\t} else {\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\t\trequestValue.%s = %s(parsed%s)\n",
+		binding.Field,
+		typeName,
+		index,
+	)
+	source.WriteString("\t\t\t}\n")
+}
+
+func writeBindingRejection(
+	source *bytes.Buffer,
+	variable string,
+	tabs int,
+) {
+	indent := strings.Repeat("\t", tabs)
+	fmt.Fprintf(
+		source,
+		"%supdatedBindingResult, rejectErr := bindingResult.RejectBinding(%s)\n",
+		indent,
+		variable,
+	)
+	fmt.Fprintf(source, "%sif rejectErr != nil {\n", indent)
+	writeGeneratedError(source, "rejectErr", tabs+1)
+	fmt.Fprintf(source, "%s\treturn\n", indent)
+	fmt.Fprintf(source, "%s}\n", indent)
+	fmt.Fprintf(source, "%sbindingResult = updatedBindingResult\n", indent)
 }
 
 func isolationLevelName(level sql.IsolationLevel) string {
@@ -2100,6 +2289,8 @@ func bindingValues(binding controller.Binding) string {
 		return "httpRequest.Header.Values(" + strconv.Quote(binding.Name) + ")"
 	case controller.Body:
 		return "nil"
+	case controller.Form:
+		return "formValues[" + strconv.Quote(binding.Name) + "]"
 	}
 	return "nil"
 }
@@ -2114,6 +2305,8 @@ func bindingLocation(location controller.Location) string {
 		return "spiceweb.LocationHeader"
 	case controller.Body:
 		return "spiceweb.LocationBody"
+	case controller.Form:
+		return "spiceweb.LocationForm"
 	}
 	return "spiceweb.LocationQuery"
 }
@@ -3024,6 +3217,7 @@ func importAliases(
 		aliases["net/http"] = "http"
 		aliases[webPath] = "spiceweb"
 	}
+	addViewImportAlias(aliases, controllers)
 	if features.management {
 		aliases[managementPath] = "spicemanagement"
 	}
@@ -3085,6 +3279,7 @@ func importAliases(
 		"spiceobservability":        {},
 		"spiceschedule":             {},
 		"spicesecurity":             {},
+		"spiceview":                 {},
 		"spiceweb":                  {},
 		"syscall":                   {},
 		"time":                      {},
@@ -3116,6 +3311,26 @@ func importAliases(
 		aliases[importPath] = alias
 	}
 	return aliases
+}
+
+func addViewImportAlias(
+	aliases map[string]string,
+	controllers []controller.Controller,
+) {
+	if hasViewRoutes(controllers) {
+		aliases[viewPath] = "spiceview"
+	}
+}
+
+func hasViewRoutes(controllers []controller.Controller) bool {
+	for _, item := range controllers {
+		for _, route := range item.Routes() {
+			if route.View {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func importNames(

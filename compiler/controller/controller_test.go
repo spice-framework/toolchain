@@ -170,6 +170,174 @@ func (*API) Execute(
 	}
 }
 
+func TestBuildCreatesExplicitFormViewRouteMetadata(t *testing.T) {
+	source := `package api
+
+import (
+	"context"
+
+	"github.com/StevenBuglione/spice/view"
+	"github.com/StevenBuglione/spice/web"
+)
+
+type SaveOwnerRequest struct {
+	ID int ` + "`path:\"id\"`" + `
+	Name string ` + "`form:\"name,required\"`" + `
+	Active bool ` + "`form:\"active\"`" + `
+}
+
+// @Controller(prefix="/owners")
+type Owners struct{}
+
+// @Bean
+func NewOwners() *Owners { return &Owners{} }
+
+// @Bean
+func NewRenderer() *view.Renderer { return nil }
+
+// @Post("/{id}")
+func (*Owners) Save(
+	context.Context,
+	SaveOwnerRequest,
+	web.BindingResult,
+) (view.Result, error) {
+	return view.Result{}, nil
+}
+`
+	catalog := buildCatalog(t, source)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf(
+			"Build() diagnostics = %v",
+			diagnosticStrings(diagnostics),
+		)
+	}
+	route := catalog.Controllers()[0].Routes()[0]
+	if !route.View ||
+		!route.BindingResult ||
+		route.ViewRendererID == "" ||
+		route.ResponseTypeID !=
+			"github.com/StevenBuglione/spice/view.Result" {
+		t.Fatalf("form view route = %#v", route)
+	}
+	if got, want := bindingSummaries(route.Bindings()), []string{
+		"path:id:integer:true",
+		"form:name:string:true",
+		"form:active:boolean:false",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("bindings = %v, want %v", got, want)
+	}
+}
+
+func TestBuildRejectsInvalidFormViewContracts(t *testing.T) {
+	tests := []struct {
+		name       string
+		request    string
+		parameters string
+		response   string
+		renderer   string
+		route      string
+		want       string
+	}{
+		{
+			name:       "missing binding result",
+			request:    "type Request struct { Name string `form:\"name\"` }",
+			parameters: "context.Context, Request",
+			response:   "view.Result",
+			renderer:   rendererProviderSource,
+			route:      "Post",
+			want:       "must receive web.BindingResult",
+		},
+		{
+			name:       "unnecessary binding result",
+			request:    "type Request struct { Name string `query:\"name\"` }",
+			parameters: "context.Context, Request, web.BindingResult",
+			response:   "view.Result",
+			renderer:   rendererProviderSource,
+			route:      "Post",
+			want:       "only valid for a request DTO containing form bindings",
+		},
+		{
+			name:       "wrong response",
+			request:    "type Request struct { Name string `form:\"name\"` }",
+			parameters: "context.Context, Request, web.BindingResult",
+			response:   "Response",
+			renderer:   "",
+			route:      "Post",
+			want:       "must return view.Result",
+		},
+		{
+			name:       "missing renderer",
+			request:    "type Request struct { Name string `form:\"name\"` }",
+			parameters: "context.Context, Request, web.BindingResult",
+			response:   "view.Result",
+			renderer:   "",
+			route:      "Post",
+			want:       "requires exactly one *view.Renderer provider",
+		},
+		{
+			name:       "get form",
+			request:    "type Request struct { Name string `form:\"name\"` }",
+			parameters: "context.Context, Request, web.BindingResult",
+			response:   "view.Result",
+			renderer:   rendererProviderSource,
+			route:      "Get",
+			want:       "must not bind a request form",
+		},
+		{
+			name:       "mixed body and form",
+			request:    "type Request struct { Name string `form:\"name\"`; Body Response `body:\"\"` }",
+			parameters: "context.Context, Request, web.BindingResult",
+			response:   "view.Result",
+			renderer:   rendererProviderSource,
+			route:      "Post",
+			want:       "must not combine body and form",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := `package api
+
+import (
+	"context"
+
+	"github.com/StevenBuglione/spice/view"
+	"github.com/StevenBuglione/spice/web"
+)
+
+var _ = view.Result{}
+var _ web.BindingResult
+
+` + test.request + `
+type Response struct{}
+
+// @Controller
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+` + test.renderer + `
+
+// @` + test.route + `("/")
+func (*API) Route(` + test.parameters + `) (` + test.response + `, error) {
+	return ` + test.response + `{}, nil
+}
+`
+			catalog := buildCatalog(t, source)
+			if !containsDiagnostic(catalog.Diagnostics(), test.want) {
+				t.Fatalf(
+					"Build() diagnostics = %v, want %q",
+					diagnosticStrings(catalog.Diagnostics()),
+					test.want,
+				)
+			}
+		})
+	}
+}
+
+const rendererProviderSource = `// @Bean
+func NewRenderer() *view.Renderer { return nil }`
+
 func TestBuildReportsInvalidControllerAndRouteContracts(t *testing.T) {
 	tests := []struct {
 		name string

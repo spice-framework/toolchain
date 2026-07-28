@@ -32,6 +32,8 @@ const (
 	Header Location = "header"
 	// Body binds the strict JSON request body.
 	Body Location = "body"
+	// Form binds one URL-encoded form field.
+	Form Location = "form"
 )
 
 // ScalarKind identifies one generated path, query, or header conversion.
@@ -106,7 +108,10 @@ type Route struct {
 	ResponseTypeID    string
 	Raw               bool
 	NoContent         bool
+	View              bool
 	ExecutorParameter bool
+	BindingResult     bool
+	ViewRendererID    string
 	ValidatorID       string
 	Position          token.Position
 	PhysicalPosition  token.Position
@@ -636,12 +641,25 @@ func analyzeRoute(
 		route.Raw = true
 		return route, nil
 	}
-	diagnostic := typedRoute(&route, occurrence, symbol, signature, wildcards, fileSet, objectSymbols)
+	diagnostic := typedRoute(
+		&route,
+		occurrence,
+		symbol,
+		signature,
+		wildcards,
+		providers,
+		fileSet,
+		objectSymbols,
+	)
 	if diagnostic != nil {
 		return Route{}, diagnostic
 	}
 	if method == http.MethodGet && hasBody(route.bindings) {
 		diagnostic := symbolDiagnostic(occurrence, symbol, "get-body", fmt.Sprintf("@Get method %s must not bind a request body", symbolLabel(symbol)))
+		return Route{}, &diagnostic
+	}
+	if method == http.MethodGet && hasLocation(route.bindings, Form) {
+		diagnostic := symbolDiagnostic(occurrence, symbol, "get-form", fmt.Sprintf("@Get method %s must not bind a request form", symbolLabel(symbol)))
 		return Route{}, &diagnostic
 	}
 	return route, nil
@@ -671,10 +689,13 @@ func typedRoute(
 	symbol load.Symbol,
 	signature *types.Signature,
 	wildcards []string,
+	providers []provider.Provider,
 	fileSet *token.FileSet,
 	objectSymbols map[types.Object]load.Symbol,
 ) *Diagnostic {
-	requestIndex, executorParameter := typedRouteParameters(signature)
+	requestIndex, executorParameter, bindingResult := typedRouteParameters(
+		signature,
+	)
 	if requestIndex < 0 || signature.Results().Len() != 2 ||
 		!namedType(signature.Params().At(0).Type(), "context", "Context") ||
 		!types.Identical(signature.Results().At(1).Type(), types.Universe.Lookup("error").Type()) {
@@ -683,7 +704,7 @@ func typedRoute(
 			symbol,
 			"typed-signature",
 			fmt.Sprintf(
-				"typed route %s must have signature func(context.Context, RequestDTO) (Response, error) or func(context.Context, data.Executor, RequestDTO) (Response, error)",
+				"typed route %s must have signature func(context.Context, RequestDTO) (Response, error), optionally adding data.Executor before the request or web.BindingResult after it",
 				symbolLabel(symbol),
 			),
 		)
@@ -711,12 +732,36 @@ func typedRoute(
 		diagnostic := symbolDiagnostic(occurrence, symbol, "path-bindings", fmt.Sprintf("typed route %s: %s", symbolLabel(symbol), message))
 		return &diagnostic
 	}
+	hasForm := hasLocation(bindings, Form)
+	if diagnostic := validateFormContract(
+		occurrence,
+		symbol,
+		bindings,
+		bindingResult,
+	); diagnostic != nil {
+		return diagnostic
+	}
 	route.Request = requestType
 	route.RequestTypeID = provider.TypeID(requestType)
 	route.Response = signature.Results().At(0).Type()
 	route.ResponseTypeID = provider.TypeID(route.Response)
 	route.NoContent = namedType(route.Response, "github.com/StevenBuglione/spice/web", "NoContent")
+	route.View = namedType(
+		route.Response,
+		"github.com/StevenBuglione/spice/view",
+		"Result",
+	)
 	route.ExecutorParameter = executorParameter
+	route.BindingResult = bindingResult
+	if diagnostic := configureViewRoute(
+		route,
+		occurrence,
+		symbol,
+		hasForm,
+		providers,
+	); diagnostic != nil {
+		return diagnostic
+	}
 	validatorID, validatorProblem := requestValidator(requestNamed, objectSymbols)
 	if validatorProblem != nil {
 		diagnostic := symbolDiagnostic(occurrence, symbol, validatorProblem.kind, fmt.Sprintf("typed route %s: %s", symbolLabel(symbol), validatorProblem.message))
@@ -731,23 +776,110 @@ func typedRoute(
 	return nil
 }
 
-func typedRouteParameters(signature *types.Signature) (int, bool) {
+func validateFormContract(
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	bindings []Binding,
+	bindingResult bool,
+) *Diagnostic {
+	hasForm := hasLocation(bindings, Form)
+	if hasForm != bindingResult {
+		message := "a request containing form bindings must receive web.BindingResult after the request DTO"
+		if bindingResult {
+			message = "web.BindingResult is only valid for a request DTO containing form bindings"
+		}
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			"form-signature",
+			fmt.Sprintf("typed route %s: %s", symbolLabel(symbol), message),
+		)
+		return &diagnostic
+	}
+	if hasForm && hasLocation(bindings, Body) {
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			"mixed-body-form",
+			fmt.Sprintf("typed route %s must not combine body and form bindings", symbolLabel(symbol)),
+		)
+		return &diagnostic
+	}
+	return nil
+}
+
+func configureViewRoute(
+	route *Route,
+	occurrence resolve.Occurrence,
+	symbol load.Symbol,
+	hasForm bool,
+	providers []provider.Provider,
+) *Diagnostic {
+	if hasForm && !route.View {
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			"form-response",
+			fmt.Sprintf("typed route %s with form bindings must return view.Result", symbolLabel(symbol)),
+		)
+		return &diagnostic
+	}
+	if !route.View {
+		return nil
+	}
+	renderer, found := providerByTypeID(
+		"*github.com/StevenBuglione/spice/view.Renderer",
+		providers,
+	)
+	if !found {
+		diagnostic := symbolDiagnostic(
+			occurrence,
+			symbol,
+			"missing-view-renderer",
+			fmt.Sprintf("typed route %s returning view.Result requires exactly one *view.Renderer provider", symbolLabel(symbol)),
+		)
+		return &diagnostic
+	}
+	route.ViewRendererID = renderer.SymbolID
+	return nil
+}
+
+func typedRouteParameters(signature *types.Signature) (int, bool, bool) {
 	if signature == nil {
-		return -1, false
+		return -1, false, false
 	}
 	switch signature.Params().Len() {
 	case 2:
-		return 1, false
+		return 1, false, false
 	case 3:
 		if namedType(
 			signature.Params().At(1).Type(),
 			"github.com/StevenBuglione/spice/data",
 			"Executor",
 		) {
-			return 2, true
+			return 2, true, false
+		}
+		if namedType(
+			signature.Params().At(2).Type(),
+			"github.com/StevenBuglione/spice/web",
+			"BindingResult",
+		) {
+			return 1, false, true
+		}
+	case 4:
+		if namedType(
+			signature.Params().At(1).Type(),
+			"github.com/StevenBuglione/spice/data",
+			"Executor",
+		) && namedType(
+			signature.Params().At(3).Type(),
+			"github.com/StevenBuglione/spice/web",
+			"BindingResult",
+		) {
+			return 2, true, true
 		}
 	}
-	return -1, false
+	return -1, false, false
 }
 
 func requestValidator(
@@ -844,6 +976,7 @@ func fieldBinding(field *types.Var, tag string, index int) (Binding, bool, *bind
 		{"query", Query},
 		{"header", Header},
 		{"body", Body},
+		{"form", Form},
 	}
 	var selected []struct {
 		location Location
@@ -875,7 +1008,7 @@ func fieldBinding(field *types.Var, tag string, index int) (Binding, bool, *bind
 		return Binding{}, false, nil
 	}
 	if len(selected) != 1 {
-		return Binding{}, false, fieldProblem("binding-tags", fmt.Sprintf("field %s requires exactly one path, query, header, or body tag, or web:\"-\"", field.Name()))
+		return Binding{}, false, fieldProblem("binding-tags", fmt.Sprintf("field %s requires exactly one path, query, header, body, or form tag, or web:\"-\"", field.Name()))
 	}
 	location, raw := selected[0].location, selected[0].value
 	if location == Body {
@@ -923,7 +1056,7 @@ func bindingName(raw string, location Location) (string, bool, bool) {
 	switch location {
 	case Path:
 		return name, required, token.IsIdentifier(name)
-	case Query:
+	case Query, Form:
 		return name, required, validParameterName(name)
 	case Header:
 		return http.CanonicalHeaderKey(name), required, validHeaderName(name)
@@ -1081,6 +1214,21 @@ func exactProvider(required types.Type, providers []provider.Provider) (provider
 	return provider.Provider{}, false
 }
 
+func providerByTypeID(
+	typeID string,
+	providers []provider.Provider,
+) (provider.Provider, bool) {
+	var match provider.Provider
+	count := 0
+	for _, candidate := range providers {
+		if candidate.OutputTypeID == typeID {
+			match = candidate
+			count++
+		}
+	}
+	return match, count == 1
+}
+
 func stringArgument(value annotation.Annotation, name string, positional bool) (string, bool) {
 	if len(value.Arguments) == 0 {
 		return "", name == "prefix"
@@ -1143,8 +1291,12 @@ func pointerNamedType(value types.Type, packagePath, name string) bool {
 }
 
 func hasBody(bindings []Binding) bool {
+	return hasLocation(bindings, Body)
+}
+
+func hasLocation(bindings []Binding, location Location) bool {
 	for _, binding := range bindings {
-		if binding.Location == Body {
+		if binding.Location == location {
 			return true
 		}
 	}

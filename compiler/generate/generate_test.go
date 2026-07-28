@@ -1188,6 +1188,158 @@ func Web(*api.API) {}
 	runGoTest(t, root, "./internal/spicegen/web")
 }
 
+func TestRenderGeneratesExecutableFormViewAdapters(t *testing.T) {
+	root := writeModule(t, "example.com/forms", map[string]string{
+		"api/templates/owner.html": `{{define "owner"}}<h1>{{.Name}}</h1>{{range .Errors}}<p>{{.Message}}</p>{{end}}{{end}}`,
+		"api/api.go": `package api
+
+import (
+	"context"
+	"embed"
+	"net/http"
+	"strconv"
+
+	"github.com/StevenBuglione/spice/validation"
+	"github.com/StevenBuglione/spice/view"
+	"github.com/StevenBuglione/spice/web"
+)
+
+//go:embed templates/*.html
+var templates embed.FS
+
+type OwnerForm struct {
+	ID int ` + "`path:\"id\"`" + `
+	Name string ` + "`form:\"name,required\"`" + `
+	Age int ` + "`form:\"age,required\"`" + `
+}
+
+type OwnerModel struct {
+	Name string
+	Errors []validation.Violation
+}
+
+// @Controller(prefix="/owners")
+type Owners struct{}
+
+var mux *http.ServeMux
+
+func Mux() *http.ServeMux { return mux }
+
+// @Bean
+func NewMux() *http.ServeMux {
+	mux = http.NewServeMux()
+	return mux
+}
+
+// @Bean
+func NewRenderer() (*view.Renderer, error) {
+	return view.Parse(
+		templates,
+		[]string{"templates/*.html"},
+		nil,
+		view.Options{},
+	)
+}
+
+// @Bean
+func NewOwners() *Owners { return &Owners{} }
+
+// @Post("/{id}")
+func (*Owners) Save(
+	_ context.Context,
+	request OwnerForm,
+	binding web.BindingResult,
+) (view.Result, error) {
+	if !binding.Valid() {
+		return view.Render("owner", OwnerModel{
+			Name: request.Name,
+			Errors: binding.Errors().All(),
+		})
+	}
+	return view.SeeOther("/owners/" + strconv.Itoa(request.ID))
+}
+`,
+		"bootstrap/application.go": `package bootstrap
+
+import "example.com/forms/api"
+
+// @Application
+func Forms(*api.Owners) {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"DefaultTarget() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	plan, diagnostics := Render(
+		program,
+		model,
+		applicationTarget,
+		target,
+	)
+	if len(diagnostics) != 0 {
+		t.Fatalf(
+			"Render() diagnostics = %v",
+			generationDiagnosticStrings(diagnostics),
+		)
+	}
+	files := plan.Files()
+	source := string(fileContentByPath(
+		t,
+		files,
+		"internal/spicegen/forms/zz_spice_gen.go",
+	))
+	for _, expected := range []string{
+		`spiceview "github.com/StevenBuglione/spice/view"`,
+		"spiceweb.DecodeForm(",
+		"spiceweb.RejectUnknownForm(",
+		"bindingResult.RejectBinding(",
+		".Save(httpRequest.Context(), requestValue, bindingResult)",
+		".Respond(httpRequest.Context(), writer, responseValue)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf(
+				"generated source missing %q:\n%s",
+				expected,
+				source,
+			)
+		}
+	}
+	var openAPI openAPIDocument
+	if err := json.Unmarshal(
+		fileContentByPath(
+			t,
+			files,
+			"internal/spicegen/forms/openapi.json",
+		),
+		&openAPI,
+	); err != nil {
+		t.Fatal(err)
+	}
+	operation := openAPI.Paths["/owners/{id}"]["post"]
+	form := operation.RequestBody.
+		Content["application/x-www-form-urlencoded"].Schema
+	if form.Properties["age"].Type != "integer" ||
+		form.Properties["name"].Type != "string" ||
+		operation.Responses["200"].Content["text/html"].Schema.Type !=
+			"string" ||
+		operation.Responses["303"].Description != "See Other" {
+		t.Fatalf("form OpenAPI operation = %#v", operation)
+	}
+	writePlan(t, root, plan)
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/forms/form_test.go",
+		generatedFormViewTest,
+	)
+	runGoTest(t, root, "./internal/spicegen/forms")
+}
+
 func TestRenderRejectsCodeThatGeneratedPackageCannotAccess(t *testing.T) {
 	root := writeModule(t, "example.com/access", map[string]string{
 		"app/application.go": `package app
@@ -2058,6 +2210,90 @@ func TestGeneratedTransactionalRoutes(t *testing.T) {
 			cancelledResponse.Code,
 			cancelledResponse.Body.String(),
 			api.Operations(),
+		)
+	}
+}
+`
+
+const generatedFormViewTest = `package spicegen
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestGeneratedFormViewAdapter(t *testing.T) {
+	application, err := NewApplication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invalid := httptest.NewRequest(
+		http.MethodPost,
+		"/owners/7",
+		strings.NewReader("name=Joe&age=invalid"),
+	)
+	invalid.Header.Set(
+		"Content-Type",
+		"application/x-www-form-urlencoded",
+	)
+	invalid.Header.Set("Accept", "text/html")
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, invalid)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "<h1>Joe</h1>") ||
+		!strings.Contains(response.Body.String(), "must be a signed") ||
+		strings.Contains(response.Body.String(), "raw parser") {
+		t.Fatalf(
+			"invalid response = %d %q",
+			response.Code,
+			response.Body.String(),
+		)
+	}
+
+	valid := httptest.NewRequest(
+		http.MethodPost,
+		"/owners/7",
+		strings.NewReader("name=Joe&age=42"),
+	)
+	valid.Header.Set(
+		"Content-Type",
+		"application/x-www-form-urlencoded",
+	)
+	valid.Header.Set("Accept", "text/html")
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, valid)
+	if response.Code != http.StatusSeeOther ||
+		response.Header().Get("Location") != "/owners/7" ||
+		response.Body.Len() != 0 {
+		t.Fatalf(
+			"valid response = %d %#v %q",
+			response.Code,
+			response.Header(),
+			response.Body.String(),
+		)
+	}
+
+	notAcceptable := httptest.NewRequest(
+		http.MethodPost,
+		"/owners/7",
+		strings.NewReader("name=Joe&age=42"),
+	)
+	notAcceptable.Header.Set(
+		"Content-Type",
+		"application/x-www-form-urlencoded",
+	)
+	notAcceptable.Header.Set("Accept", "application/json")
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, notAcceptable)
+	if response.Code != http.StatusNotAcceptable {
+		t.Fatalf(
+			"not acceptable response = %d %q",
+			response.Code,
+			response.Body.String(),
 		)
 	}
 }
@@ -3398,6 +3634,21 @@ func writePlan(t *testing.T, root string, plan Plan) {
 		writeTestFile(t, root, file.Path, string(file.Content()))
 	}
 	writeTestFile(t, root, plan.Target().ManifestPath, string(plan.ManifestContent()))
+}
+
+func fileContentByPath(
+	t *testing.T,
+	files []File,
+	filePath string,
+) []byte {
+	t.Helper()
+	for _, file := range files {
+		if file.Path == filePath {
+			return file.Content()
+		}
+	}
+	t.Fatalf("generated file %q was not found", filePath)
+	return nil
 }
 
 func writeTestFile(tb testing.TB, root, relativePath, content string) {
