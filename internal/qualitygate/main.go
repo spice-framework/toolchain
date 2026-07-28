@@ -1025,7 +1025,12 @@ func petclinicSmoke(ctx context.Context, root string) error {
 	if runtime.GOOS == "windows" {
 		executable += ".exe"
 	}
-	offline := map[string]string{"GOPROXY": "off"}
+	offline := map[string]string{
+		"GOPROXY": "off",
+		"SPICE_PETCLINIC_POSTGRES_URL": "postgres://petclinic:petclinic@" +
+			"127.0.0.1:1/petclinic?sslmode=disable",
+		"SPICE_PETCLINIC_POSTGRES_ALLOW_INSECURE": "true",
+	}
 	if err := runExternal(
 		ctx,
 		root,
@@ -1040,11 +1045,52 @@ func petclinicSmoke(ctx context.Context, root string) error {
 		return err
 	}
 	directory := petclinicRoot(root)
-	for _, arguments := range [][]string{
-		{"verify", "./..."},
-		{"generate", "--check", "--target", "Petclinic", "./..."},
-		{"run", "--target", "Petclinic", "./...", "--", "-check"},
-	} {
+	memoryPatterns := []string{
+		".",
+		"./memory",
+		"./model",
+		"./owner",
+		"./presentation",
+		"./system",
+		"./vet",
+	}
+	postgresPatterns := []string{
+		"./cmd/postgres",
+		"./owner",
+		"./postgres",
+		"./presentation",
+		"./system",
+		"./vet",
+	}
+	commands := [][]string{
+		append([]string{"verify"}, memoryPatterns...),
+		append(
+			[]string{"generate", "--check", "--target", "Petclinic"},
+			memoryPatterns...,
+		),
+		append(
+			append(
+				[]string{"run", "--target", "Petclinic"},
+				memoryPatterns...,
+			),
+			"--",
+			"-check",
+		),
+		append([]string{"verify"}, postgresPatterns...),
+		append(
+			[]string{"generate", "--check", "--target", "Postgres"},
+			postgresPatterns...,
+		),
+		append(
+			append(
+				[]string{"run", "--target", "Postgres"},
+				postgresPatterns...,
+			),
+			"--",
+			"-check",
+		),
+	}
+	for _, arguments := range commands {
 		if err := runExternal(
 			ctx,
 			directory,
