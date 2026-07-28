@@ -740,10 +740,142 @@
         },
         "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|6:Create"
       }
+    },
+    "/vets": {
+      "get": {
+        "operationId": "Controller_ListJSON",
+        "summary": "ListJSON",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vets_448ebb974c"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|54:github.com/StevenBuglione/spice/examples/petclinic/vet|10:Controller|8:ListJSON"
+      }
+    },
+    "/vets.html": {
+      "get": {
+        "operationId": "Controller_ListHTML",
+        "summary": "ListHTML",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|54:github.com/StevenBuglione/spice/examples/petclinic/vet|10:Controller|8:ListHTML"
+      }
     }
   },
   "components": {
     "schemas": {
+      "BaseEntity_e256646753": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ID_2b11683490"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "ID_2b11683490": {
+        "type": "integer",
+        "format": "int64"
+      },
+      "NamedEntity_3da5140ac8": {
+        "type": "object",
+        "properties": {
+          "BaseEntity": {
+            "$ref": "#/components/schemas/BaseEntity_e256646753"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "BaseEntity",
+          "name"
+        ]
+      },
+      "Person_610a80b7dd": {
+        "type": "object",
+        "properties": {
+          "BaseEntity": {
+            "$ref": "#/components/schemas/BaseEntity_e256646753"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "BaseEntity",
+          "firstName",
+          "lastName"
+        ]
+      },
+      "Specialty_94b46133c0": {
+        "type": "object",
+        "properties": {
+          "NamedEntity": {
+            "$ref": "#/components/schemas/NamedEntity_3da5140ac8"
+          }
+        },
+        "required": [
+          "NamedEntity"
+        ]
+      },
       "SpiceProblem": {
         "type": "object",
         "properties": {
@@ -770,6 +902,38 @@
           "type",
           "title",
           "status"
+        ]
+      },
+      "Vet_978c54e322": {
+        "type": "object",
+        "properties": {
+          "Person": {
+            "$ref": "#/components/schemas/Person_610a80b7dd"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Specialty_94b46133c0"
+            }
+          }
+        },
+        "required": [
+          "Person",
+          "specialties"
+        ]
+      },
+      "Vets_448ebb974c": {
+        "type": "object",
+        "properties": {
+          "vetList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Vet_978c54e322"
+            }
+          }
+        },
+        "required": [
+          "vetList"
         ]
       }
     }

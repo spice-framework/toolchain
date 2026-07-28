@@ -20,6 +20,7 @@ import (
 	owner "github.com/StevenBuglione/spice/examples/petclinic/owner"
 	presentation "github.com/StevenBuglione/spice/examples/petclinic/presentation"
 	system "github.com/StevenBuglione/spice/examples/petclinic/system"
+	vet "github.com/StevenBuglione/spice/examples/petclinic/vet"
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 	spicemanagement "github.com/StevenBuglione/spice/management"
 	spiceobservability "github.com/StevenBuglione/spice/observability"
@@ -46,10 +47,12 @@ type Components struct {
 	Mux *http.ServeMux
 	// VetRepository is bean "vetRepository".
 	VetRepository *memory.VetRepository
+	// VetController is bean "controller".
+	VetController *vet.Controller
 	// OwnerRepository is bean "ownerRepository".
 	OwnerRepository *memory.OwnerRepository
-	// Controller is bean "controller".
-	Controller *owner.Controller
+	// OwnerController is bean "controller".
+	OwnerController *owner.Controller
 	// VisitController is bean "visitController".
 	VisitController *owner.VisitController
 	// PetTypeRepository is bean "petTypeRepository".
@@ -166,51 +169,120 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/petclinic/memory|0:|13:VetRepository (*github.com/StevenBuglione/spice/examples/petclinic/memory.VetRepository): %w", err))
 	}
 	_ = provider3
-	provider4, err := memory.NewOwnerRepository(provider0)
+	provider4, err := vet.NewController(provider3)
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|54:github.com/StevenBuglione/spice/examples/petclinic/vet|0:|10:Controller (*github.com/StevenBuglione/spice/examples/petclinic/vet.Controller): %w", err))
+	}
+	_ = provider4
+	provider5, err := memory.NewOwnerRepository(provider0)
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/petclinic/memory|0:|15:OwnerRepository (*github.com/StevenBuglione/spice/examples/petclinic/memory.OwnerRepository): %w", err))
 	}
-	_ = provider4
-	provider5, err := owner.NewController(provider4)
+	_ = provider5
+	provider6, err := owner.NewController(provider5)
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/petclinic/owner|0:|10:Controller (*github.com/StevenBuglione/spice/examples/petclinic/owner.Controller): %w", err))
 	}
-	_ = provider5
-	provider6, err := owner.NewVisitController(provider4)
+	_ = provider6
+	provider7, err := owner.NewVisitController(provider5)
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/petclinic/owner|0:|15:VisitController (*github.com/StevenBuglione/spice/examples/petclinic/owner.VisitController): %w", err))
 	}
-	_ = provider6
-	provider7, err := memory.NewPetTypeRepository(provider0)
+	_ = provider7
+	provider8, err := memory.NewPetTypeRepository(provider0)
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/petclinic/memory|0:|17:PetTypeRepository (*github.com/StevenBuglione/spice/examples/petclinic/memory.PetTypeRepository): %w", err))
 	}
-	_ = provider7
-	provider8, err := owner.NewPetController(provider4, provider7)
+	_ = provider8
+	provider9, err := owner.NewPetController(provider5, provider8)
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/petclinic/owner|0:|13:PetController (*github.com/StevenBuglione/spice/examples/petclinic/owner.PetController): %w", err))
 	}
-	_ = provider8
-	provider9 := system.NewWelcomeController()
 	_ = provider9
+	provider10 := system.NewWelcomeController()
+	_ = provider10
 	application.components = Components{
 		PetclinicDatabase: provider0,
 		Renderer:          provider1,
 		Mux:               provider2,
 		VetRepository:     provider3,
-		OwnerRepository:   provider4,
-		Controller:        provider5,
-		VisitController:   provider6,
-		PetTypeRepository: provider7,
-		PetController:     provider8,
-		WelcomeController: provider9,
+		VetController:     provider4,
+		OwnerRepository:   provider5,
+		OwnerController:   provider6,
+		VisitController:   provider7,
+		PetTypeRepository: provider8,
+		PetController:     provider9,
+		WelcomeController: provider10,
 	}
 	routeMux := provider2
 	application.mux = routeMux
 	application.handler = routeMux
-	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|4:Find", Module: "", Method: "GET", Pattern: "/owners"}, httpObservers...)
+	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|54:github.com/StevenBuglione/spice/examples/petclinic/vet|10:Controller|8:ListJSON", Module: "", Method: "GET", Pattern: "/vets"}, httpObservers...)
 	if routeObservationErr0 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners observation: %w", routeObservationErr0))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /vets observation: %w", routeObservationErr0))
+	}
+	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /vets", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
+			problem := spiceweb.Problem{
+				Type:   "about:blank",
+				Title:  "Not Acceptable",
+				Status: http.StatusNotAcceptable,
+				Detail: "the endpoint produces application/json",
+			}
+			_ = spiceweb.WriteProblem(writer, problem)
+			return
+		}
+		requestValue := vet.AllRequest{}
+		responseValue, routeErr := provider4.ListJSON(httpRequest.Context(), requestValue)
+		if routeErr != nil {
+			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
+			return
+		}
+		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
+	}), routeObservation0, options.Middleware...); routeErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /vets: %w", routeErr))
+	}
+	routeObservation1, routeObservationErr1 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|54:github.com/StevenBuglione/spice/examples/petclinic/vet|10:Controller|8:ListHTML", Module: "", Method: "GET", Pattern: "/vets.html"}, httpObservers...)
+	if routeObservationErr1 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /vets.html observation: %w", routeObservationErr1))
+	}
+	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /vets.html", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
+			problem := spiceweb.Problem{
+				Type:   "about:blank",
+				Title:  "Not Acceptable",
+				Status: http.StatusNotAcceptable,
+				Detail: "the endpoint produces text/html",
+			}
+			_ = spiceweb.WriteProblem(writer, problem)
+			return
+		}
+		requestValue := vet.ListRequest{}
+		raw0, present0, bindErr0 := spiceweb.Parameter(spiceweb.LocationQuery, "page", httpRequest.URL.Query()["page"], false)
+		if bindErr0 != nil {
+			_ = spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper)
+			return
+		}
+		if present0 {
+			parsed0, parseErr0 := spiceweb.Integer(spiceweb.LocationQuery, "page", raw0, 0)
+			if parseErr0 != nil {
+				_ = spiceweb.WriteError(writer, httpRequest, parseErr0, options.ErrorMapper)
+				return
+			}
+			requestValue.Page = int(parsed0)
+		}
+		responseValue, routeErr := provider4.ListHTML(httpRequest.Context(), requestValue)
+		if routeErr != nil {
+			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
+			return
+		}
+		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
+	}), routeObservation1, options.Middleware...); routeErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /vets.html: %w", routeErr))
+	}
+	routeObservation2, routeObservationErr2 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|4:Find", Module: "", Method: "GET", Pattern: "/owners"}, httpObservers...)
+	if routeObservationErr2 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners observation: %w", routeObservationErr2))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -245,18 +317,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 			requestValue.Page = int(parsed1)
 		}
-		responseValue, routeErr := provider5.Find(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider6.Find(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation0, options.Middleware...); routeErr != nil {
+	}), routeObservation2, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners: %w", routeErr))
 	}
-	routeObservation1, routeObservationErr1 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|8:FindForm", Module: "", Method: "GET", Pattern: "/owners/find"}, httpObservers...)
-	if routeObservationErr1 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/find observation: %w", routeObservationErr1))
+	routeObservation3, routeObservationErr3 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|8:FindForm", Module: "", Method: "GET", Pattern: "/owners/find"}, httpObservers...)
+	if routeObservationErr3 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/find observation: %w", routeObservationErr3))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/find", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -270,18 +342,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			return
 		}
 		requestValue := owner.FindOwnerFormRequest{}
-		responseValue, routeErr := provider5.FindForm(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider6.FindForm(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation1, options.Middleware...); routeErr != nil {
+	}), routeObservation3, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/find: %w", routeErr))
 	}
-	routeObservation2, routeObservationErr2 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|7:NewForm", Module: "", Method: "GET", Pattern: "/owners/new"}, httpObservers...)
-	if routeObservationErr2 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/new observation: %w", routeObservationErr2))
+	routeObservation4, routeObservationErr4 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|7:NewForm", Module: "", Method: "GET", Pattern: "/owners/new"}, httpObservers...)
+	if routeObservationErr4 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/new observation: %w", routeObservationErr4))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/new", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -295,18 +367,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			return
 		}
 		requestValue := owner.NewOwnerRequest{}
-		responseValue, routeErr := provider5.NewForm(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider6.NewForm(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation2, options.Middleware...); routeErr != nil {
+	}), routeObservation4, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/new: %w", routeErr))
 	}
-	routeObservation3, routeObservationErr3 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|4:Show", Module: "", Method: "GET", Pattern: "/owners/{ownerId}"}, httpObservers...)
-	if routeObservationErr3 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId} observation: %w", routeObservationErr3))
+	routeObservation5, routeObservationErr5 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|4:Show", Module: "", Method: "GET", Pattern: "/owners/{ownerId}"}, httpObservers...)
+	if routeObservationErr5 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId} observation: %w", routeObservationErr5))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/{ownerId}", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -333,18 +405,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 			requestValue.OwnerID = int(parsed0)
 		}
-		responseValue, routeErr := provider5.Show(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider6.Show(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation3, options.Middleware...); routeErr != nil {
+	}), routeObservation5, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/{ownerId}: %w", routeErr))
 	}
-	routeObservation4, routeObservationErr4 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|8:EditForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/edit"}, httpObservers...)
-	if routeObservationErr4 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/edit observation: %w", routeObservationErr4))
+	routeObservation6, routeObservationErr6 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|8:EditForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/edit"}, httpObservers...)
+	if routeObservationErr6 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/edit observation: %w", routeObservationErr6))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/{ownerId}/edit", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -371,18 +443,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 			requestValue.OwnerID = int(parsed0)
 		}
-		responseValue, routeErr := provider5.EditForm(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider6.EditForm(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation4, options.Middleware...); routeErr != nil {
+	}), routeObservation6, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/{ownerId}/edit: %w", routeErr))
 	}
-	routeObservation5, routeObservationErr5 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|6:Create", Module: "", Method: "POST", Pattern: "/owners/new"}, httpObservers...)
-	if routeObservationErr5 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/new observation: %w", routeObservationErr5))
+	routeObservation7, routeObservationErr7 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|6:Create", Module: "", Method: "POST", Pattern: "/owners/new"}, httpObservers...)
+	if routeObservationErr7 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/new observation: %w", routeObservationErr7))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /owners/new", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -468,18 +540,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		} else if present4 {
 			requestValue.Telephone = string(raw4)
 		}
-		responseValue, routeErr := provider5.Create(httpRequest.Context(), requestValue, bindingResult)
+		responseValue, routeErr := provider6.Create(httpRequest.Context(), requestValue, bindingResult)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation5, options.Middleware...); routeErr != nil {
+	}), routeObservation7, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /owners/new: %w", routeErr))
 	}
-	routeObservation6, routeObservationErr6 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|6:Update", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/edit"}, httpObservers...)
-	if routeObservationErr6 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/edit observation: %w", routeObservationErr6))
+	routeObservation8, routeObservationErr8 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|6:Update", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/edit"}, httpObservers...)
+	if routeObservationErr8 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/edit observation: %w", routeObservationErr8))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /owners/{ownerId}/edit", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -578,18 +650,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		} else if present5 {
 			requestValue.Telephone = string(raw5)
 		}
-		responseValue, routeErr := provider5.Update(httpRequest.Context(), requestValue, bindingResult)
+		responseValue, routeErr := provider6.Update(httpRequest.Context(), requestValue, bindingResult)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation6, options.Middleware...); routeErr != nil {
+	}), routeObservation8, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /owners/{ownerId}/edit: %w", routeErr))
 	}
-	routeObservation7, routeObservationErr7 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|7:NewForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/pets/new"}, httpObservers...)
-	if routeObservationErr7 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/pets/new observation: %w", routeObservationErr7))
+	routeObservation9, routeObservationErr9 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|7:NewForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/pets/new"}, httpObservers...)
+	if routeObservationErr9 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/pets/new observation: %w", routeObservationErr9))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/{ownerId}/pets/new", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -616,18 +688,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 			requestValue.OwnerID = int(parsed0)
 		}
-		responseValue, routeErr := provider8.NewForm(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider9.NewForm(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation7, options.Middleware...); routeErr != nil {
+	}), routeObservation9, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/{ownerId}/pets/new: %w", routeErr))
 	}
-	routeObservation8, routeObservationErr8 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|8:EditForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/pets/{petId}/edit"}, httpObservers...)
-	if routeObservationErr8 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/pets/{petId}/edit observation: %w", routeObservationErr8))
+	routeObservation10, routeObservationErr10 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|8:EditForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/pets/{petId}/edit"}, httpObservers...)
+	if routeObservationErr10 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/pets/{petId}/edit observation: %w", routeObservationErr10))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/{ownerId}/pets/{petId}/edit", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -667,18 +739,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 			requestValue.PetID = int(parsed1)
 		}
-		responseValue, routeErr := provider8.EditForm(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider9.EditForm(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation8, options.Middleware...); routeErr != nil {
+	}), routeObservation10, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/{ownerId}/pets/{petId}/edit: %w", routeErr))
 	}
-	routeObservation9, routeObservationErr9 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|6:Create", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/pets/new"}, httpObservers...)
-	if routeObservationErr9 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/pets/new observation: %w", routeObservationErr9))
+	routeObservation11, routeObservationErr11 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|6:Create", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/pets/new"}, httpObservers...)
+	if routeObservationErr11 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/pets/new observation: %w", routeObservationErr11))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /owners/{ownerId}/pets/new", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -765,18 +837,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 				requestValue.TypeID = int(parsed3)
 			}
 		}
-		responseValue, routeErr := provider8.Create(httpRequest.Context(), requestValue, bindingResult)
+		responseValue, routeErr := provider9.Create(httpRequest.Context(), requestValue, bindingResult)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation9, options.Middleware...); routeErr != nil {
+	}), routeObservation11, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /owners/{ownerId}/pets/new: %w", routeErr))
 	}
-	routeObservation10, routeObservationErr10 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|6:Update", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/pets/{petId}/edit"}, httpObservers...)
-	if routeObservationErr10 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/pets/{petId}/edit observation: %w", routeObservationErr10))
+	routeObservation12, routeObservationErr12 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|6:Update", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/pets/{petId}/edit"}, httpObservers...)
+	if routeObservationErr12 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/pets/{petId}/edit observation: %w", routeObservationErr12))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /owners/{ownerId}/pets/{petId}/edit", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -876,18 +948,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 				requestValue.TypeID = int(parsed4)
 			}
 		}
-		responseValue, routeErr := provider8.Update(httpRequest.Context(), requestValue, bindingResult)
+		responseValue, routeErr := provider9.Update(httpRequest.Context(), requestValue, bindingResult)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation10, options.Middleware...); routeErr != nil {
+	}), routeObservation12, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /owners/{ownerId}/pets/{petId}/edit: %w", routeErr))
 	}
-	routeObservation11, routeObservationErr11 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|7:NewForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/pets/{petId}/visits/new"}, httpObservers...)
-	if routeObservationErr11 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/pets/{petId}/visits/new observation: %w", routeObservationErr11))
+	routeObservation13, routeObservationErr13 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|7:NewForm", Module: "", Method: "GET", Pattern: "/owners/{ownerId}/pets/{petId}/visits/new"}, httpObservers...)
+	if routeObservationErr13 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /owners/{ownerId}/pets/{petId}/visits/new observation: %w", routeObservationErr13))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /owners/{ownerId}/pets/{petId}/visits/new", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -927,18 +999,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 			requestValue.PetID = int(parsed1)
 		}
-		responseValue, routeErr := provider6.NewForm(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider7.NewForm(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation11, options.Middleware...); routeErr != nil {
+	}), routeObservation13, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /owners/{ownerId}/pets/{petId}/visits/new: %w", routeErr))
 	}
-	routeObservation12, routeObservationErr12 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|6:Create", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/pets/{petId}/visits/new"}, httpObservers...)
-	if routeObservationErr12 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/pets/{petId}/visits/new observation: %w", routeObservationErr12))
+	routeObservation14, routeObservationErr14 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|6:Create", Module: "", Method: "POST", Pattern: "/owners/{ownerId}/pets/{petId}/visits/new"}, httpObservers...)
+	if routeObservationErr14 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /owners/{ownerId}/pets/{petId}/visits/new observation: %w", routeObservationErr14))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /owners/{ownerId}/pets/{petId}/visits/new", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -1017,18 +1089,18 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		} else if present3 {
 			requestValue.Description = string(raw3)
 		}
-		responseValue, routeErr := provider6.Create(httpRequest.Context(), requestValue, bindingResult)
+		responseValue, routeErr := provider7.Create(httpRequest.Context(), requestValue, bindingResult)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation12, options.Middleware...); routeErr != nil {
+	}), routeObservation14, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /owners/{ownerId}/pets/{petId}/visits/new: %w", routeErr))
 	}
-	routeObservation13, routeObservationErr13 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|57:github.com/StevenBuglione/spice/examples/petclinic/system|17:WelcomeController|4:Show", Module: "", Method: "GET", Pattern: "/"}, httpObservers...)
-	if routeObservationErr13 != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET / observation: %w", routeObservationErr13))
+	routeObservation15, routeObservationErr15 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|57:github.com/StevenBuglione/spice/examples/petclinic/system|17:WelcomeController|4:Show", Module: "", Method: "GET", Pattern: "/"}, httpObservers...)
+	if routeObservationErr15 != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET / observation: %w", routeObservationErr15))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		if !spiceview.AcceptsHTML(httpRequest.Header.Get("Accept")) {
@@ -1042,13 +1114,13 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			return
 		}
 		requestValue := system.WelcomeRequest{}
-		responseValue, routeErr := provider9.Show(httpRequest.Context(), requestValue)
+		responseValue, routeErr := provider10.Show(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
 		_ = provider1.Respond(httpRequest.Context(), writer, responseValue)
-	}), routeObservation13, options.Middleware...); routeErr != nil {
+	}), routeObservation15, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /: %w", routeErr))
 	}
 	managementChecks, err := spicemanagement.LifecycleChecks(TargetID, "github.com/StevenBuglione/spice/examples/petclinic", application.State)

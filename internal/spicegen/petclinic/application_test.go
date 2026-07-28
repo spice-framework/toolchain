@@ -303,6 +303,69 @@ func TestGeneratedPetclinicPetAndVisitWorkflow(t *testing.T) {
 	}
 }
 
+func TestGeneratedPetclinicVeterinarianRepresentations(t *testing.T) {
+	t.Parallel()
+
+	application, err := NewApplicationWithOptions(
+		t.Context(),
+		ApplicationOptions{Logger: testLogger()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if stopErr := application.Stop(t.Context()); stopErr != nil {
+			t.Errorf("Stop() error = %v", stopErr)
+		}
+	})
+	handler := application.Handler()
+	if handler == nil {
+		t.Fatal("generated application handler is nil")
+	}
+
+	firstPage := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/vets.html?page=1",
+		nil,
+	)
+	if firstPage.Code != http.StatusOK ||
+		!strings.Contains(firstPage.Body.String(), "James Carter") ||
+		strings.Contains(firstPage.Body.String(), "Henry Stevens") {
+		t.Fatalf("first vet page = %d %s", firstPage.Code, firstPage.Body)
+	}
+	secondPage := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/vets.html?page=2",
+		nil,
+	)
+	if secondPage.Code != http.StatusOK ||
+		!strings.Contains(secondPage.Body.String(), "Henry Stevens") {
+		t.Fatalf("second vet page = %d %s", secondPage.Code, secondPage.Body)
+	}
+	invalidPage := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/vets.html?page=3",
+		nil,
+	)
+	if invalidPage.Code != http.StatusBadRequest {
+		t.Fatalf("invalid vet page = %d %s", invalidPage.Code, invalidPage.Body)
+	}
+	jsonResponse := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/vets",
+		nil,
+	)
+	if jsonResponse.Code != http.StatusOK ||
+		!strings.Contains(jsonResponse.Body.String(), `"firstName":"James"`) ||
+		!strings.Contains(jsonResponse.Body.String(), `"specialties"`) {
+		t.Fatalf("vet JSON = %d %s", jsonResponse.Code, jsonResponse.Body)
+	}
+}
+
 func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 	t.Parallel()
 
@@ -333,6 +396,7 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 		"/owners/1/pets/new",
 		"/owners/1/pets/1/edit",
 		"/owners/1/pets/1/visits/new",
+		"/vets.html",
 	} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
 		request.Header.Set("Accept", "application/json")
@@ -341,6 +405,17 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 		if response.Code != http.StatusNotAcceptable {
 			t.Errorf("%s status = %d, want %d", target, response.Code, http.StatusNotAcceptable)
 		}
+	}
+	vetsNotAcceptable := httptest.NewRequest(http.MethodGet, "/vets", nil)
+	vetsNotAcceptable.Header.Set("Accept", "text/html")
+	vetsNotAcceptableResponse := httptest.NewRecorder()
+	handler.ServeHTTP(vetsNotAcceptableResponse, vetsNotAcceptable)
+	if vetsNotAcceptableResponse.Code != http.StatusNotAcceptable {
+		t.Errorf(
+			"/vets status = %d, want %d",
+			vetsNotAcceptableResponse.Code,
+			http.StatusNotAcceptable,
+		)
 	}
 	for _, target := range []string{
 		"/owners/new",
@@ -385,6 +460,8 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 		"/owners/not-a-number/pets/1/edit",
 		"/owners/1/pets/not-a-number/visits/new",
 		"/owners/not-a-number/pets/1/visits/new",
+		"/vets.html?page=invalid",
+		"/vets.html?page=1&page=2",
 	} {
 		response := servePetclinic(handler, http.MethodGet, target, nil)
 		if response.Code != http.StatusBadRequest {
@@ -604,6 +681,14 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 			!strings.Contains(response.Body.String(), "Content-Type") {
 			t.Errorf("malformed %s = %d %s", target, response.Code, response.Body)
 		}
+	}
+	for _, accept := range []string{"application/json", "text/html"} {
+		request := httptest.NewRequest(http.MethodGet, "/vets", nil)
+		request.Header.Set("Accept", accept)
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			request,
+		)
 	}
 	for target, form := range map[string]url.Values{
 		"/owners/1/pets/new": validPetForm(
@@ -865,6 +950,8 @@ func TestGeneratedPetclinicCancelledRequests(t *testing.T) {
 			method: http.MethodGet,
 			target: "/owners/1/pets/1/visits/new",
 		},
+		{method: http.MethodGet, target: "/vets.html"},
+		{method: http.MethodGet, target: "/vets"},
 		{
 			method: http.MethodPost,
 			target: "/owners/new",
