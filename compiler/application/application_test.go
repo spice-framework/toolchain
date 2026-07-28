@@ -19,6 +19,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	runtimeconfig "github.com/StevenBuglione/spice/config"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestBuildAssemblesDeterministicApplicationIR(t *testing.T) {
@@ -536,6 +537,10 @@ func NewService() *Service { return &Service{} }
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		b.Fatal(resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		b.Fatal(err)
 	}
 
 	b.ReportAllocs()
@@ -1122,6 +1127,10 @@ func loadAndResolve(t *testing.T, root string, patterns ...string) (*load.Progra
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	return program, resolution
 }

@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
@@ -33,6 +32,7 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(t, service)
 
 	invalid := strings.Replace(
 		string(original),
@@ -59,7 +59,7 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 		t.Fatal("Analyze(invalid) GenerationReady() = true, want false")
 	}
 	diagnostic := invalidResult.Diagnostics().Items()[0]
-	if !strings.Contains(diagnostic.Message, "unknown annotation") ||
+	if !strings.Contains(diagnostic.Message, "is not imported") ||
 		diagnostic.Location.Path != filepath.ToSlash(mainPath) {
 		t.Fatalf("invalid diagnostic = %+v", diagnostic)
 	}
@@ -127,20 +127,12 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 	if len(result.AnnotationDefinitions()) == 0 {
 		t.Fatal("AnnotationDefinitions() are empty")
 	}
-	foundManagementValues := false
 	for _, definition := range result.AnnotationDefinitions() {
-		if definition.Name != "management.Enable" {
-			continue
+		if definition.Name == "management.Enable" {
+			t.Fatal(
+				"AnnotationDefinitions() exposed an unimported built-in",
+			)
 		}
-		for _, argument := range definition.Arguments {
-			if argument.Name == "expose" &&
-				slices.Contains(argument.AllowedStrings, "health") {
-				foundManagementValues = true
-			}
-		}
-	}
-	if !foundManagementValues {
-		t.Fatal("AnnotationDefinitions() omitted management endpoint values")
 	}
 	for _, relativePath := range []string{
 		"zz_spice_gen.go",
@@ -175,6 +167,7 @@ type Concrete struct{}
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(t, service)
 	result, err := service.Analyze(t.Context(), Request{
 		WorkspaceRoot: root,
 		Mode:          AnalysisValidate,
@@ -237,6 +230,8 @@ func TestServiceValidationModeDoesNotRequireApplicationTarget(t *testing.T) {
 	root := writeServiceModule(t)
 	writeServiceFixtureFile(t, root, "main.go", `package main
 
+// @import { Service } from "github.com/StevenBuglione/spice/annotation/core"
+
 // @Service
 type ProcessBoundary struct{}
 `)
@@ -244,6 +239,7 @@ type ProcessBoundary struct{}
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(t, compiler)
 	result, err := compiler.Analyze(context.Background(), Request{
 		WorkspaceRoot: root,
 		Mode:          AnalysisValidate,
@@ -952,6 +948,7 @@ func TestServiceDoesNotTreatRawStringContentAsAnnotationSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(t, service)
 	result, err := service.Analyze(
 		context.Background(),
 		Request{
@@ -991,6 +988,7 @@ func TestServiceCacheIsBoundedAndResultsAreDefensive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(t, service)
 	request := Request{
 		WorkspaceRoot: root,
 		ContentHash:   "snapshot-1",
@@ -1130,20 +1128,6 @@ func TestServiceHonorsCallerCancellation(t *testing.T) {
 func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
 	t.Parallel()
 	root := writeServiceModule(t)
-	mainPath := filepath.Join(root, "main.go")
-	content, err := os.ReadFile(mainPath)
-	if err != nil {
-		t.Fatalf("ReadFile(main.go) error = %v", err)
-	}
-	content = bytes.Replace(
-		content,
-		[]byte("// @Application"),
-		[]byte("// @Application\n// @fixture.Enable"),
-		1,
-	)
-	if writeErr := os.WriteFile(mainPath, content, 0o600); writeErr != nil {
-		t.Fatalf("WriteFile(main.go) error = %v", writeErr)
-	}
 	starterPath := filepath.Join(root, "starter", "starter.go")
 	if mkdirErr := os.MkdirAll(filepath.Dir(starterPath), 0o750); mkdirErr != nil {
 		t.Fatalf("MkdirAll(starter) error = %v", mkdirErr)
@@ -1165,7 +1149,7 @@ func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
 		License:   "Apache-2.0",
 		Review:    "docs/dependency-review.md",
 		Activation: publicstarter.Activation{
-			Mode: publicstarter.ActivationExplicitAnnotation,
+			Mode: publicstarter.ActivationExplicitConstructor,
 			EntryPoints: []publicstarter.EntryPoint{{
 				Package: "example.com/servicefixture/starter",
 				Symbol:  "New",
@@ -1176,18 +1160,6 @@ func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
 			Module:  "example.com/reviewed",
 			Version: "v1.2.3",
 			License: "MIT",
-		}},
-		Annotations: []publicstarter.AnnotationSpec{{
-			Name:    "fixture.Enable",
-			Targets: []annotation.Target{annotation.TargetFunction},
-		}},
-		ApplicationFeatures: []publicstarter.FeatureSpec{{
-			Annotation: "fixture.Enable",
-			Capability: "fixture.client",
-			EntryPoints: []publicstarter.EntryPoint{{
-				Package: "example.com/servicefixture/starter",
-				Symbol:  "New",
-			}},
 		}},
 	})
 	catalog, err := compilerstarter.New(manifest)
@@ -1214,6 +1186,7 @@ func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(t, service)
 	result, err := service.Analyze(
 		context.Background(),
 		Request{WorkspaceRoot: root},
@@ -1233,15 +1206,6 @@ func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
 	}
 	if inspections.Load() != 1 {
 		t.Fatalf("module inspections = %d, want 1", inspections.Load())
-	}
-	foundDefinition := false
-	for _, definition := range result.AnnotationDefinitions() {
-		if definition.Name == "fixture.Enable" {
-			foundDefinition = true
-		}
-	}
-	if !foundDefinition {
-		t.Fatal("AnnotationDefinitions() omitted selected starter definition")
 	}
 	foundProvider := false
 	for _, provider := range result.ProviderGraph().Providers {
@@ -1272,6 +1236,7 @@ func TestServiceComposesSelectedStarterMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(misaligned) error = %v", err)
 	}
+	registerServiceCleanup(t, misaligned)
 	failed, err := misaligned.Analyze(
 		context.Background(),
 		Request{WorkspaceRoot: root},
@@ -1429,6 +1394,20 @@ type testingTB interface {
 	Fatalf(string, ...any)
 }
 
+func registerServiceCleanup(tb testing.TB, service *Service) {
+	tb.Helper()
+	tb.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+		if err := service.Close(ctx); err != nil {
+			tb.Errorf("Close() error = %v", err)
+		}
+	})
+}
+
 func writeServiceModule(tb testingTB) string {
 	tb.Helper()
 	root := tb.TempDir()
@@ -1446,16 +1425,22 @@ func writeServiceModule(tb testingTB) string {
 
 import "os"
 
+// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+
 // @Application
 func main() {
 	os.Exit(spiceMain(os.Args[1:]))
 }
 `,
-		"orders/doc.go": `// Package orders owns order configuration.
+		"orders/doc.go": `// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+
+// Package orders owns order configuration.
 // @Module
 package orders
 `,
 		"orders/config.go": `package orders
+
+// @import { Configuration } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Configuration(prefix="orders")
 type Settings struct {

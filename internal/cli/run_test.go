@@ -141,7 +141,7 @@ func TestRunVerifyRejectsArgumentFailures(t *testing.T) {
 		expected []string
 	}{
 		{name: "missing", source: "package sample\n\n// @Get\nfunc (Controller) Get() {}\ntype Controller struct{}\n", expected: []string{`requires argument "path"`}},
-		{name: "unknown", source: "package sample\n\n// @Controller(prefx=\"/users\")\ntype Controller struct{}\n", expected: []string{`does not define argument "prefx"`, "available argument: prefix"}},
+		{name: "unknown", source: "package sample\n\n// @Controller(prefx=\"/users\")\ntype Controller struct{}\n", expected: []string{`does not define argument "prefx"`, "available arguments: aliases, constructor, name, prefix"}},
 		{name: "wrong kind", source: "package sample\n\n// @Controller(prefix=3)\ntype Controller struct{}\n", expected: []string{`argument "prefix" requires string, got integer`}},
 		{name: "duplicate", source: "package sample\n\ntype Controller struct{}\n\n// @Get(\"/{id}\", path=\"/{other}\")\nfunc (Controller) Get() {}\n", expected: []string{`assigns argument "path" more than once`}},
 	}
@@ -165,7 +165,7 @@ func TestRunVerifyRejectsInvalidTargetAndUnknownAnnotation(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ source, expected string }{
 		{"package sample\n\n// @Controller(prefix=\"/users\")\nfunc NewController() {}\n", "allowed target: type"},
-		{"package sample\n\n// @custom.Feature\nfunc Feature() {}\n", "unknown annotation @custom.Feature"},
+		{"package sample\n\n// @custom.Feature\nfunc Feature() {}\n", "annotation @custom.Feature is not imported"},
 	}
 	for _, test := range tests {
 		code, _, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
@@ -213,11 +213,11 @@ var Second int
 		normalized := filepath.ToSlash(stderr)
 		zIndex := strings.Index(
 			normalized,
-			"z.go:100:1: [spice.validation.unknown-annotation] unknown annotation @UnknownA",
+			"z.go:100:1: [spice.resolution.annotation-import] annotation @UnknownA is not imported",
 		)
 		aIndex := strings.Index(
 			normalized,
-			"a.go:1:1: [spice.validation.unknown-annotation] unknown annotation @UnknownB",
+			"a.go:1:1: [spice.resolution.annotation-import] annotation @UnknownB is not imported",
 		)
 		if zIndex < 0 || aIndex < 0 || zIndex >= aIndex {
 			t.Fatalf("run=%d diagnostics not in physical order: %q", run, stderr)
@@ -370,10 +370,35 @@ func writeGoSource(t *testing.T, source string) string {
 func writeModule(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/fixture\n\ngo 1.23.0\n"), 0o600); err != nil {
+	normalized := make(map[string]string, len(files))
+	usesAnnotations := false
+	for path, source := range files {
+		if filepath.Ext(path) == ".go" {
+			source, usesAnnotations = withTestAnnotationImports(
+				source,
+				usesAnnotations,
+			)
+		}
+		normalized[path] = source
+	}
+	goMod := normalized["go.mod"]
+	if goMod == "" {
+		goMod = "module example.com/fixture\n\ngo 1.26.0\n"
+	}
+	if usesAnnotations {
+		goMod = withTestAnnotationTool(t, goMod)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "go.mod"),
+		[]byte(goMod),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
-	for path, source := range files {
+	for path, source := range normalized {
+		if path == "go.mod" {
+			continue
+		}
 		full := filepath.Join(root, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -383,6 +408,161 @@ func writeModule(t *testing.T, files map[string]string) string {
 		}
 	}
 	return root
+}
+
+func withTestAnnotationImports(
+	source string,
+	alreadyFound bool,
+) (string, bool) {
+	if strings.Contains(source, "// @import") {
+		return source, true
+	}
+	type descriptorImport struct {
+		symbols   []string
+		namespace string
+		path      string
+	}
+	imports := []descriptorImport{
+		{
+			symbols: []string{
+				"Application",
+				"Bean",
+				"Configuration",
+				"Fallback",
+				"Implements",
+				"Order",
+				"Primary",
+				"Prototype",
+				"Qualifier",
+				"Repository",
+				"RequestScope",
+				"Service",
+				"SessionScope",
+				"Singleton",
+			},
+			path: "github.com/StevenBuglione/spice/annotation/core",
+		},
+		{
+			symbols: []string{"OnStart", "OnStop"},
+			path:    "github.com/StevenBuglione/spice/annotation/lifecycle",
+		},
+		{
+			symbols: []string{"Module", "NamedInterface"},
+			path:    "github.com/StevenBuglione/spice/annotation/modulith",
+		},
+		{
+			symbols: []string{"Controller", "Get", "Post"},
+			path:    "github.com/StevenBuglione/spice/annotation/web",
+		},
+		{
+			namespace: "async",
+			path:      "github.com/StevenBuglione/spice/annotation/async",
+		},
+		{
+			namespace: "cache",
+			path:      "github.com/StevenBuglione/spice/annotation/cache",
+		},
+		{
+			namespace: "data",
+			path:      "github.com/StevenBuglione/spice/annotation/data",
+		},
+		{
+			namespace: "event",
+			path:      "github.com/StevenBuglione/spice/annotation/event",
+		},
+		{
+			namespace: "management",
+			path:      "github.com/StevenBuglione/spice/annotation/management",
+		},
+		{
+			namespace: "observability",
+			path:      "github.com/StevenBuglione/spice/annotation/observability",
+		},
+		{
+			namespace: "schedule",
+			path:      "github.com/StevenBuglione/spice/annotation/schedule",
+		},
+		{
+			namespace: "security",
+			path:      "github.com/StevenBuglione/spice/annotation/security",
+		},
+	}
+	var directives []string
+	for _, item := range imports {
+		if item.namespace != "" {
+			if strings.Contains(
+				source,
+				"// @"+item.namespace+".",
+			) {
+				directives = append(
+					directives,
+					"// @import * as "+item.namespace+
+						` from "`+item.path+`"`,
+				)
+			}
+			continue
+		}
+		var selected []string
+		for _, symbol := range item.symbols {
+			if strings.Contains(source, "// @"+symbol) {
+				selected = append(selected, symbol)
+			}
+		}
+		if len(selected) != 0 {
+			directives = append(
+				directives,
+				"// @import { "+strings.Join(selected, ", ")+
+					` } from "`+item.path+`"`,
+			)
+		}
+	}
+	if len(directives) == 0 {
+		return source, alreadyFound
+	}
+	return strings.TrimRight(source, "\r\n") + "\n\n" +
+		strings.Join(directives, "\n") + "\n", true
+}
+
+func withTestAnnotationTool(t *testing.T, content string) string {
+	t.Helper()
+	lines := strings.Split(content, "\n")
+	for index, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "go ") {
+			lines[index] = "go 1.26.0"
+			break
+		}
+	}
+	content = strings.Join(lines, "\n")
+	if !strings.Contains(
+		content,
+		"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core",
+	) {
+		content += "\ntool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n"
+	}
+	if strings.Contains(
+		content,
+		"module github.com/StevenBuglione/spice",
+	) {
+		return content
+	}
+	if !strings.Contains(
+		content,
+		"require github.com/StevenBuglione/spice ",
+	) {
+		content += "\nrequire github.com/StevenBuglione/spice v0.0.0\n"
+	}
+	if !strings.Contains(
+		content,
+		"replace github.com/StevenBuglione/spice =>",
+	) {
+		repository, err := filepath.Abs(filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		content += "\nreplace github.com/StevenBuglione/spice => " +
+			filepath.ToSlash(repository) + "\n"
+	}
+	return content
 }
 
 type errorWriter struct{}

@@ -134,7 +134,7 @@ func NewConsumer(value Original) Consumer { panic("must not execute") }
 	}
 }
 
-func TestRunVerifyRejectsBeanTargetAndArgumentsBeforeCatalog(t *testing.T) {
+func TestRunVerifyRejectsBeanTargetBeforeCatalog(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -151,16 +151,6 @@ func (Config) Provider() Config { return Config{} }
 `,
 			expected: "allowed target: function",
 		},
-		{
-			name: "arguments",
-			source: `package sample
-
-type Config struct{}
-// @Bean(name="config")
-func Provider() Config { return Config{} }
-`,
-			expected: "does not accept arguments",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -176,11 +166,7 @@ func Provider() Config { return Config{} }
 func TestRunVerifyAcceptsCleanupSignaturesWithoutExecutingBodies(t *testing.T) {
 	t.Parallel()
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
-		"lifecycle/cleanup.go": `package lifecycle
-import "context"
-type Cleanup func(context.Context) error
-`,
+		"go.mod": "module example.com/cleanup-providers\n\ngo 1.26.0\n",
 		"app/providers.go": `package app
 
 import life "github.com/StevenBuglione/spice/lifecycle"
@@ -221,11 +207,7 @@ func CleanupErrorProvider(WithCleanup) (WithBoth, life.Cleanup, error) {
 func TestRunVerifyRejectsInvalidCleanupSignatures(t *testing.T) {
 	t.Parallel()
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
-		"lifecycle/cleanup.go": `package lifecycle
-import "context"
-type Cleanup func(context.Context) error
-`,
+		"go.mod": "module example.com/invalid-cleanup-providers\n\ngo 1.26.0\n",
 		"app/providers.go": `package app
 
 import (

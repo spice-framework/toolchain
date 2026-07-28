@@ -10,6 +10,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestCatalogRejectsWrongShapeCanonicalContextOverlay(t *testing.T) {
@@ -74,6 +75,10 @@ func (Server) Boot(context.Context) error { panic("hook must not execute") }
 			if len(resolution.Diagnostics) != 0 {
 				t.Fatalf("resolve diagnostics = %v", resolution.Diagnostics)
 			}
+			resolution, err = testannotation.AttachOfficial(resolution)
+			if err != nil {
+				t.Fatalf("AttachOfficial() error = %v", err)
+			}
 			providers := provider.Build(program, resolution)
 			if diagnostics := providers.Diagnostics(); len(diagnostics) != 0 {
 				t.Fatalf("provider diagnostics = %v", diagnostics)
@@ -121,6 +126,10 @@ type Context interface {
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	providers := provider.Build(program, resolution)
 	if diagnostics := providers.Diagnostics(); len(diagnostics) != 0 {

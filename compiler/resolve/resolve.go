@@ -65,18 +65,17 @@ func (occurrence Occurrence) Contribution(
 	return sdk.Contribution{}, false
 }
 
-// UsesContribution preserves the legacy unimported spelling only while the
-// built-in migration is in progress. Explicit imports must be authorized and
-// contribute the requested semantic kind through their tool.
-func (occurrence Occurrence) UsesContribution(
+// DescriptorContribution returns a contribution only when its invocation was
+// resolved through an explicit descriptor import. Compiler consumers use this
+// accessor for payload metadata so unbound parser fixtures cannot impersonate
+// an authorized annotation tool.
+func (occurrence Occurrence) DescriptorContribution(
 	kind sdk.ContributionKind,
-	legacyName string,
-) bool {
-	if occurrence.HasContribution(kind) {
-		return true
+) (sdk.Contribution, bool) {
+	if occurrence.Definition == (annotation.DefinitionReference{}) {
+		return sdk.Contribution{}, false
 	}
-	return occurrence.Definition == (annotation.DefinitionReference{}) &&
-		occurrence.Annotation.Name == legacyName
+	return occurrence.Contribution(kind)
 }
 
 // Diagnostic is one deterministic source-positioned resolution failure.
@@ -182,19 +181,28 @@ type parsedDirective struct {
 // canonical annotation name contributed by that descriptor.
 type DefinitionIndex map[annotation.DefinitionReference]string
 
-// Annotations resolves declaration documentation annotations against the exact
-// AST and go/types universe already owned by program. It never reparses or
-// reloads source.
+// Annotations associates raw declaration-comment annotations with typed
+// symbols without assigning descriptor identity or semantics. It exists for
+// parser and model unit tests; product analysis must use
+// AnnotationsWithDefinitions so imports fail closed.
 func Annotations(program *load.Program) Result {
-	return AnnotationsWithDefinitions(program, nil)
+	return annotations(program, nil, false)
 }
 
 // AnnotationsWithDefinitions resolves explicit file-scoped imports against
-// descriptors decoded from the same typed program. Files without import
-// directives retain the pre-1.0 built-in spelling compatibility path.
+// descriptors decoded from the same typed program. Every invocation must be
+// imported and descriptor-backed; there is no built-in spelling fallback.
 func AnnotationsWithDefinitions(
 	program *load.Program,
 	definitions DefinitionIndex,
+) Result {
+	return annotations(program, definitions, true)
+}
+
+func annotations(
+	program *load.Program,
+	definitions DefinitionIndex,
+	requireImports bool,
 ) Result {
 	if program == nil {
 		return Result{Diagnostics: []Diagnostic{{Kind: "internal", Message: "typed annotation resolution requires a loaded program"}}}
@@ -204,7 +212,14 @@ func AnnotationsWithDefinitions(
 	result := Result{}
 	seenFiles := make(map[string]struct{})
 	for _, pkg := range program.PrimaryPackages() {
-		resolvePackage(&result, pkg, index, seenFiles, definitions)
+		resolvePackage(
+			&result,
+			pkg,
+			index,
+			seenFiles,
+			definitions,
+			requireImports,
+		)
 	}
 	sortResult(&result)
 	return result
@@ -216,6 +231,7 @@ func resolvePackage(
 	index symbolIndex,
 	seenFiles map[string]struct{},
 	definitions DefinitionIndex,
+	requireImports bool,
 ) {
 	if pkg.Raw == nil || pkg.Raw.Fset == nil || pkg.TypesInfo == nil {
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{
@@ -242,7 +258,14 @@ func resolvePackage(
 		}
 		seenFiles[fileKey] = struct{}{}
 		result.Files++
-		resolveFile(result, pkg, source.Syntax, index, definitions)
+		resolveFile(
+			result,
+			pkg,
+			source.Syntax,
+			index,
+			definitions,
+			requireImports,
+		)
 	}
 }
 
@@ -303,13 +326,19 @@ func resolveFile(
 	file *ast.File,
 	index symbolIndex,
 	definitions DefinitionIndex,
+	requireImports bool,
 ) {
 	imports, importDiagnostics := resolveFileImports(pkg, file)
 	result.Diagnostics = append(result.Diagnostics, importDiagnostics...)
 	if file.Doc != nil {
 		directives, diagnostics := parseGroup(pkg, file.Doc)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
-		directives, diagnostics = bindImports(directives, imports, definitions)
+		directives, diagnostics = bindImports(
+			directives,
+			imports,
+			definitions,
+			requireImports,
+		)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		for _, directive := range directives {
 			symbol, ok := index.packages[pkg.Path]
@@ -332,6 +361,7 @@ func resolveFile(
 				index,
 				imports,
 				definitions,
+				requireImports,
 			)
 		case *ast.GenDecl:
 			resolveGeneralDeclaration(
@@ -341,6 +371,7 @@ func resolveFile(
 				index,
 				imports,
 				definitions,
+				requireImports,
 			)
 		}
 	}
@@ -354,6 +385,7 @@ func resolveFunction(
 	index symbolIndex,
 	imports fileImports,
 	definitions DefinitionIndex,
+	requireImports bool,
 ) {
 	target := annotation.TargetFunction
 	if declaration.Recv != nil {
@@ -366,6 +398,7 @@ func resolveFunction(
 			directives,
 			imports,
 			definitions,
+			requireImports,
 		)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		resolveIdentifierDirectives(
@@ -385,6 +418,7 @@ func resolveFunction(
 		index,
 		imports,
 		definitions,
+		requireImports,
 	)
 }
 
@@ -396,6 +430,7 @@ func resolveParameters(
 	index symbolIndex,
 	imports fileImports,
 	definitions DefinitionIndex,
+	requireImports bool,
 ) {
 	if declaration.Type.Params == nil {
 		return
@@ -431,6 +466,7 @@ func resolveParameters(
 				parameterIndex,
 				imports,
 				definitions,
+				requireImports,
 			)
 		}
 		parameterIndex += width
@@ -474,10 +510,16 @@ func resolveParameterDirectives(
 	parameterIndex int,
 	imports fileImports,
 	definitions DefinitionIndex,
+	requireImports bool,
 ) {
 	directives, diagnostics := parseGroup(pkg, documentation)
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
-	directives, diagnostics = bindImports(directives, imports, definitions)
+	directives, diagnostics = bindImports(
+		directives,
+		imports,
+		definitions,
+		requireImports,
+	)
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
 	if len(directives) == 0 {
 		return
@@ -527,6 +569,7 @@ func resolveGeneralDeclaration(
 	index symbolIndex,
 	imports fileImports,
 	definitions DefinitionIndex,
+	requireImports bool,
 ) {
 	if declaration.Tok != token.TYPE && declaration.Tok != token.VAR && declaration.Tok != token.CONST {
 		return
@@ -535,7 +578,12 @@ func resolveGeneralDeclaration(
 	if declaration.Doc != nil {
 		directives, diagnostics := parseGroup(pkg, declaration.Doc)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
-		directives, diagnostics = bindImports(directives, imports, definitions)
+		directives, diagnostics = bindImports(
+			directives,
+			imports,
+			definitions,
+			requireImports,
+		)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		if len(directives) > 0 {
 			if len(declaration.Specs) != 1 {
@@ -558,7 +606,12 @@ func resolveGeneralDeclaration(
 		}
 		directives, diagnostics := parseGroup(pkg, group)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
-		directives, diagnostics = bindImports(directives, imports, definitions)
+		directives, diagnostics = bindImports(
+			directives,
+			imports,
+			definitions,
+			requireImports,
+		)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		resolveSpecDirectives(result, pkg, specification, declaration.Tok, directives, index)
 	}
@@ -695,9 +748,8 @@ func occurrence(directive parsedDirective, symbol load.Symbol, target annotation
 }
 
 type fileImports struct {
-	table    annotationimport.Table
-	explicit bool
-	invalid  bool
+	table   annotationimport.Table
+	invalid bool
 }
 
 func resolveFileImports(
@@ -760,9 +812,8 @@ func resolveFileImports(
 		))
 	}
 	return fileImports{
-		table:    table,
-		explicit: len(directives) != 0 || len(diagnostics) != 0,
-		invalid:  len(diagnostics) != 0,
+		table:   table,
+		invalid: len(diagnostics) != 0,
 	}, diagnostics
 }
 
@@ -782,11 +833,12 @@ func bindImports(
 	directives []parsedDirective,
 	imports fileImports,
 	definitions DefinitionIndex,
+	requireImports bool,
 ) ([]parsedDirective, []Diagnostic) {
 	if imports.invalid {
 		return nil, nil
 	}
-	if !imports.explicit {
+	if !requireImports {
 		return directives, nil
 	}
 	resolved := make([]parsedDirective, 0, len(directives))

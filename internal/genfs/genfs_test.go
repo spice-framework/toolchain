@@ -15,6 +15,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestApplyCreatesChecksAndPreservesUnchangedFiles(t *testing.T) {
@@ -833,6 +834,10 @@ func renderPlan(t *testing.T, root, source string) generate.Plan {
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
 	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
+	}
 	model := application.Build(program, resolution)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("application.Build() diagnostics = %v", diagnostics)
@@ -879,6 +884,10 @@ func renderMainPlan(
 			"resolve.Annotations() diagnostics = %v",
 			resolution.Diagnostics,
 		)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	model := application.Build(program, resolution)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {

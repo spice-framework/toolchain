@@ -466,10 +466,7 @@ func taskOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.UsesContribution(
-			sdk.ContributionAsync,
-			Annotation,
-		) {
+		if occurrence.HasContribution(sdk.ContributionAsync) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
 				occurrence,

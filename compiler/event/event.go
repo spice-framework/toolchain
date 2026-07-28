@@ -215,7 +215,6 @@ func buildListeners(
 	contextType := signature.ContextType(program)
 	occurrences := annotationOccurrences(
 		resolution,
-		ListenerAnnotation,
 		sdk.ContributionEventListener,
 	)
 	var listeners []Listener
@@ -370,7 +369,6 @@ func buildTopics(
 ) ([]Topic, []provider.Provider, map[string]bool, []Diagnostic) {
 	occurrences := annotationOccurrences(
 		resolution,
-		TopicAnnotation,
 		sdk.ContributionEventTopic,
 	)
 	fileSets := packageFileSets(program)
@@ -683,7 +681,7 @@ func exactProvider(
 }
 
 func listenerOrder(occurrence resolve.Occurrence) (int, string) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionEventListener,
 	); found {
 		return int(contribution.EventListener.Order), ""
@@ -746,12 +744,11 @@ func topicDependency(
 
 func annotationOccurrences(
 	resolution resolve.Result,
-	name string,
 	kind sdk.ContributionKind,
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.UsesContribution(kind, name) {
+		if occurrence.HasContribution(kind) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
 				occurrence,

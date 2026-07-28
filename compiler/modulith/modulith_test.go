@@ -11,6 +11,7 @@ import (
 
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestBuildDiscoversImportPathModulesAndLongestRootOwnership(t *testing.T) {
@@ -483,6 +484,10 @@ func buildModel(t *testing.T, root string) Model {
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	return Build(program, resolution)
 }

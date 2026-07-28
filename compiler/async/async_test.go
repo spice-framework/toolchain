@@ -12,6 +12,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestCatalogCompilesTypedAsynchronousMethods(t *testing.T) {
@@ -286,6 +287,10 @@ func loadCatalogs(
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	providers := provider.Build(program, resolution)
 	if diagnostics := providers.Diagnostics(); len(diagnostics) != 0 {

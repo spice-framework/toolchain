@@ -13,6 +13,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	runtimeconfig "github.com/StevenBuglione/spice/config"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestBuildCreatesTypedModuleOwnedConfigurationMetadata(t *testing.T) {
@@ -229,6 +230,10 @@ func loadFixture(t *testing.T, source string) (*load.Program, resolve.Result, mo
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	modules := modulith.Build(program, resolution)
 	if diagnostics := modules.Diagnostics(); len(diagnostics) != 0 {

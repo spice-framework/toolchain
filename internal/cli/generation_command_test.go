@@ -40,9 +40,13 @@ func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
 		t.Fatalf("generate --check: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
+	updatedSource, _ := withTestAnnotationImports(
+		generationApplicationWithProviderSource,
+		false,
+	)
 	if err := os.WriteFile(
 		filepath.Join(root, "app", "application.go"),
-		[]byte(generationApplicationWithProviderSource),
+		[]byte(updatedSource),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
@@ -87,9 +91,13 @@ func RenamedProvider() Value { return Value{} }
 // @Application
 func Application(Value) {}
 `
+	renamedSource, _ := withTestAnnotationImports(
+		renamedProvider,
+		false,
+	)
 	if writeErr := os.WriteFile(
 		filepath.Join(root, "app", "application.go"),
-		[]byte(renamedProvider),
+		[]byte(renamedSource),
 		0o600,
 	); writeErr != nil {
 		t.Fatal(writeErr)

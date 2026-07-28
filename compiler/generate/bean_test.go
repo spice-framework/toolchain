@@ -14,6 +14,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestImportNamesExcludeTypesUsedOnlyForSingleDependencyResolution(
@@ -174,6 +175,10 @@ func Beans(*components.Consumer) {}
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolution diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatal(err)
 	}
 	resolution = attachBeanGenerationContributions(
 		t,

@@ -272,10 +272,8 @@ func applicationAnnotations(
 ) map[string]struct{} {
 	applicationSymbols := make(map[string]struct{})
 	for _, occurrence := range occurrences {
-		if occurrence.UsesContribution(
-			sdk.ContributionApplication,
-			"Application",
-		) && occurrence.SymbolID != "" {
+		if occurrence.HasContribution(sdk.ContributionApplication) &&
+			occurrence.SymbolID != "" {
 			applicationSymbols[occurrence.SymbolID] = struct{}{}
 		}
 	}

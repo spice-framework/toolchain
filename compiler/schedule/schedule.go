@@ -170,10 +170,7 @@ func scheduledOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if !occurrence.UsesContribution(
-			sdk.ContributionSchedule,
-			Annotation,
-		) {
+		if !occurrence.HasContribution(sdk.ContributionSchedule) {
 			continue
 		}
 		result[occurrence.SymbolID] = append(
@@ -371,7 +368,7 @@ type options struct {
 }
 
 func parseOptions(occurrence resolve.Occurrence) (options, *problem) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionSchedule,
 	); found {
 		delay, delayProblem := durationValue(

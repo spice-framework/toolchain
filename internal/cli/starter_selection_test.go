@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/compiler/load"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	publicstarter "github.com/StevenBuglione/spice/starter"
@@ -29,7 +28,6 @@ func SearchProvider(client *searchstarter.Client) Search {
 }
 
 // @Application
-// @search.Enable(indexes=["products"])
 func Application(Search) {
 	panic("application bodies must not execute during analysis")
 }
@@ -38,7 +36,10 @@ func Application(Search) {
 func TestCommandsUseExplicitRepositoryStarterSelection(t *testing.T) {
 	root := starterSelectionCLIModule(t, starterSelectionApplication)
 	code, _, stderr := runModule(root, "verify", "./app")
-	if code != 1 || !strings.Contains(stderr, "unknown annotation @search.Enable") {
+	if code != 1 || !strings.Contains(
+		stderr,
+		"no provider matches the type",
+	) {
 		t.Fatalf("verify without selection: code=%d stderr=%q", code, stderr)
 	}
 
@@ -97,19 +98,8 @@ func TestCommandsUseExplicitRepositoryStarterSelection(t *testing.T) {
 	}
 }
 
-func TestExplicitAnnotationStarterDoesNotActivateWithoutAnnotation(t *testing.T) {
+func TestUnselectedStarterDoesNotActivateConstructor(t *testing.T) {
 	root := starterSelectionCLIModule(t, generationApplicationSource)
-	writeStarterSelectionWithDependencies(
-		t,
-		root,
-		"1.2.0",
-		"New",
-		[]publicstarter.Dependency{{
-			Module:  "example.com/inactive-client",
-			Version: "v1.0.0",
-			License: "MIT",
-		}},
-	)
 
 	code, stdout, stderr := runModule(root, "generate", "./app")
 	if code != 0 || !strings.Contains(stdout, "generated target Application") || stderr != "" {
@@ -376,43 +366,9 @@ func writeStarterSelectionWithDependencies(
 		Capabilities: []string{"search.client"},
 		Dependencies: dependencies,
 		Activation: publicstarter.Activation{
-			Mode: publicstarter.ActivationExplicitAnnotation,
+			Mode: publicstarter.ActivationExplicitConstructor,
 			EntryPoints: []publicstarter.EntryPoint{
 				{Package: entryPointPackage, Symbol: entryPoint},
-			},
-		},
-		Annotations: []publicstarter.AnnotationSpec{
-			{
-				Name:    "search.Enable",
-				Targets: []annotation.Target{annotation.TargetFunction},
-				Arguments: []publicstarter.ArgumentSpec{
-					{
-						Name:             "indexes",
-						Kinds:            []annotation.Kind{annotation.KindList},
-						ListElementKinds: []annotation.Kind{annotation.KindString},
-						Required:         true,
-					},
-				},
-			},
-		},
-		ApplicationFeatures: []publicstarter.FeatureSpec{
-			{
-				Annotation: "search.Enable",
-				Capability: "search.client",
-				EntryPoints: []publicstarter.EntryPoint{
-					{Package: entryPointPackage, Symbol: entryPoint},
-				},
-				Options: []publicstarter.OptionSpec{
-					{
-						Name:          "indexes",
-						Kind:          annotation.KindList,
-						ListItemKinds: []annotation.Kind{annotation.KindString},
-						Required:      true,
-						UniqueItems:   true,
-						MinimumItems:  1,
-						SortItems:     true,
-					},
-				},
 			},
 		},
 	})
@@ -488,7 +444,8 @@ func starterSelectionCLIModule(t *testing.T, source string) string {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`// Package searchstarter is explicit compiler support.
+	annotatedSource, _ := withTestAnnotationImports(
+		`// Package searchstarter is explicit compiler support.
 //
 // @Module
 package searchstarter
@@ -499,7 +456,14 @@ type Client struct{}
 func New() *Client {
 	panic("starter entrypoints must not execute during analysis")
 }
-`), 0o600); err != nil {
+`,
+		false,
+	)
+	if err := os.WriteFile(
+		path,
+		[]byte(annotatedSource),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
 	return root

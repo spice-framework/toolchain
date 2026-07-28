@@ -7,11 +7,7 @@ import (
 
 func TestRunVerifyAcceptsLifecycleHooks(t *testing.T) {
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
-		"lifecycle/cleanup.go": `package lifecycle
-import "context"
-type Cleanup func(context.Context) error
-`,
+		"go.mod": "module example.com/hooks\n\ngo 1.26.0\n",
 		"app/app.go": `package app
 import (
     "context"

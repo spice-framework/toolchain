@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	codegen "github.com/StevenBuglione/spice/compiler/generate"
@@ -806,7 +805,6 @@ func newCompilerAnalysisService(
 		Loader:         compilerservice.Loader(loader),
 		ModuleVersions: loadModuleVersions,
 		LoadOptions:    options,
-		Registry:       builtin.Registry(),
 		StarterCatalog: metadata.starterCatalog,
 		SpiceVersion:   Version,
 	})

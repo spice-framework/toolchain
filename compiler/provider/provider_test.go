@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestConstructibleStereotypeBindsExplicitInterfaces(t *testing.T) {
@@ -59,7 +59,6 @@ func NewCheckout(
 `,
 	})
 	program, resolved := loadAndResolve(t, root, "./...")
-	resolved = attachProviderTestContributions(t, resolved)
 	catalog := buildQuiet(t, program, resolved)
 	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf(
@@ -126,7 +125,7 @@ func NewCheckout(
 `,
 	})
 	program, resolved := loadAndResolve(t, root, ".")
-	resolved = attachProviderTestContributions(t, resolved)
+	resolved = testannotation.Trust(resolved)
 	catalog := buildQuiet(t, program, resolved)
 	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %v", diagnosticStrings(diagnostics))
@@ -296,7 +295,6 @@ func (*Stripe) Process() error { return nil }
 `,
 	})
 	program, resolved := loadAndResolve(t, root, ".")
-	resolved = attachProviderTestContributions(t, resolved)
 	catalog := buildQuiet(t, program, resolved)
 	diagnostics := catalog.Diagnostics()
 	joined := strings.Join(diagnosticStrings(diagnostics), "\n")
@@ -367,7 +365,6 @@ type Allocated struct{}
 `,
 	})
 	program, resolved := loadAndResolve(t, root, ".")
-	resolved = attachProviderTestContributions(t, resolved)
 	catalog := buildQuiet(t, program, resolved)
 	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
@@ -425,7 +422,6 @@ var Missing int
 `,
 	})
 	program, resolved := loadAndResolve(t, root, ".")
-	resolved = attachProviderTestContributions(t, resolved)
 	catalog := buildQuiet(t, program, resolved)
 	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
 	for _, expected := range []string{
@@ -470,7 +466,6 @@ func Exact() Processor { return nil }
 `,
 	})
 	program, resolved := loadAndResolve(t, root, ".")
-	resolved = attachProviderTestContributions(t, resolved)
 	catalog := buildQuiet(t, program, resolved)
 	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
 	for _, expected := range []string{
@@ -485,205 +480,6 @@ func Exact() Processor { return nil }
 			t.Fatalf("diagnostics missing %q:\n%s", expected, joined)
 		}
 	}
-}
-
-func attachProviderTestContributions(
-	t *testing.T,
-	resolved resolve.Result,
-) resolve.Result {
-	t.Helper()
-	var err error
-	for index, occurrence := range resolved.Occurrences {
-		var contributions []sdk.Contribution
-		switch occurrence.Annotation.Name {
-		case "Bean":
-			name, aliases := beanIdentityFixture(
-				t,
-				occurrence.Annotation.Arguments,
-			)
-			contributions = []sdk.Contribution{{
-				Kind: sdk.ContributionProvider,
-				Provider: &sdk.ProviderContribution{
-					Name:    name,
-					Aliases: aliases,
-				},
-			}}
-		case "Service":
-			constructor := ""
-			for _, argument := range occurrence.Annotation.Arguments {
-				if argument.Name == "constructor" &&
-					argument.Value.Kind == annotation.KindIdentifier {
-					constructor = argument.Value.Identifier
-				}
-			}
-			contributions = []sdk.Contribution{{
-				Kind: sdk.ContributionStereotype,
-				Stereotype: &sdk.StereotypeContribution{
-					Role:        "service",
-					Construct:   true,
-					Constructor: constructor,
-					Name: stringArgumentFixture(
-						occurrence.Annotation.Arguments,
-						"name",
-					),
-					Aliases: stringListArgumentFixture(
-						occurrence.Annotation.Arguments,
-						"aliases",
-					),
-				},
-			}}
-		case "Implements":
-			interfaces := make(
-				[]string,
-				len(occurrence.Annotation.Arguments),
-			)
-			for argumentIndex, argument := range occurrence.Annotation.Arguments {
-				if argument.Name != "" ||
-					argument.Value.Kind != annotation.KindIdentifier {
-					t.Fatalf(
-						"invalid Implements fixture argument: %#v",
-						argument,
-					)
-				}
-				interfaces[argumentIndex] = argument.Value.Identifier
-			}
-			contributions = []sdk.Contribution{{
-				Kind: sdk.ContributionInterface,
-				Interface: &sdk.InterfaceBindingContribution{
-					Interfaces: interfaces,
-				},
-			}}
-		case "Qualifier":
-			contributions = []sdk.Contribution{{
-				Kind: sdk.ContributionBeanMetadata,
-				BeanMetadata: &sdk.BeanMetadataContribution{
-					Qualifiers: []string{
-						positionalStringFixture(
-							t,
-							occurrence.Annotation.Arguments,
-						),
-					},
-				},
-			}}
-		case "Primary":
-			contributions = metadataFixture(
-				sdk.BeanMetadataContribution{Primary: true},
-			)
-		case "Fallback":
-			contributions = metadataFixture(
-				sdk.BeanMetadataContribution{Fallback: true},
-			)
-		case "Order":
-			value := positionalIntegerFixture(
-				t,
-				occurrence.Annotation.Arguments,
-			)
-			contributions = metadataFixture(
-				sdk.BeanMetadataContribution{Order: &value},
-			)
-		case "Singleton":
-			contributions = scopeFixture(sdk.BeanScopeSingleton)
-		case "Prototype":
-			contributions = scopeFixture(sdk.BeanScopePrototype)
-		case "RequestScope":
-			contributions = scopeFixture(sdk.BeanScopeRequest)
-		case "SessionScope":
-			contributions = scopeFixture(sdk.BeanScopeSession)
-		default:
-			continue
-		}
-		resolved, err = resolved.WithContributions(
-			index,
-			contributions,
-		)
-		if err != nil {
-			t.Fatalf("WithContributions() error = %v", err)
-		}
-	}
-	return resolved
-}
-
-func metadataFixture(
-	value sdk.BeanMetadataContribution,
-) []sdk.Contribution {
-	return []sdk.Contribution{{
-		Kind:         sdk.ContributionBeanMetadata,
-		BeanMetadata: &value,
-	}}
-}
-
-func scopeFixture(scope sdk.BeanScope) []sdk.Contribution {
-	return metadataFixture(
-		sdk.BeanMetadataContribution{Scope: scope},
-	)
-}
-
-func beanIdentityFixture(
-	t *testing.T,
-	arguments []annotation.Argument,
-) (string, []string) {
-	t.Helper()
-	return stringArgumentFixture(arguments, "name"),
-		stringListArgumentFixture(arguments, "aliases")
-}
-
-func stringArgumentFixture(
-	arguments []annotation.Argument,
-	name string,
-) string {
-	for _, argument := range arguments {
-		if argument.Name == name &&
-			argument.Value.Kind == annotation.KindString {
-			return argument.Value.String
-		}
-	}
-	return ""
-}
-
-func stringListArgumentFixture(
-	arguments []annotation.Argument,
-	name string,
-) []string {
-	for _, argument := range arguments {
-		if argument.Name != name ||
-			argument.Value.Kind != annotation.KindList {
-			continue
-		}
-		result := make([]string, len(argument.Value.List))
-		for index, item := range argument.Value.List {
-			if item.Kind == annotation.KindString {
-				result[index] = item.String
-			}
-		}
-		return result
-	}
-	return nil
-}
-
-func positionalStringFixture(
-	t *testing.T,
-	arguments []annotation.Argument,
-) string {
-	t.Helper()
-	if len(arguments) != 1 ||
-		arguments[0].Name != "" ||
-		arguments[0].Value.Kind != annotation.KindString {
-		t.Fatalf("invalid positional string fixture: %#v", arguments)
-	}
-	return arguments[0].Value.String
-}
-
-func positionalIntegerFixture(
-	t *testing.T,
-	arguments []annotation.Argument,
-) int64 {
-	t.Helper()
-	if len(arguments) != 1 ||
-		arguments[0].Name != "" ||
-		arguments[0].Value.Kind != annotation.KindInteger {
-		t.Fatalf("invalid positional integer fixture: %#v", arguments)
-	}
-	return arguments[0].Value.Integer
 }
 
 func TestCatalogValidProviders(t *testing.T) {
@@ -1051,6 +847,10 @@ func loadAndResolve(t *testing.T, root string, patterns ...string) (*load.Progra
 	resolved := resolve.Annotations(program)
 	if len(resolved.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolved.Diagnostics)
+	}
+	resolved, err = testannotation.AttachOfficial(resolved)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	return program, resolved
 }

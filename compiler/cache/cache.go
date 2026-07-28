@@ -290,7 +290,7 @@ func compileBoundary(
 func cacheOccurrenceName(
 	occurrence resolve.Occurrence,
 ) (string, string) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionCache,
 	); found {
 		return validatedCacheName(contribution.Cache.Name)
@@ -344,10 +344,7 @@ func cacheOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.UsesContribution(
-			sdk.ContributionCache,
-			Annotation,
-		) {
+		if occurrence.HasContribution(sdk.ContributionCache) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
 				occurrence,

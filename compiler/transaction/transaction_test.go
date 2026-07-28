@@ -15,6 +15,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestCatalogCompilesTransactionalRoutes(t *testing.T) {
@@ -344,6 +345,10 @@ func loadCatalogs(
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	modules := modulith.Build(program, resolution)
 	if diagnostics := modules.Diagnostics(); len(diagnostics) != 0 {

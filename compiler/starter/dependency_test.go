@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	publicstarter "github.com/StevenBuglione/spice/starter"
@@ -162,6 +163,10 @@ func TestCatalogSelectsDependenciesFromActiveStarters(t *testing.T) {
 	application := resolve.Occurrence{
 		Annotation: annotation.Annotation{Name: "Application"},
 		SymbolID:   "application",
+		Contributions: []sdk.Contribution{{
+			Kind:        sdk.ContributionApplication,
+			Application: &sdk.ApplicationContribution{},
+		}},
 	}
 	feature := resolve.Occurrence{
 		Annotation: annotation.Annotation{Name: "search.Enable"},

@@ -121,9 +121,8 @@ func Build(program *load.Program, resolution resolve.Result, modules modulith.Mo
 	seen := make(map[string]resolve.Occurrence)
 	catalog := Catalog{}
 	for _, occurrence := range resolution.Occurrences {
-		if !occurrence.UsesContribution(
+		if !occurrence.HasContribution(
 			sdk.ContributionConfiguration,
-			"Configuration",
 		) {
 			continue
 		}
@@ -279,7 +278,7 @@ func configurationType(occurrence resolve.Occurrence, symbol load.Symbol) (*type
 }
 
 func configurationPrefix(occurrence resolve.Occurrence, symbol load.Symbol) (string, *problem) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionConfiguration,
 	); found {
 		return contribution.Configuration.Prefix, nil

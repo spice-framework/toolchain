@@ -17,6 +17,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
@@ -235,6 +236,10 @@ func NewService() *Service { return &Service{} }
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		b.Fatal(resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		b.Fatal(err)
 	}
 	model := application.Build(program, resolution)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
@@ -3133,6 +3138,10 @@ func buildApplication(
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	model := application.Build(program, resolution)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {

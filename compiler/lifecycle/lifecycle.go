@@ -501,17 +501,7 @@ func occurrenceKind(occurrence resolve.Occurrence) (Kind, bool) {
 			return "", false
 		}
 	}
-	if occurrence.Definition != (annotation.DefinitionReference{}) {
-		return "", false
-	}
-	switch occurrence.Annotation.Name {
-	case "OnStart":
-		return Start, true
-	case "OnStop":
-		return Stop, true
-	default:
-		return "", false
-	}
+	return "", false
 }
 
 func semanticTypeKey(value types.Type) string {

@@ -66,7 +66,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	invalid := strings.Replace(
 		original,
 		"// @Application",
-		"// @Application\n// @manag",
+		"// @Application\n// @Enab",
 		1,
 	)
 	client.notify("textDocument/didOpen", map[string]any{
@@ -79,7 +79,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	})
 	first := client.waitForDiagnostics(mainURI, 1)
 	if len(first.Diagnostics) == 0 ||
-		first.Diagnostics[0].Code != "spice.validation.unknown-annotation" ||
+		first.Diagnostics[0].Code != "spice.resolution.annotation-import" ||
 		first.Diagnostics[0].Range.Start.Line != 5 {
 		t.Fatalf("version 1 diagnostics = %+v", first.Diagnostics)
 	}
@@ -109,7 +109,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		"method":  "textDocument/completion",
 		"params": map[string]any{
 			"textDocument": map[string]any{"uri": mainURI},
-			"position":     map[string]any{"line": 5, "character": 9},
+			"position":     map[string]any{"line": 5, "character": 8},
 		},
 	})
 	completion := client.waitForID("2")
@@ -119,8 +119,13 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	}
 	foundManagement := false
 	for _, item := range completionResult.Items {
-		if item.Label == "@management.Enable" &&
-			strings.HasPrefix(item.TextEdit.NewText, "@management.Enable") {
+		if item.Label == "@Enable" &&
+			strings.HasPrefix(item.TextEdit.NewText, "@Enable") &&
+			len(item.AdditionalEdits) == 1 &&
+			strings.Contains(
+				item.AdditionalEdits[0].NewText,
+				`// @import { Enable } from "github.com/StevenBuglione/spice/annotation/management"`,
+			) {
 			foundManagement = true
 		}
 	}
@@ -160,7 +165,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		},
 	})
 	hover := client.waitForID("3")
-	if !strings.Contains(string(hover.Result), "`@Application`") {
+	if !strings.Contains(string(hover.Result), "`@core.Application`") {
 		t.Fatalf("hover result = %s", hover.Result)
 	}
 	client.send(map[string]any{
@@ -186,7 +191,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	if len(definitionLinks) != 1 ||
 		!strings.HasSuffix(
 			definitionLinks[0].TargetURI,
-			"/docs/annotations.md",
+			"/annotation/core/application.go",
 		) ||
 		definitionLinks[0].OriginSelectionRange.Start.Line != applicationLine {
 		t.Fatalf("definition links = %+v", definitionLinks)
@@ -209,8 +214,14 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		t.Fatalf("Unmarshal(document links) error = %v", err)
 	}
 	if len(documentLinks) == 0 ||
-		!strings.Contains(documentLinks[0].Target, "docs/annotations.md#") ||
-		!strings.Contains(documentLinks[0].Tooltip, "@Application") {
+		!strings.Contains(
+			documentLinks[0].Target,
+			"/annotation/core/application.go#",
+		) ||
+		!strings.Contains(
+			documentLinks[0].Tooltip,
+			"annotation/core.Application",
+		) {
 		t.Fatalf("document links = %+v", documentLinks)
 	}
 
@@ -1072,9 +1083,12 @@ import "os"
 func main() {
 	os.Exit(spiceMain(os.Args[1:]))
 }
+
+// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 `
 	files := map[string]string{
 		"go.mod": "module example.com/lspfixture\n\ngo 1.26.0\n\n" +
+			"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n" +
 			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
 			"replace github.com/StevenBuglione/spice => " +
 			filepath.ToSlash(repository) + "\n",
@@ -1082,6 +1096,8 @@ func main() {
 		"orders/doc.go": `// Package orders owns order configuration.
 // @Module
 package orders
+
+// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
 `,
 		"orders/config.go": `package orders
 
@@ -1089,6 +1105,8 @@ package orders
 type Settings struct {
 	Limit int ` + "`spice:\"limit,default=100\"`" + `
 }
+
+// @import { Configuration } from "github.com/StevenBuglione/spice/annotation/core"
 `,
 	}
 	for relative, content := range files {

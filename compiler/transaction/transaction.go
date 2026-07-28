@@ -232,9 +232,8 @@ func transactionOccurrences(
 ) map[string][]resolve.Occurrence {
 	result := make(map[string][]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if occurrence.UsesContribution(
+		if occurrence.HasContribution(
 			sdk.ContributionTransaction,
-			Annotation,
 		) {
 			result[occurrence.SymbolID] = append(
 				result[occurrence.SymbolID],
@@ -273,7 +272,7 @@ type options struct {
 }
 
 func parseOptions(occurrence resolve.Occurrence) (options, string) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionTransaction,
 	); found {
 		isolation, valid := isolationLevelString(

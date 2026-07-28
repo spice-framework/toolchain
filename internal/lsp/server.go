@@ -95,6 +95,7 @@ type workspace struct {
 	root      string
 	uri       string
 	service   *compilerservice.Service
+	analysis  sync.WaitGroup
 	sequence  uint64
 	timer     *time.Timer
 	cancel    context.CancelFunc
@@ -663,7 +664,26 @@ func (server *Server) removeWorkspace(uri string) {
 		}
 	}
 	published := mapKeys(workspace.published)
+	server.requestWait.Add(1)
 	server.mu.Unlock()
+	go func() {
+		defer server.requestWait.Done()
+		workspace.analysis.Wait()
+		closeCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+		if closeErr := workspace.service.Close(closeCtx); closeErr != nil {
+			server.mu.Lock()
+			server.asyncErr = errors.Join(server.asyncErr, closeErr)
+			runCancel := server.cancel
+			server.mu.Unlock()
+			if runCancel != nil {
+				runCancel()
+			}
+		}
+	}()
 	for _, documentURI := range published {
 		if err := server.publishDiagnostics(
 			documentURI,

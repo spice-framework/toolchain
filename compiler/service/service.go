@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/annotationcatalog"
 	"github.com/StevenBuglione/spice/compiler/annotationhost"
@@ -83,9 +82,6 @@ type serviceConfig struct {
 func New(config Config) (*Service, error) {
 	if config.Loader == nil {
 		config.Loader = load.Load
-	}
-	if len(config.Registry.Definitions()) == 0 {
-		config.Registry = builtin.Registry()
 	}
 	hasStarters := len(config.StarterCatalog.Manifests()) != 0
 	if hasStarters {

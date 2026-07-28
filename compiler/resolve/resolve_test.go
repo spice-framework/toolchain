@@ -223,7 +223,7 @@ func (Orders) List() {}
 	}
 }
 
-func TestAnnotationsFailClosedForExplicitImports(t *testing.T) {
+func TestAnnotationsRequireExplicitImportsInEveryFile(t *testing.T) {
 	dir := writeModule(t, map[string]string{
 		"go.mod": "module example.com/imports\n\ngo 1.26.0\n",
 		"app/app.go": `package app
@@ -243,7 +243,7 @@ type MissingDescriptor struct{}
 		"app/legacy.go": `package app
 
 // @Service
-type LegacyCompatibility struct{}
+type MissingFileImport struct{}
 `,
 	})
 	result := AnnotationsWithDefinitions(
@@ -253,17 +253,17 @@ type LegacyCompatibility struct{}
 			Symbol:  "Application",
 		}: "Application"},
 	)
-	if len(result.Occurrences) != 2 {
+	if len(result.Occurrences) != 1 {
 		t.Fatalf("occurrences = %#v", result.Occurrences)
 	}
-	legacy := occurrenceByName(result.Occurrences, "LegacyCompatibility")
-	if legacy == nil || legacy.Annotation.Name != "Service" ||
-		legacy.Definition != (annotation.DefinitionReference{}) {
-		t.Fatalf("legacy occurrence = %#v", legacy)
+	if result.Occurrences[0].Annotation.Name != "Application" ||
+		result.Occurrences[0].Definition == (annotation.DefinitionReference{}) {
+		t.Fatalf("imported occurrence = %#v", result.Occurrences[0])
 	}
 	joined := strings.Join(diagnosticMessages(result.Diagnostics), "\n")
 	for _, expected := range []string{
 		"@Controller is not imported in this file",
+		"@Service is not imported in this file",
 		"web.Missing",
 		"descriptor is unavailable",
 	} {
@@ -385,11 +385,7 @@ func TestOccurrenceContributionOwnershipAndQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 	occurrence := updated.Occurrences[0]
-	if !occurrence.HasContribution(sdk.ContributionProvider) ||
-		!occurrence.UsesContribution(
-			sdk.ContributionProvider,
-			"other",
-		) {
+	if !occurrence.HasContribution(sdk.ContributionProvider) {
 		t.Fatalf("contribution queries = %#v", occurrence)
 	}
 	value, found := occurrence.Contribution(sdk.ContributionProvider)
@@ -423,12 +419,11 @@ func TestOccurrenceContributionOwnershipAndQueries(t *testing.T) {
 		t.Fatal("WithContributions(invalid) error = nil")
 	}
 
-	legacy := Occurrence{Annotation: annotation.Annotation{Name: "Bean"}}
-	if !legacy.UsesContribution(
-		sdk.ContributionProvider,
-		"Bean",
-	) {
-		t.Fatal("legacy contribution fallback was not recognized")
+	uncontributed := Occurrence{
+		Annotation: annotation.Annotation{Name: "Bean"},
+	}
+	if uncontributed.HasContribution(sdk.ContributionProvider) {
+		t.Fatal("uncontributed annotation acquired implicit semantics")
 	}
 }
 

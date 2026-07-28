@@ -898,10 +898,7 @@ func applicationTargets(
 	var targets []Target
 	var diagnostics []Diagnostic
 	for _, occurrence := range resolution.Occurrences {
-		if !occurrence.UsesContribution(
-			sdk.ContributionApplication,
-			"Application",
-		) {
+		if !occurrence.HasContribution(sdk.ContributionApplication) {
 			continue
 		}
 		if previous, duplicate := seen[occurrence.SymbolID]; duplicate {

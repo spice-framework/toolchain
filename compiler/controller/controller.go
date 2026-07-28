@@ -223,10 +223,7 @@ func Build(
 	controllerObjects := make(map[*types.TypeName]int)
 	seenControllers := make(map[string]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if !occurrence.UsesContribution(
-			sdk.ContributionController,
-			"Controller",
-		) {
+		if !occurrence.HasContribution(sdk.ContributionController) {
 			continue
 		}
 		if previous, duplicate := seenControllers[occurrence.SymbolID]; duplicate {
@@ -328,9 +325,8 @@ func applyAuthorizations(catalog *Catalog, resolution resolve.Result) {
 	}
 	seen := make(map[string]resolve.Occurrence)
 	for _, occurrence := range resolution.Occurrences {
-		if !occurrence.UsesContribution(
+		if !occurrence.HasContribution(
 			sdk.ContributionAuthorization,
-			"security.Authorize",
 		) {
 			continue
 		}
@@ -410,7 +406,7 @@ func analyzeAuthorization(
 		Position:         occurrence.DisplayPosition,
 		PhysicalPosition: physicalPosition(occurrence),
 	}
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionAuthorization,
 	); found {
 		authorization.Authenticated = contribution.Authorization.Authenticated
@@ -1101,7 +1097,7 @@ func stringArgument(value annotation.Annotation, name string, positional bool) (
 }
 
 func controllerPrefix(occurrence resolve.Occurrence) (string, bool) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionController,
 	); found {
 		return contribution.Controller.Prefix, true
@@ -1110,34 +1106,29 @@ func controllerPrefix(occurrence resolve.Occurrence) (string, bool) {
 }
 
 func routeOccurrence(occurrence resolve.Occurrence) bool {
-	if occurrence.HasContribution(sdk.ContributionRoute) {
-		return true
-	}
-	if occurrence.Definition != (annotation.DefinitionReference{}) {
-		return false
-	}
-	return occurrence.Annotation.Name == "Get" ||
-		occurrence.Annotation.Name == "Post"
+	return occurrence.HasContribution(sdk.ContributionRoute)
 }
 
 func routeContribution(
 	occurrence resolve.Occurrence,
 ) (method string, routePath string, valid bool) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionRoute,
 	); found {
 		return contribution.Route.Method, contribution.Route.Path, true
+	}
+	contribution, found := occurrence.Contribution(
+		sdk.ContributionRoute,
+	)
+	if !found {
+		return "", "", false
 	}
 	routePath, valid = stringArgument(
 		occurrence.Annotation,
 		"path",
 		true,
 	)
-	method = http.MethodGet
-	if occurrence.Annotation.Name == "Post" {
-		method = http.MethodPost
-	}
-	return method, routePath, valid
+	return contribution.Route.Method, routePath, valid
 }
 
 func namedType(value types.Type, packagePath, name string) bool {

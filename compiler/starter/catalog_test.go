@@ -10,6 +10,7 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/generate"
@@ -17,6 +18,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
@@ -124,6 +126,10 @@ func TestCatalogSelectsExplicitProviderEntrypoints(t *testing.T) {
 	application := resolve.Occurrence{
 		Annotation: annotation.Annotation{Name: "Application"},
 		SymbolID:   "application",
+		Contributions: []sdk.Contribution{{
+			Kind:        sdk.ContributionApplication,
+			Application: &sdk.ApplicationContribution{},
+		}},
 	}
 	occurrence := resolve.Occurrence{
 		Annotation: annotation.Annotation{Name: "search.Enable"},
@@ -359,6 +365,10 @@ func Application(Search) {
 	resolution := resolve.Annotations(program)
 	if len(resolution.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolution.Diagnostics)
+	}
+	resolution, err = testannotation.AttachOfficial(resolution)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	model := buildModel(t, program, resolution, catalog)
 	targets := model.Targets()

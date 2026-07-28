@@ -451,13 +451,10 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 	build := newBuildContext(program)
 
 	for _, occurrence := range resolution.Occurrences {
-		contribution, contributed := occurrence.Contribution(
+		contribution, contributed := occurrence.DescriptorContribution(
 			sdk.ContributionProvider,
 		)
-		if !contributed && !occurrence.UsesContribution(
-			sdk.ContributionProvider,
-			"Bean",
-		) {
+		if !occurrence.HasContribution(sdk.ContributionProvider) {
 			continue
 		}
 		symbol, ok := build.symbols[occurrence.SymbolID]
@@ -491,6 +488,15 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 				[]string(nil),
 				contribution.Provider.Aliases...,
 			)
+		} else {
+			name, aliases := unboundProviderIdentity(
+				occurrence.Annotation.Arguments,
+			)
+			if name != "" {
+				provider.Name = name
+				provider.ExplicitName = true
+			}
+			provider.Aliases = aliases
 		}
 		if provider.Name == "" {
 			provider.Name = lowerInitial(symbol.Name)
@@ -541,6 +547,28 @@ func Build(program *load.Program, resolution resolve.Result) Catalog {
 	)
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
+}
+
+func unboundProviderIdentity(
+	arguments []annotation.Argument,
+) (string, []string) {
+	name := ""
+	var aliases []string
+	for _, argument := range arguments {
+		switch {
+		case argument.Name == "name" &&
+			argument.Value.Kind == annotation.KindString:
+			name = argument.Value.String
+		case argument.Name == "aliases" &&
+			argument.Value.Kind == annotation.KindList:
+			for _, item := range argument.Value.List {
+				if item.Kind == annotation.KindString {
+					aliases = append(aliases, item.String)
+				}
+			}
+		}
+	}
+	return name, aliases
 }
 
 type buildContext struct {

@@ -288,9 +288,11 @@ func (server *Server) beginAnalysis(key string, sequence uint64) {
 		snapshot.versions[uri] = document.version
 	}
 	server.analysisWait.Add(1)
+	workspace.analysis.Add(1)
 	server.mu.Unlock()
 
 	defer server.analysisWait.Done()
+	defer workspace.analysis.Done()
 	go cancelWhenDone(ctx, cancel, done)
 	result, err := snapshot.service.Analyze(
 		ctx,

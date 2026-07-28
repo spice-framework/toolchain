@@ -299,10 +299,7 @@ func discoverModules(
 	var modules []Module
 	var diagnostics []Diagnostic
 	for _, occurrence := range occurrences {
-		if !occurrence.UsesContribution(
-			sdk.ContributionModule,
-			"Module",
-		) {
+		if !occurrence.HasContribution(sdk.ContributionModule) {
 			continue
 		}
 		if occurrence.Target != annotation.TargetPackage {
@@ -353,7 +350,7 @@ func discoverModules(
 }
 
 func parseDependencies(occurrence resolve.Occurrence) ([]Dependency, []Diagnostic) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionModule,
 	); found {
 		return parseDependencyValues(
@@ -515,9 +512,8 @@ func discoverNamedInterfaces(
 ) {
 	seen := make(map[string]resolve.Occurrence)
 	for _, occurrence := range occurrences {
-		if !occurrence.UsesContribution(
+		if !occurrence.HasContribution(
 			sdk.ContributionNamedInterface,
-			"NamedInterface",
 		) {
 			continue
 		}
@@ -575,7 +571,7 @@ func discoverNamedInterfaces(
 }
 
 func namedInterfaceName(occurrence resolve.Occurrence, diagnostics *[]Diagnostic) (string, bool) {
-	if contribution, found := occurrence.Contribution(
+	if contribution, found := occurrence.DescriptorContribution(
 		sdk.ContributionNamedInterface,
 	); found {
 		return validateNamedInterfaceName(

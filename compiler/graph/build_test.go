@@ -16,6 +16,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/StevenBuglione/spice/internal/testannotation"
 )
 
 func TestGraphResolvesOnlyExplicitInterfaceBindings(t *testing.T) {
@@ -479,6 +480,10 @@ func buildModuleGraph(t *testing.T, root string) Result {
 	resolved := resolve.Annotations(program)
 	if len(resolved.Diagnostics) != 0 {
 		t.Fatalf("resolve.Annotations() diagnostics = %v", resolved.Diagnostics)
+	}
+	resolved, err = testannotation.AttachOfficial(resolved)
+	if err != nil {
+		t.Fatalf("AttachOfficial() error = %v", err)
 	}
 	catalog := provider.Build(program, resolved)
 	if len(catalog.Diagnostics()) != 0 {

@@ -32,13 +32,17 @@ type Service struct{}
 		)
 	}
 
-	if err := os.WriteFile(
-		filepath.Join(root, "sample.go"),
-		[]byte(`package sample
+	invalidSource, _ := withTestAnnotationImports(
+		`package sample
 
 // @Controller(prefx="/users")
 type Controller struct{}
-`),
+`,
+		false,
+	)
+	if err := os.WriteFile(
+		filepath.Join(root, "sample.go"),
+		[]byte(invalidSource),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
@@ -138,7 +142,7 @@ type Broken struct{}
 		stdout != "" ||
 		!strings.Contains(
 			stderr,
-			"[spice.validation.unknown-annotation]",
+			"[spice.resolution.annotation-import]",
 		) {
 		t.Fatalf(
 			"code=%d stdout=%q stderr=%q",
