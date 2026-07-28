@@ -2,6 +2,8 @@ package generate
 
 import (
 	"context"
+	"go/token"
+	"go/types"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,8 +12,65 @@ import (
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
+
+func TestImportNamesExcludeTypesUsedOnlyForSingleDependencyResolution(
+	t *testing.T,
+) {
+	t.Parallel()
+	contracts := types.NewPackage("example.com/contracts", "contracts")
+	sender := types.NewNamed(
+		types.NewTypeName(
+			token.NoPos,
+			contracts,
+			"Sender",
+			nil,
+		),
+		types.NewInterfaceType(nil, nil).Complete(),
+		nil,
+	)
+	providers := []provider.Provider{{
+		PackagePath: "example.com/application",
+		Dependencies: []provider.Dependency{{
+			Kind: provider.DependencySingle,
+			Type: sender,
+		}},
+	}}
+	names := importNames(
+		providers,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		make(map[string]string),
+	)
+	if _, imported := names[contracts.Path()]; imported {
+		t.Fatalf(
+			"single dependency type package %q was imported even though generated direct calls do not name it",
+			contracts.Path(),
+		)
+	}
+	providers[0].Dependencies[0].Kind = provider.DependencySlice
+	names = importNames(
+		providers,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		make(map[string]string),
+	)
+	if names[contracts.Path()] != contracts.Name() {
+		t.Fatalf(
+			"collection dependency type import = %q, want %q",
+			names[contracts.Path()],
+			contracts.Name(),
+		)
+	}
+}
 
 func TestRenderGeneratesSelectionCollectionsHandlesAndScopes(
 	t *testing.T,

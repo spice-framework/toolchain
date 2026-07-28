@@ -2529,6 +2529,9 @@ func addProviderImportNames(
 			names[item.PackagePath] = name
 		}
 		for _, dependency := range item.Dependencies {
+			if dependency.Kind == provider.DependencySingle {
+				continue
+			}
 			addTypeImportName(
 				names,
 				aliases,
