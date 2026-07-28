@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	publicstarter "github.com/StevenBuglione/spice/starter"
@@ -148,6 +149,86 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 		if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(relativePath))); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("overlay analysis wrote %s: %v", relativePath, statErr)
 		}
+	}
+}
+
+func TestServiceOwnsTheCompleteGoInterfaceCatalog(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	writeServiceFixtureFile(t, root, "payments/payments.go", `package payments
+
+type Processor interface {
+	Process() error
+}
+
+type Repository[T any] interface {
+	Save(T) error
+}
+
+type constraint interface {
+	~int
+}
+
+type Concrete struct{}
+`)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root,
+		Mode:          AnalysisValidate,
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		t.Fatalf("Analyze() diagnostics = %+v", diagnostics)
+	}
+	catalog := result.GoInterfaces()
+	var payments *GoInterfacePackage
+	paymentsIndex := -1
+	for index := range catalog.Packages {
+		if catalog.Packages[index].Path ==
+			"example.com/servicefixture/payments" {
+			payments = &catalog.Packages[index]
+			paymentsIndex = index
+			break
+		}
+	}
+	if payments == nil {
+		t.Fatalf("GoInterfaces() packages = %+v", catalog.Packages)
+	}
+	if got := []string{
+		payments.Interfaces[0].Name,
+		payments.Interfaces[1].Name,
+	}; !slices.Equal(got, []string{"Processor", "Repository"}) {
+		t.Fatalf("interface names = %v", got)
+	}
+	if payments.Interfaces[0].TypeID !=
+		"example.com/servicefixture/payments.Processor" ||
+		len(payments.Interfaces[0].Methods) != 1 ||
+		payments.Interfaces[0].Methods[0].Name != "Process" ||
+		!payments.Interfaces[0].HasLocation {
+		t.Fatalf("Processor = %+v", payments.Interfaces[0])
+	}
+	if !slices.Equal(
+		payments.Interfaces[1].TypeParameters,
+		[]string{"T"},
+	) {
+		t.Fatalf(
+			"Repository type parameters = %v",
+			payments.Interfaces[1].TypeParameters,
+		)
+	}
+
+	// Result accessors must not expose the cached compiler catalog.
+	catalog.Packages[paymentsIndex].Files = nil
+	catalog.Packages[paymentsIndex].Interfaces[0].Methods = nil
+	again := result.GoInterfaces()
+	if len(again.Packages[paymentsIndex].Files) == 0 ||
+		len(again.Packages[paymentsIndex].Interfaces[0].Methods) == 0 {
+		t.Fatal("GoInterfaces() exposed mutable catalog storage")
 	}
 }
 
@@ -574,6 +655,226 @@ func main() {
 		end-start != len("@spice.import") ||
 		string(content[start:end]) != "@spice.import" {
 		t.Fatalf("CodeActions()[0].Edits[0] = %+v", edit)
+	}
+}
+
+func TestServiceOffersVersionedInterfaceAssertionFix(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	content := []byte(`package main
+
+// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+
+type Processor interface {
+	Process() error
+}
+
+// @Service
+// @Implements(Processor)
+type Stripe struct{}
+
+func (*Stripe) Process() error { return nil }
+`)
+	writeServiceFixtureFile(t, root, "main.go", string(content))
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+		if closeErr := compiler.Close(closeCtx); closeErr != nil {
+			t.Errorf("Close() error = %v", closeErr)
+		}
+	})
+	result, err := compiler.Analyze(
+		context.Background(),
+		Request{
+			WorkspaceRoot: root,
+			Mode:          AnalysisValidate,
+			Overlay: map[string]Document{
+				mainPath: {Version: 29, Content: content},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	items := result.Diagnostics().Items()
+	if len(items) != 1 ||
+		items[0].Code != "spice.provider.missing-interface-assertion" {
+		t.Fatalf("Diagnostics() = %+v", items)
+	}
+	graph := result.ProviderGraph()
+	annotations := result.Annotations()
+	providerID := ""
+	if len(graph.Providers) == 1 {
+		providerID = graph.Providers[0].ID
+	}
+	matchingAnnotation := false
+	for _, item := range annotations {
+		if item.DefinitionSymbol == "Implements" &&
+			item.SymbolID == providerID {
+			matchingAnnotation = true
+		}
+	}
+	if len(graph.Providers) != 1 ||
+		graph.Providers[0].AssertionValue != "(*Stripe)(nil)" ||
+		!matchingAnnotation {
+		t.Fatalf(
+			"provider authoring metadata = graph %+v, annotations %+v",
+			graph,
+			annotations,
+		)
+	}
+	actions := result.CodeActions()
+	if len(actions) != 1 ||
+		actions[0].Title !=
+			"Add compile-time assertion for Processor" ||
+		len(actions[0].Edits) != 1 {
+		t.Fatalf(
+			"CodeActions() = %+v, Diagnostics() = %+v",
+			actions,
+			items[0].Fixes,
+		)
+	}
+	visibleSigil := bytes.Index(content, []byte("@Implements"))
+	if visibleSigil < 0 ||
+		actions[0].AppliesTo == nil ||
+		actions[0].AppliesTo.Range.Start.Offset != visibleSigil ||
+		items[0].Location.Range.Start.Offset != visibleSigil {
+		t.Fatalf(
+			"diagnostic/action anchors = diagnostic %+v, action %+v; want visible @ offset %d",
+			items[0].Location,
+			actions[0].AppliesTo,
+			visibleSigil,
+		)
+	}
+	edit := actions[0].Edits[0]
+	if edit.NewText != "var _ Processor = (*Stripe)(nil)\n\n" ||
+		edit.DocumentVersion == nil ||
+		*edit.DocumentVersion != 29 ||
+		edit.Location.Range.Start != edit.Location.Range.End {
+		t.Fatalf("CodeActions()[0].Edits[0] = %+v", edit)
+	}
+	start := edit.Location.Range.Start.Offset
+	if !strings.HasPrefix(
+		string(content[start:]),
+		"// @Service",
+	) {
+		t.Fatalf(
+			"assertion insertion offset %d does not precede the annotation group",
+			start,
+		)
+	}
+	fixed := append([]byte(nil), content[:start]...)
+	fixed = append(fixed, edit.NewText...)
+	fixed = append(fixed, content[start:]...)
+	rechecked, err := compiler.Analyze(
+		context.Background(),
+		Request{
+			WorkspaceRoot: root,
+			Mode:          AnalysisValidate,
+			Overlay: map[string]Document{
+				mainPath: {Version: 30, Content: fixed},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Analyze(fixed) error = %v", err)
+	}
+	if !rechecked.Diagnostics().Empty() {
+		t.Fatalf(
+			"Analyze(fixed) diagnostics = %+v",
+			rechecked.Diagnostics().Items(),
+		)
+	}
+}
+
+func TestServiceKeepsAuthoringMetadataForIncompleteInterface(
+	t *testing.T,
+) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	mainPath := filepath.Join(root, "main.go")
+	content := []byte(`package main
+
+// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+
+// @Service
+// @Implements(payments.Pro)
+type Stripe struct{}
+
+// @Service
+// @Implements(payments.Processor)
+type ManualProcessor struct{}
+
+func (*ManualProcessor) Process() error { return nil }
+`)
+	writeServiceFixtureFile(t, root, "main.go", string(content))
+	writeServiceFixtureFile(t, root, "payments/payments.go", `package payments
+
+type Processor interface {
+	Process() error
+}
+`)
+	compiler, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+		if closeErr := compiler.Close(closeCtx); closeErr != nil {
+			t.Errorf("Close() error = %v", closeErr)
+		}
+	})
+	result, err := compiler.Analyze(t.Context(), Request{
+		WorkspaceRoot: root,
+		Mode:          AnalysisValidate,
+		Overlay: map[string]Document{
+			mainPath: {Version: 41, Content: content},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if result.Diagnostics().Empty() {
+		t.Fatal("Analyze() diagnostics are empty")
+	}
+	graph := result.ProviderGraph()
+	if len(graph.Providers) != 2 ||
+		graph.Providers[0].AssertionValue == "" ||
+		graph.Providers[1].AssertionValue == "" {
+		t.Fatalf("ProviderGraph() = %+v", graph)
+	}
+	var implementsDomain sdk.ValueDomain
+	for _, definition := range result.AnnotationDefinitions() {
+		if definition.DescriptorSymbol != "Implements" {
+			continue
+		}
+		implementsDomain = definition.Arguments[0].ValueDomain
+	}
+	if implementsDomain != sdk.ValueDomainGoInterface {
+		t.Fatalf("Implements value domain = %q", implementsDomain)
+	}
+	var incomplete Annotation
+	for _, item := range result.Annotations() {
+		if item.DefinitionSymbol == "Implements" &&
+			item.Declaration == "Stripe" {
+			incomplete = item
+		}
+	}
+	if incomplete.SymbolID == "" ||
+		incomplete.Location.Range.Start.Line != 6 {
+		t.Fatalf("incomplete Implements annotation = %+v", incomplete)
 	}
 }
 

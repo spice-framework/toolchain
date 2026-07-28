@@ -49,13 +49,16 @@ func TestParseImportComment(t *testing.T) {
 		},
 	}
 	position := token.Position{Filename: "main.go", Line: 7, Column: 1}
+	annotationPosition := position
+	annotationPosition.Offset += len("// ")
+	annotationPosition.Column += len("// ")
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok, err := ParseImportComment(test.input, position)
 			if err != nil || !ok {
 				t.Fatalf("ParseImportComment() = %#v, %t, %v", got, ok, err)
 			}
-			test.want.Position = position
+			test.want.Position = annotationPosition
 			test.want.Raw = test.input
 			if !equalImport(got, test.want) {
 				t.Fatalf("ParseImportComment() = %#v, want %#v", got, test.want)

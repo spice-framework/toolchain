@@ -139,6 +139,7 @@ type Provider struct {
 	Fallback       bool
 	Order          int64
 	Scope          sdk.BeanScope
+	AssertionValue string
 	Dependencies   []ProviderDependency
 	ReturnsCleanup bool
 	ReturnsError   bool
@@ -228,12 +229,49 @@ type AnnotationArgument struct {
 	Name             string
 	Kinds            []annotation.Kind
 	ListElementKinds []annotation.Kind
+	ValueDomain      sdk.ValueDomain
 	AllowedStrings   []string
 	Description      string
 	Default          string
 	Required         bool
 	Positional       bool
 	Variadic         bool
+}
+
+// GoInterfaceMethod is one method in the complete method set of a named
+// runtime Go interface.
+type GoInterfaceMethod struct {
+	Name      string
+	Signature string
+}
+
+// GoInterface is one compiler-resolved named runtime interface available to
+// annotation arguments whose SDK value domain is ValueDomainGoInterface.
+type GoInterface struct {
+	Name           string
+	PackageName    string
+	PackagePath    string
+	TypeID         string
+	TypeParameters []string
+	Methods        []GoInterfaceMethod
+	Exported       bool
+	Location       diagnostic.Location
+	HasLocation    bool
+}
+
+// GoInterfacePackage groups interfaces by their exact Go package identity and
+// records the physical files that establish same-package visibility.
+type GoInterfacePackage struct {
+	Name       string
+	Path       string
+	Files      []string
+	Interfaces []GoInterface
+}
+
+// GoInterfaceCatalog is the immutable type-aware interface view produced by
+// the same loaded Go program used for diagnostics, DI, and generation.
+type GoInterfaceCatalog struct {
+	Packages []GoInterfacePackage
 }
 
 // AnnotationExample is one descriptor-owned editor example.
@@ -300,6 +338,7 @@ type Result struct {
 	moduleGraph    ModuleGraph
 	moduleModel    modulith.Model
 	configurations []Configuration
+	goInterfaces   GoInterfaceCatalog
 	definitions    []AnnotationDefinition
 	actions        []diagnostic.SuggestedFix
 	application    application.Model
@@ -353,6 +392,13 @@ func (result Result) ModuleModel() modulith.Model {
 // Configurations returns deep defensive configuration metadata.
 func (result Result) Configurations() []Configuration {
 	return cloneConfigurations(result.configurations)
+}
+
+// GoInterfaces returns the compiler-owned named runtime interface catalog used
+// by LSP completion and navigation. Editors do not independently decide which
+// Go types are valid Spice interface bindings.
+func (result Result) GoInterfaces() GoInterfaceCatalog {
+	return cloneGoInterfaceCatalog(result.goInterfaces)
 }
 
 // AnnotationDefinitions returns completion-safe available definitions.

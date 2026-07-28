@@ -298,13 +298,47 @@ func (*Stripe) Process() error { return nil }
 	program, resolved := loadAndResolve(t, root, ".")
 	resolved = attachProviderTestContributions(t, resolved)
 	catalog := buildQuiet(t, program, resolved)
-	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
+	diagnostics := catalog.Diagnostics()
+	joined := strings.Join(diagnosticStrings(diagnostics), "\n")
 	if !strings.Contains(joined, "requires an ordinary Go compile-time assertion") ||
 		!strings.Contains(
 			joined,
 			"var _ Processor = (*Stripe)(nil)",
 		) {
 		t.Fatalf("diagnostics = %s", joined)
+	}
+	var missing *Diagnostic
+	for index := range diagnostics {
+		if diagnostics[index].Kind == "missing-interface-assertion" {
+			missing = &diagnostics[index]
+			break
+		}
+	}
+	if missing == nil ||
+		len(missing.Fixes) != 1 ||
+		missing.Fixes[0].Title !=
+			"Add compile-time assertion for Processor" ||
+		len(missing.Fixes[0].Edits) != 1 {
+		t.Fatalf("missing assertion diagnostic = %#v", missing)
+	}
+	edit := missing.Fixes[0].Edits[0]
+	if edit.NewText != "var _ Processor = (*Stripe)(nil)\n\n" ||
+		edit.Position.Column != 1 ||
+		edit.PhysicalPosition.Column != 1 {
+		t.Fatalf("missing assertion edit = %#v", edit)
+	}
+	source, err := os.ReadFile(filepath.Join(root, "app.go"))
+	if err != nil {
+		t.Fatalf("ReadFile(app.go) error = %v", err)
+	}
+	if !strings.HasPrefix(
+		string(source[edit.PhysicalPosition.Offset:]),
+		"// @Service",
+	) {
+		t.Fatalf(
+			"assertion insertion offset %d does not precede the annotation group",
+			edit.PhysicalPosition.Offset,
+		)
 	}
 }
 

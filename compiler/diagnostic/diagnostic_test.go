@@ -30,7 +30,8 @@ func TestSetNormalizesSortsAndDefensivelyCopies(t *testing.T) {
 	)
 	version := 4
 	fix := SuggestedFix{
-		Title: "Insert comment prefix",
+		Title:     "Insert comment prefix",
+		AppliesTo: &firstLocation,
 		Edits: []TextEdit{{
 			Location:        secondLocation,
 			DocumentVersion: &version,
@@ -71,10 +72,12 @@ func TestSetNormalizesSortsAndDefensivelyCopies(t *testing.T) {
 
 	items[1].Fixes[0].Edits[0].NewText = "changed"
 	*items[1].Fixes[0].Edits[0].DocumentVersion = 9
+	items[1].Fixes[0].AppliesTo.Path = "changed"
 	items[1].Related[0].Message = "changed"
 	again := set.Items()
 	if again[1].Fixes[0].Edits[0].NewText != "// " ||
 		*again[1].Fixes[0].Edits[0].DocumentVersion != 4 ||
+		again[1].Fixes[0].AppliesTo.Path != firstLocation.Path ||
 		again[1].Related[0].Message != "definition" {
 		t.Fatalf("Set was mutated through Items(): %#v", again[1])
 	}

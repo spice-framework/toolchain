@@ -16,6 +16,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
+	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
 
@@ -61,8 +62,26 @@ func summarizeAnnotations(
 func summarizeProviderGraph(model application.Model) ProviderGraph {
 	providers := model.Providers()
 	result := ProviderGraph{
-		Providers: make([]Provider, len(providers)),
+		Providers: summarizeProviders(providers),
 	}
+	edges := model.Edges()
+	result.Edges = make([]ProviderEdge, len(edges))
+	for index, edge := range edges {
+		result.Edges[index] = ProviderEdge{
+			ConsumerID:      edge.ConsumerID,
+			DependencyID:    edge.DependencyID,
+			RequiredTypeID:  edge.RequiredTypeID,
+			ParameterIndex:  edge.ParameterIndex,
+			ParameterName:   edge.ParameterName,
+			DependencyKind:  edge.DependencyKind,
+			CollectionIndex: edge.CollectionIndex,
+		}
+	}
+	return result
+}
+
+func summarizeProviders(providers []provider.Provider) []Provider {
+	result := make([]Provider, len(providers))
 	for index, item := range providers {
 		dependencies := make(
 			[]ProviderDependency,
@@ -81,7 +100,7 @@ func summarizeProviderGraph(model application.Model) ProviderGraph {
 				),
 			}
 		}
-		result.Providers[index] = Provider{
+		result[index] = Provider{
 			ID:             item.SymbolID,
 			Name:           item.Name,
 			ExplicitName:   item.ExplicitName,
@@ -94,22 +113,10 @@ func summarizeProviderGraph(model application.Model) ProviderGraph {
 			Fallback:       item.Fallback,
 			Order:          item.Order,
 			Scope:          item.Scope,
+			AssertionValue: item.InterfaceAssertionValue(),
 			Dependencies:   dependencies,
 			ReturnsCleanup: item.ReturnsCleanup,
 			ReturnsError:   item.ReturnsError,
-		}
-	}
-	edges := model.Edges()
-	result.Edges = make([]ProviderEdge, len(edges))
-	for index, edge := range edges {
-		result.Edges[index] = ProviderEdge{
-			ConsumerID:      edge.ConsumerID,
-			DependencyID:    edge.DependencyID,
-			RequiredTypeID:  edge.RequiredTypeID,
-			ParameterIndex:  edge.ParameterIndex,
-			ParameterName:   edge.ParameterName,
-			DependencyKind:  edge.DependencyKind,
-			CollectionIndex: edge.CollectionIndex,
 		}
 	}
 	return result
@@ -243,6 +250,7 @@ func summarizeDefinitions(
 				Name:             argument.Name,
 				Kinds:            slices.Clone(argument.Kinds),
 				ListElementKinds: slices.Clone(argument.ListElementKinds),
+				ValueDomain:      argument.ValueDomain,
 				AllowedStrings: slices.Clone(
 					allowedStrings[item.Name][argument.Name],
 				),
@@ -568,7 +576,9 @@ func equalSuggestedFix(
 	left diagnostic.SuggestedFix,
 	right diagnostic.SuggestedFix,
 ) bool {
-	if left.Title != right.Title || len(left.Edits) != len(right.Edits) {
+	if left.Title != right.Title ||
+		!equalOptionalLocation(left.AppliesTo, right.AppliesTo) ||
+		len(left.Edits) != len(right.Edits) {
 		return false
 	}
 	for index, leftEdit := range left.Edits {
@@ -585,6 +595,28 @@ func equalSuggestedFix(
 		}
 	}
 	return true
+}
+
+func equalOptionalLocation(
+	left *diagnostic.Location,
+	right *diagnostic.Location,
+) bool {
+	switch {
+	case left == nil || right == nil:
+		return left == right
+	default:
+		if left.URI != right.URI ||
+			left.Path != right.Path ||
+			left.Range != right.Range {
+			return false
+		}
+		switch {
+		case left.Display == nil || right.Display == nil:
+			return left.Display == right.Display
+		default:
+			return *left.Display == *right.Display
+		}
+	}
 }
 
 func equalVersion(left, right *int) bool {

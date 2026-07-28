@@ -93,9 +93,10 @@ func (descriptor Descriptor) RegistryDefinition() (annotation.Definition, error)
 				[]annotation.Kind(nil),
 				argument.ListElementKinds...,
 			),
-			Required:   argument.Required,
-			Positional: argument.Positional,
-			Variadic:   argument.Variadic,
+			ValueDomain: argument.ValueDomain,
+			Required:    argument.Required,
+			Positional:  argument.Positional,
+			Variadic:    argument.Variadic,
 		}
 	}
 	return annotation.Definition{
@@ -610,6 +611,7 @@ func decodeArgument(
 		"Name":             {},
 		"Kinds":            {},
 		"ListElementKinds": {},
+		"ValueDomain":      {},
 		"AllowedValues":    {},
 		"Description":      {},
 		"Default":          {},
@@ -637,6 +639,11 @@ func decodeArgument(
 	if err != nil {
 		return sdk.Argument{}, err
 	}
+	valueDomain, err := optionalString(info, fields, "ValueDomain")
+	if err != nil {
+		return sdk.Argument{}, err
+	}
+	result.ValueDomain = sdk.ValueDomain(valueDomain)
 	result.AllowedValues, err = optionalStrings(
 		info,
 		fields,

@@ -4,16 +4,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	goparser "go/parser"
 	"go/token"
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/StevenBuglione/spice/annotation"
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
@@ -113,9 +117,12 @@ type protocolOptionalVersionedDocument struct {
 type metadataView struct {
 	definitions    []compilerservice.AnnotationDefinition
 	annotations    []compilerservice.Annotation
+	providers      []compilerservice.Provider
 	modules        []compilerservice.Module
 	configurations []compilerservice.Configuration
+	goInterfaces   compilerservice.GoInterfaceCatalog
 	actions        []diagnostic.SuggestedFix
+	sourcePath     string
 }
 
 const annotationCatalogTimeout = 5 * time.Second
@@ -263,6 +270,13 @@ func completionItems(
 			content,
 			metadata.definitions,
 		)
+		if items, handled := goInterfaceCompletionItems(
+			context,
+			metadata,
+			content,
+		); handled {
+			return items
+		}
 		return argumentCompletionItems(context, metadata, content)
 	case completionConfiguration:
 		return configurationCompletionItems(context, metadata, content)
@@ -306,7 +320,7 @@ type completionContext struct {
 }
 
 func inspectCompletionContext(content []byte, offset int) completionContext {
-	lineStart, _, found := contentLineAtOffset(content, offset)
+	lineStart, found := contentLineAtOffset(content, offset)
 	if !found {
 		return completionContext{kind: completionNone, start: offset, end: offset}
 	}
@@ -811,6 +825,491 @@ func argumentSnippet(
 	return fmt.Sprintf(`"${%d:value}"`, tabstop)
 }
 
+type goImportState struct {
+	file       *ast.File
+	fileSet    *token.FileSet
+	byPath     map[string]string
+	unusable   map[string]struct{}
+	occupied   map[string]struct{}
+	lineEnding string
+}
+
+func goInterfaceCompletionItems(
+	context completionContext,
+	metadata metadataView,
+	content []byte,
+) ([]completionItem, bool) {
+	definition, found := annotationDefinition(
+		metadata.definitions,
+		context.annotation,
+	)
+	if !found {
+		return nil, false
+	}
+	argument, found := findCompletionArgument(
+		definition.Arguments,
+		context.argument,
+	)
+	if !found || argument.ValueDomain != sdk.ValueDomainGoInterface {
+		return nil, false
+	}
+	if context.insideString {
+		return []completionItem{}, true
+	}
+
+	imports := inspectGoImports(content)
+	sourcePackage := interfaceSourcePackage(
+		metadata.goInterfaces,
+		metadata.sourcePath,
+	)
+	prefix := strings.TrimSpace(
+		string(content[context.start:context.end]),
+	)
+	itemRange := protocolRangeAtOffsets(content, context.start, context.end)
+	var items []completionItem
+	for _, pkg := range metadata.goInterfaces.Packages {
+		for _, contract := range pkg.Interfaces {
+			item, available := goInterfaceCompletionItem(
+				content,
+				context,
+				metadata,
+				imports,
+				pkg,
+				contract,
+				sourcePackage,
+				prefix,
+				itemRange,
+			)
+			if !available {
+				continue
+			}
+			items = append(items, item)
+		}
+	}
+	return items, true
+}
+
+func goInterfaceCompletionItem(
+	content []byte,
+	context completionContext,
+	metadata metadataView,
+	imports goImportState,
+	pkg compilerservice.GoInterfacePackage,
+	contract compilerservice.GoInterface,
+	sourcePackage string,
+	prefix string,
+	itemRange protocolRange,
+) (completionItem, bool) {
+	samePackage := pkg.Path != "" && pkg.Path == sourcePackage
+	if !samePackage && !contract.Exported {
+		return completionItem{}, false
+	}
+	qualifier, addImport, available := interfaceQualifier(
+		imports,
+		pkg,
+		samePackage,
+	)
+	if !available {
+		return completionItem{}, false
+	}
+	lookup := contract.Name
+	if qualifier != "" {
+		lookup = qualifier + "." + contract.Name
+	}
+	if !interfacePrefixMatches(prefix, lookup, contract.Name) {
+		return completionItem{}, false
+	}
+	documentation := markupContent{
+		Kind:  "markdown",
+		Value: goInterfaceDocumentation(contract),
+	}
+	item := completionItem{
+		Label:            lookup,
+		Kind:             8,
+		Detail:           contract.PackagePath,
+		Documentation:    &documentation,
+		SortText:         "0000-" + lookup + "\x00" + contract.PackagePath,
+		FilterText:       lookup + " " + contract.Name,
+		InsertTextFormat: 2,
+		TextEdit: protocolEdit{
+			Range: itemRange,
+			NewText: goInterfaceInsertText(
+				lookup,
+				contract.TypeParameters,
+			),
+		},
+	}
+	assertionEdit, hasAssertionEdit := goInterfaceAssertionEdit(
+		content,
+		context,
+		metadata,
+		lookup,
+	)
+	if addImport {
+		// A Go import used only in a comment is invalid Go and may be deleted
+		// by the editor. Add it only when the compiler can atomically add the
+		// ordinary Go interface assertion.
+		if !hasAssertionEdit {
+			return item, true
+		}
+		importEdit, ok := additionalGoImportEdit(
+			content,
+			imports,
+			contract.PackagePath,
+			qualifier,
+			pkg.Name,
+		)
+		if !ok {
+			return completionItem{}, false
+		}
+		item.AdditionalEdits = []protocolEdit{importEdit}
+	}
+	if hasAssertionEdit {
+		item.AdditionalEdits = append(
+			item.AdditionalEdits,
+			assertionEdit,
+		)
+	}
+	return item, true
+}
+
+func goInterfaceAssertionEdit(
+	content []byte,
+	context completionContext,
+	metadata metadataView,
+	interfaceExpression string,
+) (protocolEdit, bool) {
+	position := protocolPositionAtOffset(content, context.start)
+	var symbolID string
+	for _, occurrence := range metadata.annotations {
+		if occurrence.Spelling != context.annotation ||
+			occurrence.Location.Range.Start.Line-1 != position.Line {
+			continue
+		}
+		if metadata.sourcePath != "" &&
+			pathKey(occurrence.Location.Path) !=
+				pathKey(metadata.sourcePath) {
+			continue
+		}
+		symbolID = occurrence.SymbolID
+		break
+	}
+	if symbolID == "" {
+		return protocolEdit{}, false
+	}
+	var selected compilerservice.Provider
+	found := false
+	for _, candidate := range metadata.providers {
+		if candidate.ID == symbolID {
+			selected = candidate
+			found = true
+			break
+		}
+	}
+	if !found || selected.AssertionValue == "" {
+		return protocolEdit{}, false
+	}
+	statement := "var _ " + interfaceExpression + " = " +
+		selected.AssertionValue
+	if bytes.Contains(content, []byte(statement)) {
+		return protocolEdit{}, false
+	}
+	insertion := annotationGroupStart(content, context.start)
+	lineEnding := "\n"
+	if bytes.Contains(content, []byte("\r\n")) {
+		lineEnding = "\r\n"
+	}
+	return protocolEdit{
+		Range:   protocolRangeAtOffsets(content, insertion, insertion),
+		NewText: statement + lineEnding + lineEnding,
+	}, true
+}
+
+func annotationGroupStart(content []byte, offset int) int {
+	lineStart, found := contentLineAtOffset(content, offset)
+	if !found {
+		return min(max(offset, 0), len(content))
+	}
+	start := lineStart
+	for start > 0 {
+		previousEnd := start - 1
+		if previousEnd > 0 && content[previousEnd-1] == '\r' {
+			previousEnd--
+		}
+		previousStart := bytes.LastIndexByte(
+			content[:previousEnd],
+			'\n',
+		) + 1
+		line := strings.TrimSpace(
+			string(content[previousStart:previousEnd]),
+		)
+		if !strings.HasPrefix(line, "// @") ||
+			strings.HasPrefix(line, "// @import") {
+			break
+		}
+		start = previousStart
+	}
+	return start
+}
+
+func findCompletionArgument(
+	arguments []compilerservice.AnnotationArgument,
+	name string,
+) (compilerservice.AnnotationArgument, bool) {
+	for _, argument := range arguments {
+		if name != "" && argument.Name == name ||
+			name == "" && argument.Positional {
+			return argument, true
+		}
+	}
+	return compilerservice.AnnotationArgument{}, false
+}
+
+func interfaceSourcePackage(
+	catalog compilerservice.GoInterfaceCatalog,
+	sourcePath string,
+) string {
+	if sourcePath == "" {
+		return ""
+	}
+	sourceKey := pathKey(sourcePath)
+	for _, pkg := range catalog.Packages {
+		for _, file := range pkg.Files {
+			if pathKey(file) == sourceKey {
+				return pkg.Path
+			}
+		}
+	}
+	return ""
+}
+
+func inspectGoImports(content []byte) goImportState {
+	state := goImportState{
+		byPath:     make(map[string]string),
+		unusable:   make(map[string]struct{}),
+		occupied:   make(map[string]struct{}),
+		lineEnding: "\n",
+	}
+	if bytes.Contains(content, []byte("\r\n")) {
+		state.lineEnding = "\r\n"
+	}
+	state.fileSet = token.NewFileSet()
+	file, err := goparser.ParseFile(
+		state.fileSet,
+		"",
+		content,
+		goparser.ImportsOnly|goparser.SkipObjectResolution,
+	)
+	if err != nil {
+		return state
+	}
+	state.file = file
+	for _, specification := range file.Imports {
+		packagePath, err := strconv.Unquote(specification.Path.Value)
+		if err != nil {
+			continue
+		}
+		alias := ""
+		if specification.Name != nil {
+			alias = specification.Name.Name
+			if alias == "_" || alias == "." {
+				state.unusable[packagePath] = struct{}{}
+				continue
+			}
+		}
+		state.byPath[packagePath] = alias
+		if alias != "" {
+			state.occupied[alias] = struct{}{}
+			continue
+		}
+		if base := path.Base(packagePath); base != "." && base != "/" {
+			state.occupied[base] = struct{}{}
+		}
+	}
+	return state
+}
+
+func interfaceQualifier(
+	imports goImportState,
+	pkg compilerservice.GoInterfacePackage,
+	samePackage bool,
+) (qualifier string, addImport bool, available bool) {
+	if samePackage {
+		return "", false, true
+	}
+	if _, unusable := imports.unusable[pkg.Path]; unusable {
+		return "", false, false
+	}
+	if alias, imported := imports.byPath[pkg.Path]; imported {
+		if alias != "" {
+			return alias, false, true
+		}
+		return pkg.Name, false, pkg.Name != ""
+	}
+	if pkg.Name == "" {
+		return "", false, false
+	}
+	return availableGoQualifier(pkg.Name, imports.occupied), true, true
+}
+
+func availableGoQualifier(
+	base string,
+	occupied map[string]struct{},
+) string {
+	if _, used := occupied[base]; !used {
+		return base
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("%s%d", base, suffix)
+		if _, used := occupied[candidate]; !used {
+			return candidate
+		}
+	}
+}
+
+func interfacePrefixMatches(prefix, lookup, name string) bool {
+	if prefix == "" {
+		return true
+	}
+	prefix = strings.ToLower(prefix)
+	if strings.Contains(prefix, ".") {
+		return strings.HasPrefix(strings.ToLower(lookup), prefix)
+	}
+	return strings.HasPrefix(strings.ToLower(name), prefix) ||
+		strings.HasPrefix(strings.ToLower(lookup), prefix)
+}
+
+func goInterfaceInsertText(
+	lookup string,
+	parameters []string,
+) string {
+	if len(parameters) == 0 {
+		return lookup
+	}
+	var content strings.Builder
+	content.WriteString(lookup)
+	content.WriteByte('[')
+	for index, parameter := range parameters {
+		if index != 0 {
+			content.WriteString(", ")
+		}
+		fmt.Fprintf(&content, "${%d:%s}", index+1, parameter)
+	}
+	content.WriteByte(']')
+	return content.String()
+}
+
+func goInterfaceDocumentation(
+	contract compilerservice.GoInterface,
+) string {
+	var content strings.Builder
+	fmt.Fprintf(
+		&content,
+		"`%s` from `%s`.\n\n",
+		contract.Name,
+		contract.PackagePath,
+	)
+	if len(contract.TypeParameters) != 0 {
+		fmt.Fprintf(
+			&content,
+			"Type parameters: `%s`.\n\n",
+			strings.Join(contract.TypeParameters, "`, `"),
+		)
+	}
+	if len(contract.Methods) == 0 {
+		content.WriteString("Runtime interface with an empty method set.")
+	} else {
+		content.WriteString("Complete method set:\n")
+		for _, method := range contract.Methods {
+			fmt.Fprintf(
+				&content,
+				"\n- `%s %s`",
+				method.Name,
+				strings.TrimPrefix(method.Signature, "func"),
+			)
+		}
+	}
+	content.WriteString(
+		"\n\nResolved by Spice's typed Go program; the IDE does not infer DI eligibility.",
+	)
+	return content.String()
+}
+
+func additionalGoImportEdit(
+	content []byte,
+	imports goImportState,
+	packagePath string,
+	qualifier string,
+	packageName string,
+) (protocolEdit, bool) {
+	if imports.file == nil || imports.fileSet == nil {
+		return protocolEdit{}, false
+	}
+	alias := ""
+	if qualifier != packageName {
+		alias = qualifier
+	}
+	specification := strconv.Quote(packagePath)
+	if alias != "" {
+		specification = alias + " " + specification
+	}
+	lineEnding := imports.lineEnding
+	for _, declaration := range imports.file.Decls {
+		generic, ok := declaration.(*ast.GenDecl)
+		if !ok || generic.Tok != token.IMPORT {
+			continue
+		}
+		return existingGoImportEdit(
+			content,
+			imports.fileSet,
+			generic,
+			specification,
+			lineEnding,
+		)
+	}
+	if imports.file.Name == nil {
+		return protocolEdit{}, false
+	}
+	offset := imports.fileSet.PositionFor(
+		imports.file.Name.End(),
+		false,
+	).Offset
+	if offset < 0 || offset > len(content) {
+		return protocolEdit{}, false
+	}
+	return protocolEdit{
+		Range:   protocolRangeAtOffsets(content, offset, offset),
+		NewText: lineEnding + lineEnding + "import " + specification,
+	}, true
+}
+
+func existingGoImportEdit(
+	content []byte,
+	fileSet *token.FileSet,
+	declaration *ast.GenDecl,
+	specification string,
+	lineEnding string,
+) (protocolEdit, bool) {
+	if declaration.Lparen.IsValid() && declaration.Rparen.IsValid() {
+		offset := fileSet.PositionFor(declaration.Rparen, false).Offset
+		if offset < 0 || offset > len(content) {
+			return protocolEdit{}, false
+		}
+		return protocolEdit{
+			Range:   protocolRangeAtOffsets(content, offset, offset),
+			NewText: "\t" + specification + lineEnding,
+		}, true
+	}
+	offset := fileSet.PositionFor(declaration.End(), false).Offset
+	if offset < 0 || offset > len(content) {
+		return protocolEdit{}, false
+	}
+	return protocolEdit{
+		Range:   protocolRangeAtOffsets(content, offset, offset),
+		NewText: lineEnding + "import " + specification,
+	}, true
+}
+
 func argumentCompletionItems(
 	context completionContext,
 	metadata metadataView,
@@ -1211,6 +1710,18 @@ func (server *Server) protocolCodeAction(
 	relevant := false
 	server.mu.Lock()
 	defer server.mu.Unlock()
+	if fix.AppliesTo != nil {
+		document := server.documentForLocationLocked(*fix.AppliesTo)
+		if document == nil {
+			return protocolCodeAction{}, false, false
+		}
+		anchor := protocolRangeFromCompiler(
+			fix.AppliesTo.Range,
+			document.content,
+		)
+		relevant = document.uri == requestDocument.uri &&
+			rangesOverlap(anchor, requestRange)
+	}
 	for _, edit := range fix.Edits {
 		document := server.documentForEditLocked(edit)
 		if document == nil ||
@@ -1262,11 +1773,17 @@ func (server *Server) protocolCodeAction(
 func (server *Server) documentForEditLocked(
 	edit diagnostic.TextEdit,
 ) *document {
-	if document := server.documents[edit.Location.URI]; document != nil {
+	return server.documentForLocationLocked(edit.Location)
+}
+
+func (server *Server) documentForLocationLocked(
+	location diagnostic.Location,
+) *document {
+	if document := server.documents[location.URI]; document != nil {
 		return document
 	}
 	for _, document := range server.documents {
-		if pathKey(document.path) == pathKey(edit.Location.Path) {
+		if pathKey(document.path) == pathKey(location.Path) {
 			return document
 		}
 	}
@@ -1284,15 +1801,20 @@ func (server *Server) featureSnapshot(
 	}
 	workspace := server.workspaces[source.root]
 	if workspace == nil || !workspace.hasLatest {
-		return cloneDocument(*source), metadataView{}, true
+		return cloneDocument(*source), metadataView{
+			sourcePath: source.path,
+		}, true
 	}
 	latest := workspace.latest
 	view := metadataView{
 		definitions:    latest.AnnotationDefinitions(),
 		annotations:    latest.Annotations(),
+		providers:      latest.ProviderGraph().Providers,
 		modules:        latest.ModuleGraph().Modules,
 		configurations: latest.Configurations(),
+		goInterfaces:   latest.GoInterfaces(),
 		actions:        latest.CodeActions(),
+		sourcePath:     source.path,
 	}
 	if workspace.hasGood {
 		if len(view.definitions) == 0 {
@@ -1301,11 +1823,17 @@ func (server *Server) featureSnapshot(
 		if len(view.annotations) == 0 {
 			view.annotations = workspace.lastGood.Annotations()
 		}
+		if len(view.providers) == 0 {
+			view.providers = workspace.lastGood.ProviderGraph().Providers
+		}
 		if len(view.modules) == 0 {
 			view.modules = workspace.lastGood.ModuleGraph().Modules
 		}
 		if len(view.configurations) == 0 {
 			view.configurations = workspace.lastGood.Configurations()
+		}
+		if len(view.goInterfaces.Packages) == 0 {
+			view.goInterfaces = workspace.lastGood.GoInterfaces()
 		}
 	}
 	return cloneDocument(*source), view, true
@@ -1770,21 +2298,15 @@ func protocolPositionAtOffset(
 func contentLineAtOffset(
 	content []byte,
 	offset int,
-) (int, int, bool) {
+) (int, bool) {
 	if offset < 0 || offset > len(content) {
-		return 0, 0, false
+		return 0, false
 	}
 	start := offset
 	for start > 0 && content[start-1] != '\n' {
 		start--
 	}
-	end := offset
-	for end < len(content) &&
-		content[end] != '\n' &&
-		content[end] != '\r' {
-		end++
-	}
-	return start, end, true
+	return start, true
 }
 
 func contentLine(

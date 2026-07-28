@@ -55,6 +55,35 @@ func cloneConfigurations(items []Configuration) []Configuration {
 	return result
 }
 
+func cloneGoInterfaceCatalog(
+	catalog GoInterfaceCatalog,
+) GoInterfaceCatalog {
+	result := GoInterfaceCatalog{
+		Packages: make(
+			[]GoInterfacePackage,
+			len(catalog.Packages),
+		),
+	}
+	for packageIndex, item := range catalog.Packages {
+		result.Packages[packageIndex] = item
+		result.Packages[packageIndex].Files = slices.Clone(item.Files)
+		result.Packages[packageIndex].Interfaces = make(
+			[]GoInterface,
+			len(item.Interfaces),
+		)
+		for interfaceIndex, contract := range item.Interfaces {
+			result.Packages[packageIndex].Interfaces[interfaceIndex] = contract
+			result.Packages[packageIndex].
+				Interfaces[interfaceIndex].
+				TypeParameters = slices.Clone(contract.TypeParameters)
+			result.Packages[packageIndex].
+				Interfaces[interfaceIndex].
+				Methods = slices.Clone(contract.Methods)
+		}
+	}
+	return result
+}
+
 func cloneDefinitions(items []AnnotationDefinition) []AnnotationDefinition {
 	result := make([]AnnotationDefinition, len(items))
 	for index, item := range items {
@@ -81,6 +110,14 @@ func cloneActions(items []diagnostic.SuggestedFix) []diagnostic.SuggestedFix {
 	result := make([]diagnostic.SuggestedFix, len(items))
 	for index, item := range items {
 		result[index] = item
+		if item.AppliesTo != nil {
+			location := *item.AppliesTo
+			if location.Display != nil {
+				display := *location.Display
+				location.Display = &display
+			}
+			result[index].AppliesTo = &location
+		}
 		result[index].Edits = make(
 			[]diagnostic.TextEdit,
 			len(item.Edits),
@@ -106,6 +143,7 @@ func cloneResult(result Result) Result {
 	result.providerGraph = cloneProviderGraph(result.providerGraph)
 	result.moduleGraph = cloneModuleGraph(result.moduleGraph)
 	result.configurations = cloneConfigurations(result.configurations)
+	result.goInterfaces = cloneGoInterfaceCatalog(result.goInterfaces)
 	result.definitions = cloneDefinitions(result.definitions)
 	result.actions = cloneActions(result.actions)
 	return result

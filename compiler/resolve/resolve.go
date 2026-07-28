@@ -644,6 +644,9 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 		}
 		parsed, ok, err := annotationparser.ParseComment(comment.Text, display)
 		if err != nil {
+			annotationOffset := strings.Index(comment.Text, "@")
+			display = shiftedPosition(display, annotationOffset)
+			physical = shiftedPosition(physical, annotationOffset)
 			diagnostics = append(diagnostics, Diagnostic{
 				Position:         display,
 				PhysicalFile:     filepath.Clean(physical.Filename),
@@ -658,6 +661,11 @@ func parseGroup(pkg load.Package, group *ast.CommentGroup) ([]parsedDirective, [
 		if !ok {
 			continue
 		}
+		physical = shiftedPosition(
+			physical,
+			parsed.Position.Offset-display.Offset,
+		)
+		display = parsed.Position
 		directives = append(directives, parsedDirective{
 			annotation:       parsed,
 			spelling:         parsed.Name,
@@ -718,14 +726,11 @@ func resolveFileImports(
 			}
 			if err != nil {
 				kind := "annotation-import-parse"
+				offset := strings.Index(comment.Text, "@")
+				display = shiftedPosition(display, offset)
+				physical = shiftedPosition(physical, offset)
 				if annotationparser.IsLegacyImportError(err) {
 					kind = "annotation-import-legacy"
-					offset := strings.Index(
-						comment.Text,
-						"@spice.import",
-					)
-					display = shiftedPosition(display, offset)
-					physical = shiftedPosition(physical, offset)
 				}
 				diagnostics = append(diagnostics, sourceDiagnostic(
 					display,
@@ -736,7 +741,10 @@ func resolveFileImports(
 				))
 				continue
 			}
-			directive.PhysicalPosition = physical
+			directive.PhysicalPosition = shiftedPosition(
+				physical,
+				directive.Position.Offset-display.Offset,
+			)
 			directives = append(directives, directive)
 		}
 	}

@@ -64,6 +64,30 @@ func TestParseCommentTypedValues(t *testing.T) {
 	}
 }
 
+func TestParseCommentPositionsTheAnnotationAtTheVisibleSigil(t *testing.T) {
+	t.Parallel()
+
+	position := token.Position{
+		Filename: "test.go",
+		Offset:   40,
+		Line:     7,
+		Column:   5,
+	}
+	parsed, recognized, err := ParseComment(
+		`// @Implements(api.Processor)`,
+		position,
+	)
+	if err != nil || !recognized {
+		t.Fatalf("ParseComment() = %#v, %t, %v", parsed, recognized, err)
+	}
+	want := position
+	want.Offset += len("// ")
+	want.Column += len("// ")
+	if parsed.Position != want {
+		t.Fatalf("Position = %#v, want visible @ position %#v", parsed.Position, want)
+	}
+}
+
 func TestParseCommentIgnoresOrdinaryComment(t *testing.T) {
 	t.Parallel()
 

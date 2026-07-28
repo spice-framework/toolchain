@@ -118,6 +118,7 @@ type Diagnostic struct {
 	SymbolID         string
 	Kind             string
 	Message          string
+	Fixes            []provider.SuggestedFix
 }
 
 // Error renders a compiler-style diagnostic.
@@ -159,6 +160,10 @@ type Model struct {
 type BuildOptions struct {
 	BootstrapDefinitions []compilerbootstrap.Definition
 	ProviderCatalogs     []provider.Catalog
+	// PrimaryProviderCatalog reuses a catalog already built from this exact
+	// Program and resolution. It lets compiler services expose partial,
+	// type-safe authoring metadata without rebuilding provider semantics.
+	PrimaryProviderCatalog *provider.Catalog
 }
 
 // Providers returns providers in deterministic dependency-first construction
@@ -260,7 +265,26 @@ func (m Model) UnassignedPackages() []modulith.Package {
 // Diagnostics returns deterministic diagnostics. A model with diagnostics must
 // not be used for generation.
 func (m Model) Diagnostics() []Diagnostic {
-	return append([]Diagnostic(nil), m.diagnostics...)
+	result := make([]Diagnostic, len(m.diagnostics))
+	for index, item := range m.diagnostics {
+		result[index] = item
+		result[index].Fixes = cloneProviderFixes(item.Fixes)
+	}
+	return result
+}
+
+func cloneProviderFixes(
+	items []provider.SuggestedFix,
+) []provider.SuggestedFix {
+	result := make([]provider.SuggestedFix, len(items))
+	for index, item := range items {
+		result[index] = item
+		result[index].Edits = append(
+			[]provider.SuggestedEdit(nil),
+			item.Edits...,
+		)
+	}
+	return result
 }
 
 // Build assembles provider, graph, lifecycle, and application-root metadata
@@ -309,6 +333,7 @@ func BuildWithOptions(
 		resolution,
 		model.configTypes,
 		model.moduleModel,
+		options.PrimaryProviderCatalog,
 		options.ProviderCatalogs,
 	)
 	model.events = events
@@ -516,11 +541,17 @@ func buildProviderMetadata(
 	resolution resolve.Result,
 	configurations []configuration.Type,
 	modules modulith.Model,
+	primary *provider.Catalog,
 	extensions []provider.Catalog,
 ) (provider.Catalog, []compilerevent.Topic, []Diagnostic) {
-	providerCatalog := provider.Build(program, resolution)
+	var providerCatalog provider.Catalog
+	if primary == nil {
+		providerCatalog = provider.Build(program, resolution)
+	} else {
+		providerCatalog = *primary
+	}
 	if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
-		return provider.Catalog{}, nil, providerDiagnostics(diagnostics)
+		return providerCatalog, nil, providerDiagnostics(diagnostics)
 	}
 	providerCatalog = provider.Add(
 		providerCatalog,
@@ -1319,6 +1350,7 @@ func providerDiagnostics(diagnostics []provider.Diagnostic) []Diagnostic {
 			SymbolID:         diagnostic.ProviderID,
 			Kind:             diagnostic.Kind,
 			Message:          diagnostic.Message,
+			Fixes:            cloneProviderFixes(diagnostic.Fixes),
 		}
 	}
 	sortDiagnostics(result)

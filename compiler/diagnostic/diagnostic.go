@@ -76,8 +76,9 @@ type TextEdit struct {
 
 // SuggestedFix is a narrowly safe collection of precise source edits.
 type SuggestedFix struct {
-	Title string     `json:"title"`
-	Edits []TextEdit `json:"edits"`
+	Title     string     `json:"title"`
+	AppliesTo *Location  `json:"applies_to,omitempty"`
+	Edits     []TextEdit `json:"edits"`
 }
 
 // Diagnostic is one stable compiler problem.
@@ -559,6 +560,10 @@ func cloneFixes(items []SuggestedFix) []SuggestedFix {
 	result := make([]SuggestedFix, len(items))
 	for index, item := range items {
 		result[index] = item
+		if item.AppliesTo != nil {
+			location := cloneLocation(*item.AppliesTo)
+			result[index].AppliesTo = &location
+		}
 		result[index].Edits = make([]TextEdit, len(item.Edits))
 		for editIndex, edit := range item.Edits {
 			result[index].Edits[editIndex] = edit

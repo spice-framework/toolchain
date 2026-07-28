@@ -135,6 +135,13 @@ type Provider struct {
 	SourceVersion    string
 }
 
+// InterfaceAssertionValue returns the ordinary Go expression used on the
+// right-hand side of a compile-time interface assertion for this provider's
+// exact output type.
+func (provider Provider) InterfaceAssertionValue() string {
+	return assertionValue(provider.Output)
+}
+
 // Entrypoint identifies one explicitly selected starter provider function.
 type Entrypoint struct {
 	PackagePath   string
@@ -150,6 +157,25 @@ type Diagnostic struct {
 	ProviderID       string
 	Kind             string
 	Message          string
+	Fixes            []SuggestedFix
+}
+
+// SuggestedFix is one provider-owned source repair. The shared diagnostic
+// adapter adds workspace identity and overlay versions without making the
+// provider package depend on an editor transport.
+type SuggestedFix struct {
+	Title             string
+	AppliesAt         token.Position
+	AppliesAtPhysical token.Position
+	Edits             []SuggestedEdit
+}
+
+// SuggestedEdit is one zero-width source insertion or replacement expressed
+// in the loaded program's display and physical coordinate systems.
+type SuggestedEdit struct {
+	Position         token.Position
+	PhysicalPosition token.Position
+	NewText          string
 }
 
 // Error renders a compiler-style diagnostic.
@@ -201,7 +227,21 @@ func (c Catalog) Providers() []Provider {
 
 // Diagnostics returns a defensive copy of deterministic diagnostics.
 func (c Catalog) Diagnostics() []Diagnostic {
-	return append([]Diagnostic(nil), c.diagnostics...)
+	result := make([]Diagnostic, len(c.diagnostics))
+	for index, item := range c.diagnostics {
+		result[index] = item
+		result[index].Fixes = cloneSuggestedFixes(item.Fixes)
+	}
+	return result
+}
+
+func cloneSuggestedFixes(items []SuggestedFix) []SuggestedFix {
+	result := make([]SuggestedFix, len(items))
+	for index, item := range items {
+		result[index] = item
+		result[index].Edits = append([]SuggestedEdit(nil), item.Edits...)
+	}
+	return result
 }
 
 // Add returns a catalog extended with validated compiler-synthesized provider
@@ -949,6 +989,7 @@ func attachInterfaceBindings(
 	build buildContext,
 	resolution resolve.Result,
 ) {
+	groupStarts := annotationGroupStarts(resolution.Occurrences)
 	index := make(map[string]int, len(catalog.providers))
 	constructorIndex := make(map[string]int, len(catalog.providers))
 	for providerIndex := range catalog.providers {
@@ -1024,22 +1065,31 @@ func attachInterfaceBindings(
 				binding.Type,
 				item.Output,
 			) {
-				catalog.diagnostics = append(
-					catalog.diagnostics,
-					occurrenceDiagnostic(
-						occurrence,
-						"missing-interface-assertion",
-						fmt.Sprintf(
-							"@%s binding from %s to %s requires an ordinary Go compile-time assertion such as %s",
-							occurrence.Annotation.Name,
-							item.OutputTypeID,
-							binding.TypeID,
-							assertionExample(
-								expression,
-								item.Output,
-							),
+				missing := occurrenceDiagnostic(
+					occurrence,
+					"missing-interface-assertion",
+					fmt.Sprintf(
+						"@%s binding from %s to %s requires an ordinary Go compile-time assertion such as %s",
+						occurrence.Annotation.Name,
+						item.OutputTypeID,
+						binding.TypeID,
+						assertionExample(
+							expression,
+							item.Output,
 						),
 					),
+				)
+				if fix, available := interfaceAssertionFix(
+					occurrence,
+					groupStarts[occurrence.SymbolID],
+					expression,
+					item.Output,
+				); available {
+					missing.Fixes = []SuggestedFix{fix}
+				}
+				catalog.diagnostics = append(
+					catalog.diagnostics,
+					missing,
 				)
 				continue
 			}
@@ -1050,6 +1100,20 @@ func attachInterfaceBindings(
 				item.Interfaces[j].TypeID
 		})
 	}
+}
+
+func annotationGroupStarts(
+	occurrences []resolve.Occurrence,
+) map[string]resolve.Occurrence {
+	result := make(map[string]resolve.Occurrence)
+	for _, occurrence := range occurrences {
+		current, found := result[occurrence.SymbolID]
+		if !found ||
+			occurrence.PhysicalOffset < current.PhysicalOffset {
+			result[occurrence.SymbolID] = occurrence
+		}
+	}
+	return result
 }
 
 func attachBeanMetadata(
@@ -1477,26 +1541,97 @@ func assertionExample(
 	interfaceExpression string,
 	output types.Type,
 ) string {
+	return "`var _ " + interfaceExpression + " = " +
+		assertionValue(output) + "`"
+}
+
+func assertionValue(output types.Type) string {
 	switch typed := types.Unalias(output).(type) {
 	case *types.Pointer:
 		if named, ok := types.Unalias(typed.Elem()).(*types.Named); ok {
-			return fmt.Sprintf(
-				"`var _ %s = (*%s)(nil)`",
-				interfaceExpression,
-				named.Obj().Name(),
-			)
+			return fmt.Sprintf("(*%s)(nil)", named.Obj().Name())
 		}
 	case *types.Named:
-		return fmt.Sprintf(
-			"`var _ %s = %s{}`",
-			interfaceExpression,
-			typed.Obj().Name(),
-		)
+		if _, structure := typed.Underlying().(*types.Struct); structure {
+			return typed.Obj().Name() + "{}"
+		}
+		return "*new(" + typed.Obj().Name() + ")"
 	}
-	return fmt.Sprintf(
-		"`var _ %s = <bean-output>`",
-		interfaceExpression,
-	)
+	return "<bean-output>"
+}
+
+func interfaceAssertionFix(
+	anchor resolve.Occurrence,
+	insertion resolve.Occurrence,
+	interfaceExpression string,
+	output types.Type,
+) (SuggestedFix, bool) {
+	value := assertionValue(output)
+	if value == "<bean-output>" {
+		return SuggestedFix{}, false
+	}
+	displayPosition, physicalPosition := occurrenceFixPositions(insertion)
+	anchorDisplay, anchorPhysical := occurrenceFixPositions(anchor)
+	display, displayOK := lineStartPosition(displayPosition)
+	physical, physicalOK := lineStartPosition(physicalPosition)
+	if !displayOK || !physicalOK {
+		return SuggestedFix{}, false
+	}
+	return SuggestedFix{
+		Title:             "Add compile-time assertion for " + interfaceExpression,
+		AppliesAt:         anchorDisplay,
+		AppliesAtPhysical: anchorPhysical,
+		Edits: []SuggestedEdit{{
+			Position:         display,
+			PhysicalPosition: physical,
+			NewText: "var _ " + interfaceExpression + " = " +
+				value + "\n\n",
+		}},
+	}, true
+}
+
+func occurrenceFixPositions(
+	occurrence resolve.Occurrence,
+) (token.Position, token.Position) {
+	display := occurrence.DisplayPosition
+	physical := occurrence.PhysicalPosition
+	if physical.Filename == "" {
+		physical.Filename = occurrence.PhysicalFile
+	}
+	if physical.Line <= 0 {
+		physical.Line = display.Line
+	}
+	if physical.Column <= 0 {
+		physical.Column = display.Column
+	}
+	if physical.Offset <= 0 && occurrence.PhysicalOffset > 0 {
+		physical.Offset = occurrence.PhysicalOffset
+	}
+	if display.Filename == "" {
+		display.Filename = physical.Filename
+	}
+	if display.Line <= 0 {
+		display.Line = physical.Line
+	}
+	if display.Column <= 0 {
+		display.Column = physical.Column
+	}
+	if display.Offset <= 0 && physical.Offset > 0 {
+		display.Offset = physical.Offset
+	}
+	return display, physical
+}
+
+func lineStartPosition(position token.Position) (token.Position, bool) {
+	if position.Filename == "" ||
+		position.Offset < 0 ||
+		position.Line <= 0 ||
+		position.Column <= 0 {
+		return token.Position{}, false
+	}
+	position.Offset -= position.Column - 1
+	position.Column = 1
+	return position, true
 }
 
 type providerProblem struct {

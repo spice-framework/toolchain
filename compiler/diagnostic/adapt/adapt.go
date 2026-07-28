@@ -23,7 +23,7 @@ func Application(
 ) diagnostic.Set {
 	result := make([]diagnostic.Diagnostic, len(items))
 	for index, item := range items {
-		result[index] = sourceDiagnostic(
+		converted := sourceDiagnostic(
 			workspaceRoot,
 			string(item.Stage),
 			item.Kind,
@@ -31,6 +31,13 @@ func Application(
 			item.Position,
 			item.PhysicalPosition,
 		)
+		if fixes := providerSuggestedFixes(
+			workspaceRoot,
+			item.Fixes,
+		); len(fixes) != 0 {
+			converted = converted.WithFixes(fixes...)
+		}
+		result[index] = converted
 	}
 	return diagnostic.NewSet(result...)
 }
@@ -118,7 +125,7 @@ func providerSet(
 ) diagnostic.Set {
 	result := make([]diagnostic.Diagnostic, len(items))
 	for index, item := range items {
-		result[index] = sourceDiagnostic(
+		converted := sourceDiagnostic(
 			workspaceRoot,
 			stage,
 			item.Kind,
@@ -126,8 +133,68 @@ func providerSet(
 			item.Position,
 			item.PhysicalPosition,
 		)
+		fixes := providerSuggestedFixes(workspaceRoot, item.Fixes)
+		if len(fixes) != 0 {
+			converted = converted.WithFixes(fixes...)
+		}
+		result[index] = converted
 	}
 	return diagnostic.NewSet(result...)
+}
+
+func providerSuggestedFixes(
+	workspaceRoot string,
+	items []provider.SuggestedFix,
+) []diagnostic.SuggestedFix {
+	fixes := make([]diagnostic.SuggestedFix, len(items))
+	for fixIndex, fix := range items {
+		var appliesTo *diagnostic.Location
+		if fix.AppliesAt.Filename != "" &&
+			fix.AppliesAtPhysical.Filename != "" {
+			location := diagnostic.SourceMappedLocation(
+				workspaceRoot,
+				fix.AppliesAt.Filename,
+				fix.AppliesAtPhysical.Filename,
+				fix.AppliesAt.Line,
+				fix.AppliesAt.Column,
+				fix.AppliesAt.Offset,
+				fix.AppliesAtPhysical.Line,
+				fix.AppliesAtPhysical.Column,
+				fix.AppliesAtPhysical.Offset,
+			)
+			appliesTo = &location
+		}
+		edits := make([]diagnostic.TextEdit, len(fix.Edits))
+		for editIndex, edit := range fix.Edits {
+			location := diagnostic.SourceMappedLocation(
+				workspaceRoot,
+				edit.Position.Filename,
+				edit.PhysicalPosition.Filename,
+				edit.Position.Line,
+				edit.Position.Column,
+				edit.Position.Offset,
+				edit.PhysicalPosition.Line,
+				edit.PhysicalPosition.Column,
+				edit.PhysicalPosition.Offset,
+			)
+			location.Range.End = location.Range.Start
+			if location.Display != nil {
+				display := *location.Display
+				display.Range.End = display.Range.Start
+				location.Display = &display
+			}
+			edits[editIndex] = diagnostic.TextEdit{
+				Location: location,
+				NewText:  edit.NewText,
+			}
+		}
+		fixes[fixIndex] = diagnostic.SuggestedFix{
+			Title:     fix.Title,
+			AppliesTo: appliesTo,
+			Edits:     edits,
+		}
+	}
+	return fixes
 }
 
 // Resolution converts parsed annotation association diagnostics.

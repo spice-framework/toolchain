@@ -35,9 +35,10 @@ func ParseImportComment(
 	position token.Position,
 ) (annotation.ImportDirective, bool, error) {
 	raw := input
-	input = strings.TrimSpace(input)
-	if after, ok := strings.CutPrefix(input, "//"); ok {
-		input = strings.TrimSpace(after)
+	var comment bool
+	input, position, comment = annotationCommentBody(input, position)
+	if !comment {
+		return annotation.ImportDirective{}, false, nil
 	}
 	if directivePrefix(input, legacyImportDirectiveName) {
 		return annotation.ImportDirective{}, true, errLegacyImportDirective

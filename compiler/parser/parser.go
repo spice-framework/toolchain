@@ -16,9 +16,10 @@ import (
 // contains a Spice annotation. Both "//@Name" and "// @Name" are accepted.
 func ParseComment(input string, position token.Position) (annotation.Annotation, bool, error) {
 	raw := input
-	input = strings.TrimSpace(input)
-	if after, ok := strings.CutPrefix(input, "//"); ok {
-		input = strings.TrimSpace(after)
+	var comment bool
+	input, position, comment = annotationCommentBody(input, position)
+	if !comment {
+		return annotation.Annotation{}, false, nil
 	}
 	if !strings.HasPrefix(input, "@") {
 		return annotation.Annotation{}, false, nil
@@ -31,6 +32,27 @@ func ParseComment(input string, position token.Position) (annotation.Annotation,
 	}
 	parsed.Raw = raw
 	return parsed, true, nil
+}
+
+func annotationCommentBody(
+	input string,
+	position token.Position,
+) (string, token.Position, bool) {
+	leftTrimmed := strings.TrimLeftFunc(input, unicode.IsSpace)
+	leading := len(input) - len(leftTrimmed)
+	if !strings.HasPrefix(leftTrimmed, "//") {
+		return "", position, false
+	}
+	afterPrefix := leftTrimmed[2:]
+	body := strings.TrimLeftFunc(afterPrefix, unicode.IsSpace)
+	annotationOffset := leading + 2 + len(afterPrefix) - len(body)
+	if position.Column > 0 {
+		position.Column += annotationOffset
+	}
+	if position.Offset >= 0 {
+		position.Offset += annotationOffset
+	}
+	return strings.TrimSpace(body), position, true
 }
 
 type commentParser struct {

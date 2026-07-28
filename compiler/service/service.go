@@ -421,56 +421,26 @@ func (service *Service) analyze(
 	if err != nil {
 		return Result{}, err
 	}
+	if program != nil {
+		result.goInterfaces = summarizeGoInterfaces(request.root, program)
+	}
 	if !loadDiagnostics.Empty() {
 		result.diagnostics = loadDiagnostics
 		result.actions = actionsFromDiagnostics(result.diagnostics)
 		return result, nil
 	}
 
-	references, err := selectedDescriptorReferences(program, discovery)
-	if err != nil {
-		result.diagnostics = diagnosticadapt.Failure(
-			"annotation",
-			"descriptor",
-			err.Error(),
-		)
-		return result, nil
-	}
-	descriptorState, err := prepareDescriptors(
-		service.config.registry,
-		program,
-		references,
-	)
-	if err != nil {
-		result.diagnostics = diagnosticadapt.Failure(
-			"annotation",
-			"descriptor",
-			err.Error(),
-		)
-		return result, nil
-	}
-	implementationPositions, err := resolveImplementationPositions(
+	descriptorState, definitions, descriptorDiagnostics := service.prepareAnalysisDescriptors(
 		ctx,
-		request.root,
-		service.config.loadOptions.Env,
-		descriptorState.items,
+		request,
+		program,
+		discovery,
 	)
-	if err != nil {
-		result.diagnostics = diagnosticadapt.Failure(
-			"annotation",
-			"implementation-source",
-			err.Error(),
-		)
+	if !descriptorDiagnostics.Empty() {
+		result.diagnostics = descriptorDiagnostics
 		return result, nil
 	}
-	result.definitions = summarizeDefinitions(
-		request.root,
-		descriptorState.registry,
-		service.config.bootstrapDefinitions,
-		descriptorState.items,
-		program,
-		implementationPositions,
-	)
+	result.definitions = definitions
 	resolution := resolve.AnnotationsWithDefinitions(
 		program,
 		descriptorState.index,
@@ -543,6 +513,11 @@ func (service *Service) analyze(
 			service.config.bootstrapDefinitions,
 		),
 	}
+	primaryProviderCatalog := provider.Build(program, resolution)
+	buildOptions.PrimaryProviderCatalog = &primaryProviderCatalog
+	result.providerGraph.Providers = summarizeProviders(
+		primaryProviderCatalog.Providers(),
+	)
 	providerCatalogs, catalogDiagnostics := service.buildProviderCatalogs(
 		request,
 		program,
@@ -564,7 +539,9 @@ func (service *Service) analyze(
 		buildOptions,
 	)
 	result.application = model
-	result.providerGraph = summarizeProviderGraph(model)
+	if graph := summarizeProviderGraph(model); len(graph.Providers) != 0 {
+		result.providerGraph = graph
+	}
 	result.configurations = summarizeConfigurations(model)
 	if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
 		result.diagnostics = versionDiagnostics(
@@ -575,6 +552,55 @@ func (service *Service) analyze(
 		return result, nil
 	}
 	return completeAnalysis(request, program, model, result)
+}
+
+func (service *Service) prepareAnalysisDescriptors(
+	ctx context.Context,
+	request normalizedRequest,
+	program *load.Program,
+	discovery annotationimport.Discovery,
+) (preparedDescriptors, []AnnotationDefinition, diagnostic.Set) {
+	references, err := selectedDescriptorReferences(program, discovery)
+	if err != nil {
+		return preparedDescriptors{}, nil, diagnosticadapt.Failure(
+			"annotation",
+			"descriptor",
+			err.Error(),
+		)
+	}
+	state, err := prepareDescriptors(
+		service.config.registry,
+		program,
+		references,
+	)
+	if err != nil {
+		return preparedDescriptors{}, nil, diagnosticadapt.Failure(
+			"annotation",
+			"descriptor",
+			err.Error(),
+		)
+	}
+	implementationPositions, err := resolveImplementationPositions(
+		ctx,
+		request.root,
+		service.config.loadOptions.Env,
+		state.items,
+	)
+	if err != nil {
+		return preparedDescriptors{}, nil, diagnosticadapt.Failure(
+			"annotation",
+			"implementation-source",
+			err.Error(),
+		)
+	}
+	return state, summarizeDefinitions(
+		request.root,
+		state.registry,
+		service.config.bootstrapDefinitions,
+		state.items,
+		program,
+		implementationPositions,
+	), diagnostic.NewSet()
 }
 
 func (service *Service) buildProviderCatalogs(
