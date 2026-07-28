@@ -99,22 +99,49 @@ func check(ctx context.Context, root string) error {
 	return runSequential([]verificationStep{
 		{"formatting", func() error { return format(ctx, root, false) }},
 		{"module tidiness", func() error { return checkModuleTidy(ctx, root) }},
-		{"go vet", func() error {
-			return runExternal(ctx, root, nil, "go", "vet", "./...")
-		}},
+		{"go vet", func() error { return vet(ctx, root) }},
 		{"lint and nil safety", func() error { return lint(ctx, root) }},
 		{"all-package test compilation", func() error {
-			return runExternal(
-				ctx,
-				root,
-				nil,
-				"go",
-				"test",
-				"-run=^$",
-				"./...",
-			)
+			return compileTests(ctx, root)
 		}},
 	})
+}
+
+func petclinicRoot(root string) string {
+	return filepath.Join(root, "examples", "petclinic")
+}
+
+func vet(ctx context.Context, root string) error {
+	for _, directory := range []string{root, petclinicRoot(root)} {
+		if err := runExternal(
+			ctx,
+			directory,
+			nil,
+			"go",
+			"vet",
+			"./...",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func compileTests(ctx context.Context, root string) error {
+	for _, directory := range []string{root, petclinicRoot(root)} {
+		if err := runExternal(
+			ctx,
+			directory,
+			nil,
+			"go",
+			"test",
+			"-run=^$",
+			"./...",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func verify(ctx context.Context, root string, release bool) error {
@@ -126,7 +153,7 @@ func verify(ctx context.Context, root string, release bool) error {
 		return err
 	}
 	parallelSteps := []verificationStep{
-		{"go vet", func() error { return runExternal(ctx, root, nil, "go", "vet", "./...") }},
+		{"go vet", func() error { return vet(ctx, root) }},
 		{"lint and nil safety", func() error { return lint(ctx, root) }},
 		{"security", func() error { return security(ctx, root) }},
 		{"Zed extension", func() error { return zed(ctx, root) }},
@@ -635,7 +662,11 @@ func fileBatches(ctx context.Context, root, executable, option string, files []s
 }
 
 func checkModuleTidy(ctx context.Context, root string) error {
-	for _, directory := range []string{root, filepath.Join(root, "tools")} {
+	for _, directory := range []string{
+		root,
+		filepath.Join(root, "tools"),
+		petclinicRoot(root),
+	} {
 		stdout, err := captureExternal(ctx, directory, "go", "mod", "tidy", "-diff")
 		if err != nil {
 			return err
@@ -648,6 +679,15 @@ func checkModuleTidy(ctx context.Context, root string) error {
 }
 
 func checkVendor(ctx context.Context, root string) error {
+	for _, directory := range []string{root, petclinicRoot(root)} {
+		if err := checkModuleVendor(ctx, directory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkModuleVendor(ctx context.Context, moduleRoot string) error {
 	temp, err := os.MkdirTemp("", "spice-vendor-*")
 	if err != nil {
 		return fmt.Errorf("create temporary vendor directory: %w", err)
@@ -655,19 +695,31 @@ func checkVendor(ctx context.Context, root string) error {
 	defer removeTemporaryDirectory(temp)
 
 	generated := filepath.Join(temp, "vendor")
-	if commandErr := runExternal(ctx, root, nil, "go", "mod", "vendor", "-o", generated); commandErr != nil {
+	if commandErr := runExternal(
+		ctx,
+		moduleRoot,
+		nil,
+		"go",
+		"mod",
+		"vendor",
+		"-o",
+		generated,
+	); commandErr != nil {
 		return commandErr
 	}
 	want, err := treeDigest(generated)
 	if err != nil {
 		return err
 	}
-	got, err := treeDigest(filepath.Join(root, "vendor"))
+	got, err := treeDigest(filepath.Join(moduleRoot, "vendor"))
 	if err != nil {
 		return err
 	}
 	if !equalDigests(want, got) {
-		return errors.New("vendor directory is stale; run go mod vendor")
+		return fmt.Errorf(
+			"vendor directory is stale in %s; run go mod vendor",
+			moduleRoot,
+		)
 	}
 	return nil
 }
@@ -723,16 +775,36 @@ func lint(ctx context.Context, root string) error {
 	if commandErr := runExternal(ctx, root, nil, golangci, "run", "--timeout=10m"); commandErr != nil {
 		return commandErr
 	}
+	if commandErr := runExternal(
+		ctx,
+		petclinicRoot(root),
+		nil,
+		golangci,
+		"run",
+		"--timeout=10m",
+	); commandErr != nil {
+		return commandErr
+	}
 	nilaway, err := toolPath(ctx, root, "nilaway")
 	if err != nil {
 		return err
 	}
-	return runExternal(
+	if commandErr := runExternal(
 		ctx,
 		root,
 		nil,
 		nilaway,
 		"-include-pkgs="+modulePath,
+		"./...",
+	); commandErr != nil {
+		return commandErr
+	}
+	return runExternal(
+		ctx,
+		petclinicRoot(root),
+		nil,
+		nilaway,
+		"-include-pkgs="+modulePath+"/examples/petclinic",
 		"./...",
 	)
 }
@@ -745,18 +817,62 @@ func security(ctx context.Context, root string) error {
 	if commandErr := runExternal(ctx, root, nil, gosec, "-quiet", "-exclude-generated", "./..."); commandErr != nil {
 		return commandErr
 	}
+	if commandErr := runExternal(
+		ctx,
+		petclinicRoot(root),
+		nil,
+		gosec,
+		"-quiet",
+		"-exclude-generated",
+		"./...",
+	); commandErr != nil {
+		return commandErr
+	}
 	govulncheck, err := toolPath(ctx, root, "govulncheck")
 	if err != nil {
 		return err
 	}
-	return runExternal(ctx, root, nil, govulncheck, "./...")
+	if commandErr := runExternal(ctx, root, nil, govulncheck, "./..."); commandErr != nil {
+		return commandErr
+	}
+	return runExternal(
+		ctx,
+		petclinicRoot(root),
+		nil,
+		govulncheck,
+		"./...",
+	)
 }
 
 func test(ctx context.Context, root string) error {
-	if err := runExternal(ctx, root, nil, "go", "test", "-shuffle=on", "-count=1", "./..."); err != nil {
-		return err
+	for _, directory := range []string{root, petclinicRoot(root)} {
+		if err := runExternal(
+			ctx,
+			directory,
+			nil,
+			"go",
+			"test",
+			"-shuffle=on",
+			"-count=1",
+			"./...",
+		); err != nil {
+			return err
+		}
+		if err := runExternal(
+			ctx,
+			directory,
+			nil,
+			"go",
+			"test",
+			"-race",
+			"-shuffle=on",
+			"-count=1",
+			"./...",
+		); err != nil {
+			return err
+		}
 	}
-	return runExternal(ctx, root, nil, "go", "test", "-race", "-shuffle=on", "-count=1", "./...")
+	return nil
 }
 
 func fuzz(ctx context.Context, root string) error {
@@ -821,7 +937,15 @@ func coverage(ctx context.Context, root string) error {
 	if total < minimumCoverage {
 		return fmt.Errorf("repository coverage %.1f%% is below %.1f%%", total, minimumCoverage)
 	}
-	return nil
+	return runExternal(
+		ctx,
+		petclinicRoot(root),
+		nil,
+		"go",
+		"test",
+		"-covermode=atomic",
+		"./...",
+	)
 }
 
 func totalCoverage(report string) (float64, error) {
@@ -839,16 +963,21 @@ func totalCoverage(report string) (float64, error) {
 }
 
 func offline(ctx context.Context, root string) error {
-	return runExternal(
-		ctx,
-		root,
-		map[string]string{"GOPROXY": "off"},
-		"go",
-		"test",
-		"-mod=vendor",
-		"-count=1",
-		"./...",
-	)
+	for _, directory := range []string{root, petclinicRoot(root)} {
+		if err := runExternal(
+			ctx,
+			directory,
+			map[string]string{"GOPROXY": "off"},
+			"go",
+			"test",
+			"-mod=vendor",
+			"-count=1",
+			"./...",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func smoke(ctx context.Context, root string) error {
@@ -880,7 +1009,53 @@ func smoke(ctx context.Context, root string) error {
 			return err
 		}
 	}
+	if err := petclinicSmoke(ctx, root); err != nil {
+		return err
+	}
 	return thirdPartyAnnotationSmoke(ctx, root)
+}
+
+func petclinicSmoke(ctx context.Context, root string) error {
+	temp, err := os.MkdirTemp("", "spice-petclinic-*")
+	if err != nil {
+		return fmt.Errorf("create Petclinic smoke directory: %w", err)
+	}
+	defer removeTemporaryDirectory(temp)
+	executable := filepath.Join(temp, "spice")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	offline := map[string]string{"GOPROXY": "off"}
+	if err := runExternal(
+		ctx,
+		root,
+		offline,
+		"go",
+		"build",
+		"-trimpath",
+		"-o",
+		executable,
+		"./cmd/spice",
+	); err != nil {
+		return err
+	}
+	directory := petclinicRoot(root)
+	for _, arguments := range [][]string{
+		{"verify", "./..."},
+		{"generate", "--check", "--target", "Petclinic", "./..."},
+		{"run", "--target", "Petclinic", "./...", "--", "-check"},
+	} {
+		if err := runExternal(
+			ctx,
+			directory,
+			offline,
+			executable,
+			arguments...,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func thirdPartyAnnotationSmoke(

@@ -19,8 +19,20 @@ func TestVerifyOrchestration(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.26.0\n")
 	writeTestFile(t, root, "tools/go.mod", "module "+modulePath+"/tools\n\ngo 1.26.0\n")
+	writeTestFile(
+		t,
+		root,
+		"examples/petclinic/go.mod",
+		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
+	)
 	writeTestFile(t, root, "main.go", "package main\n")
 	writeTestFile(t, root, "vendor/modules.txt", "# test vendor tree\n")
+	writeTestFile(
+		t,
+		root,
+		"examples/petclinic/vendor/modules.txt",
+		"# test Petclinic vendor tree\n",
+	)
 
 	originalRun, originalCapture := runExternal, captureExternal
 	originalWrapperCheck := checkGoLandWrapper
@@ -373,8 +385,20 @@ func TestQualityGateFailurePaths(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.26.0\n")
 	writeTestFile(t, root, "tools/go.mod", "module "+modulePath+"/tools\n\ngo 1.26.0\n")
+	writeTestFile(
+		t,
+		root,
+		"examples/petclinic/go.mod",
+		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
+	)
 	writeTestFile(t, root, "main.go", "package main\n")
 	writeTestFile(t, root, "vendor/modules.txt", "# committed\n")
+	writeTestFile(
+		t,
+		root,
+		"examples/petclinic/vendor/modules.txt",
+		"# committed\n",
+	)
 
 	originalRun, originalCapture := runExternal, captureExternal
 	t.Cleanup(func() {
