@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -24,6 +25,12 @@ func TestVerifyOrchestration(t *testing.T) {
 	originalRun, originalCapture := runExternal, captureExternal
 	originalWrapperCheck := checkGoLandWrapper
 	var calls []string
+	var callsMu sync.Mutex
+	recordCall := func(value string) {
+		callsMu.Lock()
+		defer callsMu.Unlock()
+		calls = append(calls, value)
+	}
 	runExternal = func(
 		_ context.Context,
 		directory string,
@@ -31,7 +38,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		executable string,
 		arguments ...string,
 	) error {
-		calls = append(calls, executable+" "+strings.Join(arguments, " "))
+		recordCall(executable + " " + strings.Join(arguments, " "))
 		for index, argument := range arguments {
 			if len(arguments) >= 2 &&
 				arguments[0] == "mod" &&
@@ -49,7 +56,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		executable string,
 		arguments ...string,
 	) (string, error) {
-		calls = append(calls, executable+" "+strings.Join(arguments, " "))
+		recordCall(executable + " " + strings.Join(arguments, " "))
 		switch {
 		case executable == "go" &&
 			slices.Equal(arguments, []string{"version"}):
@@ -72,12 +79,15 @@ func TestVerifyOrchestration(t *testing.T) {
 		checkGoLandWrapper = originalWrapperCheck
 	})
 
-	if err := verify(context.Background(), root); err != nil {
+	if err := verify(context.Background(), root, true); err != nil {
 		t.Fatalf("verify() error = %v", err)
 	}
 	if err := format(context.Background(), root, true); err != nil {
 		t.Fatalf("format(write=true) error = %v", err)
 	}
+	callsMu.Lock()
+	recordedCalls := slices.Clone(calls)
+	callsMu.Unlock()
 	gradleWrapper := "gradlew"
 	if runtime.GOOS == "windows" {
 		gradleWrapper += ".bat"
@@ -94,8 +104,44 @@ func TestVerifyOrchestration(t *testing.T) {
 		"verifyPluginStructure verifyPlugin",
 		"verify ./...",
 	} {
-		if !containsCall(calls, expected) {
-			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(calls, "\n"))
+		if !containsCall(recordedCalls, expected) {
+			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(recordedCalls, "\n"))
+		}
+	}
+}
+
+func TestRequiresGoLandUsesRelevantInputs(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		paths []string
+		want  bool
+	}{
+		"unrelated documentation": {
+			paths: []string{"docs/verification.md"},
+		},
+		"Petclinic application": {
+			paths: []string{"examples/petclinic/main.go"},
+		},
+		"plugin source": {
+			paths: []string{"editors/goland/src/main/java/Plugin.java"},
+			want:  true,
+		},
+		"compiler source": {
+			paths: []string{"compiler/controller/controller.go"},
+			want:  true,
+		},
+		"module graph": {
+			paths: []string{".\\go.mod"},
+			want:  true,
+		},
+		"commerce UI fixture": {
+			paths: []string{"examples/commerce/main.go"},
+			want:  true,
+		},
+	} {
+		if got := requiresGoLand(test.paths); got != test.want {
+			t.Fatalf("%s requiresGoLand() = %t, want %t", name, got, test.want)
 		}
 	}
 }
@@ -299,10 +345,27 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify"} {
+	for _, mode := range []string{"check", "coverage", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}
+	}
+}
+
+func TestRunParallelValidatesWorkersAndReturnsStableFailure(t *testing.T) {
+	t.Parallel()
+
+	if err := runParallel(nil, 0); err == nil {
+		t.Fatal("runParallel() accepted zero workers")
+	}
+	first := errors.New("first")
+	second := errors.New("second")
+	err := runParallel([]verificationStep{
+		{name: "first stage", run: func() error { return first }},
+		{name: "second stage", run: func() error { return second }},
+	}, 2)
+	if !errors.Is(err, first) {
+		t.Fatalf("runParallel() error = %v", err)
 	}
 }
 

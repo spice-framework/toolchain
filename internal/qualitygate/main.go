@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -44,7 +45,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, or verify")
+	mode := flag.String("mode", "verify", "verification mode: check, coverage, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -66,60 +67,210 @@ func run(ctx context.Context, mode string) error {
 		return err
 	}
 
-	switch mode {
-	case "fmt":
-		return format(ctx, root, true)
-	case "fuzz":
-		return fuzz(ctx, root)
-	case "goland":
-		return goland(ctx, root)
-	case "lint":
-		return lint(ctx, root)
-	case "security":
-		return security(ctx, root)
-	case "smoke":
-		return smoke(ctx, root)
-	case "test":
-		return test(ctx, root)
-	case "vet":
-		return runExternal(ctx, root, nil, "go", "vet", "./...")
-	case "offline":
-		return offline(ctx, root)
-	case "zed":
-		return zed(ctx, root)
-	case "verify":
-		return verify(ctx, root)
-	default:
+	modes := map[string]func() error{
+		"check":          func() error { return check(ctx, root) },
+		"coverage":       func() error { return coverage(ctx, root) },
+		"fmt":            func() error { return format(ctx, root, true) },
+		"fuzz":           func() error { return fuzz(ctx, root) },
+		"goland":         func() error { return goland(ctx, root) },
+		"lint":           func() error { return lint(ctx, root) },
+		"security":       func() error { return security(ctx, root) },
+		"smoke":          func() error { return smoke(ctx, root) },
+		"test":           func() error { return test(ctx, root) },
+		"vet":            func() error { return runExternal(ctx, root, nil, "go", "vet", "./...") },
+		"offline":        func() error { return offline(ctx, root) },
+		"zed":            func() error { return zed(ctx, root) },
+		"verify":         func() error { return verify(ctx, root, false) },
+		"verify-release": func() error { return verify(ctx, root, true) },
+	}
+	runMode, found := modes[mode]
+	if !found {
 		return fmt.Errorf("unknown mode %q", mode)
 	}
+	return runMode()
 }
 
-func verify(ctx context.Context, root string) error {
-	steps := []struct {
-		name string
-		run  func() error
-	}{
+type verificationStep struct {
+	name string
+	run  func() error
+}
+
+func check(ctx context.Context, root string) error {
+	return runSequential([]verificationStep{
+		{"formatting", func() error { return format(ctx, root, false) }},
+		{"module tidiness", func() error { return checkModuleTidy(ctx, root) }},
+		{"go vet", func() error {
+			return runExternal(ctx, root, nil, "go", "vet", "./...")
+		}},
+		{"lint and nil safety", func() error { return lint(ctx, root) }},
+		{"all-package test compilation", func() error {
+			return runExternal(
+				ctx,
+				root,
+				nil,
+				"go",
+				"test",
+				"-run=^$",
+				"./...",
+			)
+		}},
+	})
+}
+
+func verify(ctx context.Context, root string, release bool) error {
+	if err := runSequential([]verificationStep{
 		{"formatting", func() error { return format(ctx, root, false) }},
 		{"module tidiness", func() error { return checkModuleTidy(ctx, root) }},
 		{"vendor consistency", func() error { return checkVendor(ctx, root) }},
+	}); err != nil {
+		return err
+	}
+	parallelSteps := []verificationStep{
 		{"go vet", func() error { return runExternal(ctx, root, nil, "go", "vet", "./...") }},
 		{"lint and nil safety", func() error { return lint(ctx, root) }},
 		{"security", func() error { return security(ctx, root) }},
-		{"GoLand plugin", func() error { return goland(ctx, root) }},
 		{"Zed extension", func() error { return zed(ctx, root) }},
+	}
+	if err := runParallel(parallelSteps, 4); err != nil {
+		return err
+	}
+	runGoLand := release
+	if !runGoLand {
+		var err error
+		runGoLand, err = goLandAffected(ctx, root)
+		if err != nil {
+			return fmt.Errorf("determine GoLand verification scope: %w", err)
+		}
+	}
+	if runGoLand {
+		if err := runStep(verificationStep{
+			name: "GoLand plugin",
+			run:  func() error { return goland(ctx, root) },
+		}); err != nil {
+			return err
+		}
+	} else {
+		output.Println("==> GoLand plugin skipped: no editor/compiler/LSP inputs changed")
+	}
+	// These stages each perform broad Go compilation. Running them together
+	// oversubscribes compiler processes and makes the wall clock worse on
+	// developer workstations, so they intentionally reuse one another's cache.
+	if err := runSequential([]verificationStep{
 		{"tests", func() error { return test(ctx, root) }},
 		{"fuzz smoke tests", func() error { return fuzz(ctx, root) }},
 		{"coverage", func() error { return coverage(ctx, root) }},
 		{"offline vendor tests", func() error { return offline(ctx, root) }},
 		{"executable smoke tests", func() error { return smoke(ctx, root) }},
-	}
-	for _, step := range steps {
-		output.Printf("==> %s", step.name)
-		if err := step.run(); err != nil {
-			return fmt.Errorf("%s: %w", step.name, err)
-		}
+	}); err != nil {
+		return err
 	}
 	output.Println("==> all verification passed")
+	return nil
+}
+
+func goLandAffected(ctx context.Context, root string) (bool, error) {
+	tracked, err := captureExternal(
+		ctx,
+		root,
+		"git",
+		"diff",
+		"--name-only",
+		"origin/main",
+		"--",
+	)
+	if err != nil {
+		return false, err
+	}
+	untracked, err := captureExternal(
+		ctx,
+		root,
+		"git",
+		"ls-files",
+		"--others",
+		"--exclude-standard",
+	)
+	if err != nil {
+		return false, err
+	}
+	paths := append(
+		strings.Fields(tracked),
+		strings.Fields(untracked)...,
+	)
+	return requiresGoLand(paths), nil
+}
+
+func requiresGoLand(paths []string) bool {
+	exact := map[string]struct{}{
+		"go.mod":      {},
+		"go.sum":      {},
+		"go.work":     {},
+		"go.work.sum": {},
+	}
+	prefixes := []string{
+		"annotation/",
+		"cmd/spice/",
+		"compiler/",
+		"editors/goland/",
+		"examples/commerce/",
+		"internal/lsp/",
+		"vendor/",
+	}
+	for _, name := range paths {
+		name = strings.TrimPrefix(
+			filepath.ToSlash(strings.TrimSpace(name)),
+			"./",
+		)
+		if _, found := exact[name]; found {
+			return true
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func runSequential(steps []verificationStep) error {
+	for _, step := range steps {
+		if err := runStep(step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runParallel(steps []verificationStep, workers int) error {
+	if workers < 1 {
+		return errors.New("run verification stages: workers must be positive")
+	}
+	results := make([]error, len(steps))
+	limiter := make(chan struct{}, workers)
+	var wait sync.WaitGroup
+	for index, step := range steps {
+		wait.Go(func() {
+			limiter <- struct{}{}
+			defer func() { <-limiter }()
+			results[index] = runStep(step)
+		})
+	}
+	wait.Wait()
+	for _, err := range results {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runStep(step verificationStep) error {
+	started := time.Now()
+	output.Printf("==> %s", step.name)
+	if err := step.run(); err != nil {
+		return fmt.Errorf("%s (%s): %w", step.name, time.Since(started).Round(time.Millisecond), err)
+	}
+	output.Printf("<== %s passed in %s", step.name, time.Since(started).Round(time.Millisecond))
 	return nil
 }
 
@@ -864,7 +1015,7 @@ func capture(
 func validateExecutable(executable string) error {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(executable)), ".exe")
 	switch name {
-	case "cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice", "xvfb-run":
+	case "cargo", "git", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice", "xvfb-run":
 		return nil
 	default:
 		return fmt.Errorf("executable %q is not an approved quality tool", executable)

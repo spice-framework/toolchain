@@ -1,0 +1,73 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Petclinic API",
+    "version": "0.1.0-dev"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "WelcomeController_Show",
+        "summary": "Show",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|57:github.com/StevenBuglione/spice/examples/petclinic/system|17:WelcomeController|4:Show"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SpiceProblem": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "format": "uri-reference"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status"
+        ]
+      }
+    }
+  }
+}
