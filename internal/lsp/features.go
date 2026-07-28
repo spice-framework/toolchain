@@ -44,6 +44,7 @@ type completionItem struct {
 	SortText         string         `json:"sortText,omitempty"`
 	FilterText       string         `json:"filterText,omitempty"`
 	InsertTextFormat int            `json:"insertTextFormat,omitempty"`
+	Preselect        bool           `json:"preselect,omitempty"`
 	TextEdit         protocolEdit   `json:"textEdit"`
 	AdditionalEdits  []protocolEdit `json:"additionalTextEdits,omitempty"`
 }
@@ -124,7 +125,11 @@ type metadataView struct {
 	sourcePath     string
 }
 
-const annotationCatalogTimeout = 5 * time.Second
+// Annotation catalog discovery may start an offline Go package load on a cold
+// workspace. Keep the request bounded, but leave enough headroom for the race
+// detector, Windows process startup, and large module graphs so completion
+// does not silently degrade to an empty catalog under ordinary load.
+const annotationCatalogTimeout = 15 * time.Second
 
 func (server *Server) completion(message rpcMessage) error {
 	if !message.request() {
@@ -886,6 +891,13 @@ func goInterfaceCompletionItems(
 			}
 			items = append(items, item)
 		}
+	}
+	if len(items) != 0 {
+		// Competing editor word completions cannot supply the required
+		// namespace import. Ask clients to select the first deterministic
+		// compiler-backed candidate so accepting completion applies the
+		// annotation and its provenance edit as one operation.
+		items[0].Preselect = true
 	}
 	return items, true
 }

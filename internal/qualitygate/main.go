@@ -1030,6 +1030,9 @@ func petclinicSmoke(ctx context.Context, root string) error {
 		"SPICE_PETCLINIC_POSTGRES_URL": "postgres://petclinic:petclinic@" +
 			"127.0.0.1:1/petclinic?sslmode=disable",
 		"SPICE_PETCLINIC_POSTGRES_ALLOW_INSECURE": "true",
+		"SPICE_PETCLINIC_MYSQL_URL": "mysql://petclinic:petclinic@" +
+			"127.0.0.1:1/petclinic?tls=disable",
+		"SPICE_PETCLINIC_MYSQL_ALLOW_INSECURE": "true",
 	}
 	if err := runExternal(
 		ctx,
@@ -1062,6 +1065,14 @@ func petclinicSmoke(ctx context.Context, root string) error {
 		"./system",
 		"./vet",
 	}
+	mysqlPatterns := []string{
+		"./cmd/mysql",
+		"./mysql",
+		"./owner",
+		"./presentation",
+		"./system",
+		"./vet",
+	}
 	commands := [][]string{
 		append([]string{"verify"}, memoryPatterns...),
 		append(
@@ -1085,6 +1096,19 @@ func petclinicSmoke(ctx context.Context, root string) error {
 			append(
 				[]string{"run", "--target", "Postgres"},
 				postgresPatterns...,
+			),
+			"--",
+			"-check",
+		),
+		append([]string{"verify"}, mysqlPatterns...),
+		append(
+			[]string{"generate", "--check", "--target", "Mysql"},
+			mysqlPatterns...,
+		),
+		append(
+			append(
+				[]string{"run", "--target", "Mysql"},
+				mysqlPatterns...,
 			),
 			"--",
 			"-check",

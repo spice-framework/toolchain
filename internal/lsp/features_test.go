@@ -662,6 +662,7 @@ type Processor interface {
 	})
 	if len(items) != 1 ||
 		items[0].Label != "payments.Processor" ||
+		!items[0].Preselect ||
 		len(items[0].AdditionalEdits) != 1 ||
 		!strings.Contains(
 			items[0].AdditionalEdits[0].NewText,
