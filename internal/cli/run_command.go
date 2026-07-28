@@ -231,7 +231,7 @@ func buildAndExecute(
 	if err := builder(
 		ctx,
 		target.ModuleRoot,
-		target.PackagePath,
+		target.EntrypointPackagePath,
 		executable,
 		stdout,
 		stderr,

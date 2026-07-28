@@ -121,6 +121,7 @@ func (filter PathFilter) SkipDirectory(directoryPath string) bool {
 		normalized == ".spice/dev" ||
 		strings.HasPrefix(normalized, ".spice/build/") ||
 		strings.HasPrefix(normalized, ".spice/dev/") ||
+		normalized == "internal/spicegen" ||
 		strings.HasPrefix(normalized, "internal/spicegen/") {
 		return true
 	}
@@ -161,7 +162,8 @@ func temporaryEditorPath(filePath string) bool {
 
 func defaultGeneratedPath(filePath string) bool {
 	base := path.Base(filePath)
-	return base == "zz_spice_gen.go" ||
+	return strings.HasSuffix(base, "_spice_gen.go") ||
+		base == "zz_spice_bridge_gen.go" ||
 		base == "openapi.json" ||
 		(strings.HasPrefix(filePath, ".spice/") &&
 			strings.HasSuffix(base, ".manifest.json"))

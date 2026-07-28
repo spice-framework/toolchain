@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/format"
 	"go/token"
@@ -16,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,7 +39,7 @@ import (
 
 const (
 	// SchemaVersion is the current generated ownership manifest schema.
-	SchemaVersion = 2
+	SchemaVersion = 3
 	// GeneratorVersion is recorded in manifests to make generator compatibility
 	// explicit during freshness checks.
 	GeneratorVersion = "0.1.0-dev"
@@ -48,6 +50,7 @@ const (
 	AnalysisBuildTag = "spice_generate"
 
 	generatedFilename = "zz_spice_gen.go"
+	bridgeFilename    = "zz_spice_bridge_gen.go"
 	asyncPath         = "github.com/StevenBuglione/spice/async"
 	beanPath          = "github.com/StevenBuglione/spice/bean"
 	configPath        = "github.com/StevenBuglione/spice/config"
@@ -75,35 +78,66 @@ const (
 	// internal/spicegen/<target> package layout.
 	LayoutGeneratedPackage Layout = "generated-package"
 	// LayoutApplicationPackage emits the command bridge beside an annotated
-	// package-main func main.
+	// package-main func main while the complete generated application remains
+	// in an importable target-scoped package.
 	LayoutApplicationPackage Layout = "application-package"
 )
 
 // Target identifies one module-scoped generated application output.
 type Target struct {
-	ID           string
-	Layout       Layout
-	ModulePath   string
-	ModuleRoot   string
-	PackagePath  string
-	OutputDir    string
-	ManifestPath string
+	ID                    string
+	Layout                Layout
+	ModulePath            string
+	ModuleRoot            string
+	PackagePath           string
+	EntrypointPackagePath string
+	OutputDir             string
+	BridgeDir             string
+	ManifestPath          string
 }
 
 // TargetSummary is the safe, serializable subset of a generation target.
 type TargetSummary struct {
-	ID           string `json:"id"`
-	Layout       Layout `json:"layout"`
-	ModulePath   string `json:"module"`
-	PackagePath  string `json:"package"`
-	OutputDir    string `json:"output_dir"`
-	ManifestPath string `json:"manifest_path"`
+	ID                    string `json:"id"`
+	Layout                Layout `json:"layout"`
+	ModulePath            string `json:"module"`
+	PackagePath           string `json:"package"`
+	EntrypointPackagePath string `json:"entrypoint_package,omitempty"`
+	OutputDir             string `json:"output_dir"`
+	BridgeDir             string `json:"bridge_dir,omitempty"`
+	ManifestPath          string `json:"manifest_path"`
+}
+
+// FileRole identifies the purpose of one generated artifact.
+type FileRole string
+
+const (
+	// FileRoleApplication is target-scoped application implementation.
+	FileRoleApplication FileRole = "application"
+	// FileRoleCommandBridge is the intentionally tiny same-package command API.
+	FileRoleCommandBridge FileRole = "command-bridge"
+	// FileRoleSourceShard is annotation-derived code owned by one handwritten
+	// source file in a mirrored generated package.
+	FileRoleSourceShard FileRole = "source-shard"
+	// FileRoleArtifact is a non-Go generated contract such as OpenAPI.
+	FileRoleArtifact FileRole = "artifact"
+)
+
+// SourceOrigin identifies handwritten source that owns generated behavior.
+// Paths are module-relative and never absolute.
+type SourceOrigin struct {
+	Path   string `json:"path"`
+	Line   int    `json:"line,omitempty"`
+	Column int    `json:"column,omitempty"`
+	Symbol string `json:"symbol,omitempty"`
 }
 
 // ManifestFile records one generated file owned by a target.
 type ManifestFile struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path    string         `json:"path"`
+	SHA256  string         `json:"sha256"`
+	Role    FileRole       `json:"role"`
+	Sources []SourceOrigin `json:"sources,omitempty"`
 }
 
 // Manifest is the deterministic generated-file ownership record.
@@ -121,6 +155,8 @@ type File struct {
 	Path    string
 	Mode    fs.FileMode
 	SHA256  string
+	Role    FileRole
+	Sources []SourceOrigin
 	content []byte
 }
 
@@ -148,6 +184,10 @@ func (p Plan) Files() []File {
 	copy(result, p.files)
 	for index := range result {
 		result[index].content = append([]byte(nil), p.files[index].content...)
+		result[index].Sources = append(
+			[]SourceOrigin(nil),
+			p.files[index].Sources...,
+		)
 	}
 	return result
 }
@@ -213,6 +253,8 @@ func DefaultTarget(program *load.Program, applicationTarget application.Target) 
 	layout := LayoutGeneratedPackage
 	outputDir := path.Join("internal", "spicegen", id)
 	packagePath := path.Join(pkg.Raw.Module.Path, outputDir)
+	bridgeDir := ""
+	entrypointPackagePath := ""
 	if applicationTarget.AutomaticDiscovery() {
 		layout = LayoutApplicationPackage
 		relative, err := filepath.Rel(pkg.Raw.Module.Dir, pkg.Dir)
@@ -228,17 +270,19 @@ func DefaultTarget(program *load.Program, applicationTarget application.Target) 
 				),
 			)}
 		}
-		outputDir = filepath.ToSlash(relative)
-		packagePath = applicationTarget.PackagePath
+		bridgeDir = filepath.ToSlash(relative)
+		entrypointPackagePath = applicationTarget.PackagePath
 	}
 	target := Target{
-		ID:           id,
-		Layout:       layout,
-		ModulePath:   pkg.Raw.Module.Path,
-		ModuleRoot:   pkg.Raw.Module.Dir,
-		PackagePath:  packagePath,
-		OutputDir:    outputDir,
-		ManifestPath: path.Join(".spice", id+".manifest.json"),
+		ID:                    id,
+		Layout:                layout,
+		ModulePath:            pkg.Raw.Module.Path,
+		ModuleRoot:            pkg.Raw.Module.Dir,
+		PackagePath:           packagePath,
+		EntrypointPackagePath: entrypointPackagePath,
+		OutputDir:             outputDir,
+		BridgeDir:             bridgeDir,
+		ManifestPath:          path.Join(".spice", id+".manifest.json"),
 	}
 	if diagnostics := validateTarget(target, applicationTarget); len(diagnostics) != 0 {
 		return Target{}, diagnostics
@@ -316,8 +360,41 @@ func Render(
 		Path:    generatedPath,
 		Mode:    0o644,
 		SHA256:  contentHash(source),
+		Role:    FileRoleApplication,
+		Sources: applicationSourceOrigins(program, applicationTarget),
 		content: source,
 	}}
+	assertionShards, assertionErr := renderInterfaceAssertionShards(
+		program,
+		model.Providers(),
+		target,
+	)
+	if assertionErr != nil {
+		return Plan{}, []Diagnostic{targetDiagnostic(
+			applicationTarget,
+			"render-interface-assertions",
+			fmt.Sprintf("render generated interface assertions: %v", assertionErr),
+		)}
+	}
+	files = append(files, assertionShards...)
+	if target.Layout == LayoutApplicationPackage {
+		bridge, bridgeErr := renderCommandBridge(model, applicationTarget, target)
+		if bridgeErr != nil {
+			return Plan{}, []Diagnostic{targetDiagnostic(
+				applicationTarget,
+				"render-bridge",
+				fmt.Sprintf("render generated command bridge: %v", bridgeErr),
+			)}
+		}
+		files = append(files, File{
+			Path:    path.Join(target.BridgeDir, bridgeFilename),
+			Mode:    0o644,
+			SHA256:  contentHash(bridge),
+			Role:    FileRoleCommandBridge,
+			Sources: applicationSourceOrigins(program, applicationTarget),
+			content: bridge,
+		})
+	}
 	if len(model.Controllers()) != 0 {
 		openAPIContent, openAPIErr := renderOpenAPI(model, applicationTarget)
 		if openAPIErr != nil {
@@ -331,6 +408,8 @@ func Render(
 			Path:    path.Join(target.OutputDir, openAPIFilename),
 			Mode:    0o644,
 			SHA256:  contentHash(openAPIContent),
+			Role:    FileRoleArtifact,
+			Sources: applicationSourceOrigins(program, applicationTarget),
 			content: openAPIContent,
 		})
 	}
@@ -352,8 +431,10 @@ func Render(
 	}
 	for _, file := range files {
 		manifest.Files = append(manifest.Files, ManifestFile{
-			Path:   file.Path,
-			SHA256: file.SHA256,
+			Path:    file.Path,
+			SHA256:  file.SHA256,
+			Role:    file.Role,
+			Sources: append([]SourceOrigin(nil), file.Sources...),
 		})
 	}
 	manifestContent, manifestErr := json.MarshalIndent(manifest, "", "  ")
@@ -419,21 +500,21 @@ func renderSource(
 	for index, item := range providers {
 		providerVariables[item.SymbolID] = providerVariable(index)
 	}
+	componentFields := generatedComponentFields(providers)
 
 	var source bytes.Buffer
 	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n")
 	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
 	packageName := "spicegen"
-	if target.Layout == LayoutApplicationPackage {
-		packageName = "main"
-	}
 	fmt.Fprintf(&source, "package %s\n\n", packageName)
 	writeImports(&source, aliases)
 	writeGeneratedConstants(&source, target.ID)
+	writeComponentsType(&source, componentFields, aliases)
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
 	source.WriteString("\tshutdownTimeout time.Duration\n")
+	source.WriteString("\tcomponents Components\n")
 	if features.asynchronous {
 		source.WriteString("\tasyncExecutor *spiceasync.Executor\n")
 		writeAsyncApplicationFields(&source, asyncTasks, aliases)
@@ -475,6 +556,11 @@ func renderSource(
 	); providerErr != nil {
 		return nil, providerErr
 	}
+	writeComponentAssignments(
+		&source,
+		componentFields,
+		providerVariables,
+	)
 	writeAsyncSetup(
 		&source,
 		asyncTasks,
@@ -536,17 +622,570 @@ func renderSource(
 	source.WriteString("\treturn application, nil\n")
 	source.WriteString("}\n\n")
 	writeLifecycleMethods(&source)
+	writeComponentsMethod(&source)
 	writeAsyncApplicationMethods(&source, asyncTasks, aliases)
 	if features.hasMux {
 		writeHandlerMethod(&source)
 	}
-	writeCommandAPI(&source, features, target.Layout)
+	writeCommandAPI(&source, features, LayoutGeneratedPackage)
 
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("format generated source for %s: %w", applicationTarget.SymbolID, err)
 	}
 	return formatted, nil
+}
+
+type assertionShard struct {
+	path             string
+	packageName      string
+	localPackagePath string
+	origins          []SourceOrigin
+	providers        []provider.Provider
+}
+
+func renderInterfaceAssertionShards(
+	program *load.Program,
+	providers []provider.Provider,
+	target Target,
+) ([]File, error) {
+	shards := make(map[string]assertionShard)
+	for _, item := range providers {
+		if len(item.Interfaces) == 0 {
+			continue
+		}
+		shardPath, packageName, localPackagePath, origin, err := interfaceAssertionShardLocation(
+			program,
+			item,
+			target,
+		)
+		if err != nil {
+			return nil, err
+		}
+		shard, found := shards[shardPath]
+		if !found {
+			shard = assertionShard{
+				path:             shardPath,
+				packageName:      packageName,
+				localPackagePath: localPackagePath,
+			}
+			shards[shardPath] = shard
+		} else if shard.packageName != packageName ||
+			shard.localPackagePath != localPackagePath {
+			return nil, fmt.Errorf(
+				"generated interface assertion shard %s combines packages %s and %s",
+				shardPath,
+				shard.localPackagePath,
+				localPackagePath,
+			)
+		}
+		shard.providers = append(shard.providers, item)
+		if !slices.Contains(shard.origins, origin) {
+			shard.origins = append(shard.origins, origin)
+		}
+		shards[shardPath] = shard
+	}
+	paths := make([]string, 0, len(shards))
+	for shardPath := range shards {
+		paths = append(paths, shardPath)
+	}
+	sort.Strings(paths)
+	files := make([]File, 0, len(paths))
+	for _, shardPath := range paths {
+		shard := shards[shardPath]
+		sort.SliceStable(shard.providers, func(i, j int) bool {
+			return shard.providers[i].SymbolID <
+				shard.providers[j].SymbolID
+		})
+		sort.SliceStable(shard.origins, func(i, j int) bool {
+			if shard.origins[i].Path != shard.origins[j].Path {
+				return shard.origins[i].Path < shard.origins[j].Path
+			}
+			if shard.origins[i].Line != shard.origins[j].Line {
+				return shard.origins[i].Line < shard.origins[j].Line
+			}
+			return shard.origins[i].Symbol < shard.origins[j].Symbol
+		})
+		content, err := renderInterfaceAssertionShard(shard)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, File{
+			Path:    shard.path,
+			Mode:    0o644,
+			SHA256:  contentHash(content),
+			Role:    FileRoleSourceShard,
+			Sources: append([]SourceOrigin(nil), shard.origins...),
+			content: content,
+		})
+	}
+	return files, nil
+}
+
+func interfaceAssertionShardLocation(
+	program *load.Program,
+	item provider.Provider,
+	target Target,
+) (string, string, string, SourceOrigin, error) {
+	sourceFile := item.PhysicalPosition.Filename
+	if sourceFile == "" {
+		sourceFile = item.Position.Filename
+	}
+	if sourceFile == "" {
+		return "", "", "", SourceOrigin{}, fmt.Errorf(
+			"provider %s has no physical source file",
+			item.SymbolID,
+		)
+	}
+	relative, err := filepath.Rel(target.ModuleRoot, sourceFile)
+	moduleRelative := err == nil && filepath.IsLocal(relative)
+	packageName := "spicegen"
+	localPackagePath := ""
+	if pkg, found := packageByPath(program.Packages(), item.PackagePath); found {
+		packageName = pkg.Name
+		if moduleRelative {
+			localPackagePath = pkg.Path
+		}
+	}
+	var sourcePath string
+	var shardDir string
+	if moduleRelative {
+		sourcePath = filepath.ToSlash(relative)
+		shardDir = path.Dir(sourcePath)
+	} else {
+		digest := sha256.Sum256([]byte(item.PackagePath))
+		shardDir = path.Join(
+			target.OutputDir,
+			"packages",
+			"external",
+			hex.EncodeToString(digest[:6]),
+		)
+		sourcePath = item.PackagePath + "/" + filepath.Base(sourceFile)
+	}
+	base := strings.TrimSuffix(
+		filepath.Base(sourceFile),
+		filepath.Ext(sourceFile),
+	)
+	if base == "" {
+		return "", "", "", SourceOrigin{}, fmt.Errorf(
+			"provider %s source file has no base name",
+			item.SymbolID,
+		)
+	}
+	origin := SourceOrigin{
+		Path:   sourcePath,
+		Line:   item.PhysicalPosition.Line,
+		Column: item.PhysicalPosition.Column,
+		Symbol: item.SymbolID,
+	}
+	if origin.Line == 0 {
+		origin.Line = item.Position.Line
+	}
+	if origin.Column == 0 {
+		origin.Column = item.Position.Column
+	}
+	return path.Join(
+		shardDir,
+		base+"_"+target.ID+"_spice_gen.go",
+	), packageName, localPackagePath, origin, nil
+}
+
+func renderInterfaceAssertionShard(shard assertionShard) ([]byte, error) {
+	var values []types.Type
+	for _, item := range shard.providers {
+		values = append(values, item.Output)
+		for _, binding := range item.Interfaces {
+			values = append(values, binding.Type)
+		}
+	}
+	aliases := aliasesForTypes(
+		values,
+		shard.localPackagePath,
+		shard.packageName,
+	)
+	var source bytes.Buffer
+	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n")
+	for _, origin := range shard.origins {
+		fmt.Fprintf(
+			&source,
+			"// Source: %s:%d\n",
+			origin.Path,
+			origin.Line,
+		)
+	}
+	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
+	fmt.Fprintf(&source, "package %s\n\n", shard.packageName)
+	writeImports(&source, aliases)
+	for _, item := range shard.providers {
+		for _, binding := range item.Interfaces {
+			fmt.Fprintf(
+				&source,
+				"// %s verifies the explicit @Implements binding for %s.\n",
+				generatedAssertionName(item, binding),
+				item.SymbolID,
+			)
+			fmt.Fprintf(
+				&source,
+				"var %s %s = *new(%s)\n\n",
+				generatedAssertionName(item, binding),
+				renderedTypeInPackage(
+					binding.Type,
+					aliases,
+					shard.localPackagePath,
+				),
+				renderedTypeInPackage(
+					item.Output,
+					aliases,
+					shard.localPackagePath,
+				),
+			)
+		}
+	}
+	formatted, err := format.Source(source.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf(
+			"format interface assertion shard %s: %w",
+			shard.path,
+			err,
+		)
+	}
+	return formatted, nil
+}
+
+func generatedAssertionName(
+	item provider.Provider,
+	binding provider.InterfaceBinding,
+) string {
+	digest := sha256.Sum256(
+		[]byte(item.SymbolID + "\x00" + binding.TypeID),
+	)
+	return "spiceImplements" + hex.EncodeToString(digest[:6])
+}
+
+func aliasesForTypes(
+	values []types.Type,
+	localPackagePath string,
+	localPackageName string,
+) map[string]string {
+	names := make(map[string]string)
+	aliases := make(map[string]string)
+	for _, value := range values {
+		addTypeImportName(names, aliases, value)
+	}
+	delete(names, localPackagePath)
+	paths := make([]string, 0, len(names))
+	for importPath := range names {
+		paths = append(paths, importPath)
+	}
+	sort.Strings(paths)
+	used := map[string]struct{}{
+		"spicegen":       {},
+		localPackageName: {},
+	}
+	for _, importPath := range paths {
+		base := names[importPath]
+		alias := base
+		for suffix := 2; ; suffix++ {
+			if _, exists := used[alias]; !exists {
+				break
+			}
+			alias = base + strconv.Itoa(suffix)
+		}
+		used[alias] = struct{}{}
+		aliases[importPath] = alias
+	}
+	return aliases
+}
+
+func renderedTypeInPackage(
+	value types.Type,
+	aliases map[string]string,
+	localPackagePath string,
+) string {
+	return types.TypeString(value, func(pkg *types.Package) string {
+		if pkg == nil || pkg.Path() == localPackagePath {
+			return ""
+		}
+		if alias, ok := aliases[pkg.Path()]; ok {
+			return alias
+		}
+		return pkg.Name()
+	})
+}
+
+func renderCommandBridge(
+	_ application.Model,
+	applicationTarget application.Target,
+	target Target,
+) ([]byte, error) {
+	if target.Layout != LayoutApplicationPackage {
+		return nil, errors.New("command bridge requires an application-package target")
+	}
+	if target.BridgeDir == "" {
+		return nil, errors.New("command bridge directory is required")
+	}
+	var source bytes.Buffer
+	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n")
+	source.WriteString("// This bridge intentionally contains no application wiring.\n")
+	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
+	source.WriteString("package main\n\n")
+	fmt.Fprintf(
+		&source,
+		"import spicegen %s\n\n",
+		strconv.Quote(target.PackagePath),
+	)
+	source.WriteString("const (\n")
+	source.WriteString("\tTargetID = spicegen.TargetID\n")
+	source.WriteString("\tExitSuccess = spicegen.ExitSuccess\n")
+	source.WriteString("\tExitFailure = spicegen.ExitFailure\n")
+	source.WriteString("\tExitUsage = spicegen.ExitUsage\n")
+	source.WriteString(")\n\n")
+	source.WriteString("type (\n")
+	source.WriteString("\tApplication = spicegen.Application\n")
+	source.WriteString("\tApplicationOptions = spicegen.ApplicationOptions\n")
+	source.WriteString("\tComponents = spicegen.Components\n")
+	source.WriteString("\tCommandOptions = spicegen.CommandOptions\n")
+	source.WriteString("\tShutdownContextFactory = spicegen.ShutdownContextFactory\n")
+	source.WriteString(")\n\n")
+	source.WriteString("var (\n")
+	source.WriteString("\tConfigurationSchema = spicegen.ConfigurationSchema\n")
+	source.WriteString("\tNewApplication = spicegen.NewApplication\n")
+	source.WriteString("\tNewApplicationWithOptions = spicegen.NewApplicationWithOptions\n")
+	source.WriteString("\tRunCommand = spicegen.RunCommand\n")
+	source.WriteString(")\n\n")
+	source.WriteString("func spiceMain(arguments []string) int {\n")
+	source.WriteString("\treturn spicegen.Main(arguments)\n")
+	source.WriteString("}\n")
+	formatted, err := format.Source(source.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf(
+			"format command bridge for %s: %w",
+			applicationTarget.SymbolID,
+			err,
+		)
+	}
+	return formatted, nil
+}
+
+func applicationSourceOrigins(
+	program *load.Program,
+	target application.Target,
+) []SourceOrigin {
+	if program == nil || target.PhysicalPosition.Filename == "" {
+		return nil
+	}
+	pkg, found := packageByPath(program.Packages(), target.PackagePath)
+	if !found || pkg.Raw == nil || pkg.Raw.Module == nil {
+		return nil
+	}
+	relative, err := filepath.Rel(
+		pkg.Raw.Module.Dir,
+		target.PhysicalPosition.Filename,
+	)
+	if err != nil || !filepath.IsLocal(relative) {
+		return nil
+	}
+	origin := SourceOrigin{
+		Path:   filepath.ToSlash(relative),
+		Line:   target.PhysicalPosition.Line,
+		Column: target.PhysicalPosition.Column,
+		Symbol: target.SymbolID,
+	}
+	if origin.Line == 0 {
+		origin.Line = target.Position.Line
+	}
+	if origin.Column == 0 {
+		origin.Column = target.Position.Column
+	}
+	return []SourceOrigin{origin}
+}
+
+type generatedComponentField struct {
+	providerID string
+	beanName   string
+	fieldName  string
+	output     types.Type
+}
+
+func generatedComponentFields(
+	providers []provider.Provider,
+) []generatedComponentField {
+	type candidate struct {
+		provider provider.Provider
+		index    int
+		base     string
+	}
+	var candidates []candidate
+	baseCounts := make(map[string]int)
+	for index, item := range providers {
+		if item.Scope != sdk.BeanScopeSingleton ||
+			!publicComponentType(item.Output) {
+			continue
+		}
+		base := componentFieldBase(item, index)
+		baseCounts[base]++
+		candidates = append(candidates, candidate{
+			provider: item,
+			index:    index,
+			base:     base,
+		})
+	}
+
+	used := make(map[string]int, len(candidates))
+	fields := make([]generatedComponentField, 0, len(candidates))
+	for _, candidate := range candidates {
+		base := candidate.base
+		if baseCounts[base] > 1 {
+			prefix := exportedComponentFieldName(
+				path.Base(candidate.provider.PackagePath),
+				candidate.index,
+			)
+			base = prefix + base
+		}
+		used[base]++
+		fieldName := base
+		if used[base] > 1 {
+			fieldName += strconv.Itoa(used[base])
+		}
+		fields = append(fields, generatedComponentField{
+			providerID: candidate.provider.SymbolID,
+			beanName:   candidate.provider.Name,
+			fieldName:  fieldName,
+			output:     candidate.provider.Output,
+		})
+	}
+	return fields
+}
+
+func componentFieldBase(item provider.Provider, index int) string {
+	base := exportedComponentFieldName(item.Name, index)
+	if item.ExplicitName ||
+		!strings.HasPrefix(base, "New") ||
+		len(base) == len("New") {
+		return base
+	}
+	trimmed := base[len("New"):]
+	if token.IsIdentifier(trimmed) {
+		return trimmed
+	}
+	return base
+}
+
+func exportedComponentFieldName(name string, index int) string {
+	if name == "" {
+		return "Provider" + strconv.Itoa(index)
+	}
+	first := name[0]
+	if first >= 'a' && first <= 'z' {
+		first -= 'a' - 'A'
+		name = string(first) + name[1:]
+	}
+	if !token.IsIdentifier(name) {
+		return "Provider" + strconv.Itoa(index)
+	}
+	return name
+}
+
+func publicComponentType(value types.Type) bool {
+	switch typed := value.(type) {
+	case *types.Basic:
+		return true
+	case *types.Named:
+		return publicNamedComponentType(typed.Obj(), typed.TypeArgs())
+	case *types.Alias:
+		return publicNamedComponentType(typed.Obj(), typed.TypeArgs())
+	case *types.Pointer:
+		return publicComponentType(typed.Elem())
+	case *types.Slice:
+		return publicComponentType(typed.Elem())
+	case *types.Array:
+		return publicComponentType(typed.Elem())
+	case *types.Map:
+		return publicComponentType(typed.Key()) &&
+			publicComponentType(typed.Elem())
+	case *types.Chan:
+		return publicComponentType(typed.Elem())
+	default:
+		return false
+	}
+}
+
+func publicNamedComponentType(
+	object *types.TypeName,
+	arguments *types.TypeList,
+) bool {
+	if object == nil ||
+		object.Pkg() != nil && !object.Exported() {
+		return false
+	}
+	return publicTypeArguments(arguments)
+}
+
+func publicTypeArguments(arguments *types.TypeList) bool {
+	if arguments == nil {
+		return true
+	}
+	for argument := range arguments.Types() {
+		if !publicComponentType(argument) {
+			return false
+		}
+	}
+	return true
+}
+
+func writeComponentsType(
+	source *bytes.Buffer,
+	fields []generatedComponentField,
+	aliases map[string]string,
+) {
+	source.WriteString("// Components is a typed snapshot of constructed singleton beans.\n")
+	source.WriteString("// It performs no reflection or string-based lookup.\n")
+	source.WriteString("type Components struct {\n")
+	for _, field := range fields {
+		fmt.Fprintf(
+			source,
+			"\t// %s is bean %q.\n",
+			field.fieldName,
+			field.beanName,
+		)
+		fmt.Fprintf(
+			source,
+			"\t%s %s\n",
+			field.fieldName,
+			renderedType(field.output, aliases),
+		)
+	}
+	source.WriteString("}\n\n")
+}
+
+func writeComponentAssignments(
+	source *bytes.Buffer,
+	fields []generatedComponentField,
+	providerVariables map[string]string,
+) {
+	if len(fields) == 0 {
+		return
+	}
+	source.WriteString("\tapplication.components = Components{\n")
+	for _, field := range fields {
+		fmt.Fprintf(
+			source,
+			"\t\t%s: %s,\n",
+			field.fieldName,
+			providerVariables[field.providerID],
+		)
+	}
+	source.WriteString("\t}\n")
+}
+
+func writeComponentsMethod(source *bytes.Buffer) {
+	source.WriteString("// Components returns a typed snapshot of constructed singleton beans.\n")
+	source.WriteString("func (application *Application) Components() Components {\n")
+	source.WriteString("\tif application == nil {\n")
+	source.WriteString("\t\treturn Components{}\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\treturn application.components\n")
+	source.WriteString("}\n\n")
 }
 
 func writeProviders(
@@ -1855,6 +2494,9 @@ func renderedType(value types.Type, aliases map[string]string) string {
 }
 
 func writeImports(source *bytes.Buffer, aliases map[string]string) {
+	if len(aliases) == 0 {
+		return
+	}
 	var standardPaths, applicationPaths []string
 	for importPath := range aliases {
 		if isStandardImport(importPath) {
@@ -2780,16 +3422,64 @@ func validateTarget(target Target, applicationTarget application.Target) []Diagn
 	if target.OutputDir == "" {
 		add("output-dir", "generated output directory is required")
 	}
+	diagnostics = append(
+		diagnostics,
+		validateTargetLayout(target, applicationTarget)...,
+	)
 	if target.ManifestPath == "" {
 		add("manifest-path", "generated manifest path is required")
 	}
-	switch target.Layout {
-	case LayoutGeneratedPackage, LayoutApplicationPackage:
-	default:
-		add("layout", fmt.Sprintf("generation target layout %q is unsupported", target.Layout))
-	}
 	sortDiagnostics(diagnostics)
 	return diagnostics
+}
+
+func validateTargetLayout(
+	target Target,
+	applicationTarget application.Target,
+) []Diagnostic {
+	add := func(kind, message string) Diagnostic {
+		return targetDiagnostic(applicationTarget, kind, message)
+	}
+	switch target.Layout {
+	case LayoutApplicationPackage:
+		var diagnostics []Diagnostic
+		if target.BridgeDir == "" {
+			diagnostics = append(diagnostics, add(
+				"bridge-dir",
+				"application-package command bridge directory is required",
+			))
+		}
+		if target.EntrypointPackagePath == "" {
+			diagnostics = append(diagnostics, add(
+				"entrypoint-package",
+				"application-package entrypoint import path is required",
+			))
+		}
+		return diagnostics
+	case LayoutGeneratedPackage:
+		var diagnostics []Diagnostic
+		if target.BridgeDir != "" {
+			diagnostics = append(diagnostics, add(
+				"bridge-dir",
+				"generated-package target must not declare a command bridge directory",
+			))
+		}
+		if target.EntrypointPackagePath != "" {
+			diagnostics = append(diagnostics, add(
+				"entrypoint-package",
+				"generated-package target must not declare an entrypoint import path",
+			))
+		}
+		return diagnostics
+	default:
+		return []Diagnostic{add(
+			"layout",
+			fmt.Sprintf(
+				"generation target layout %q is unsupported",
+				target.Layout,
+			),
+		)}
+	}
 }
 
 func validateRenderable(
@@ -3646,12 +4336,14 @@ func contentHash(content []byte) string {
 
 func summarizeTarget(target Target) TargetSummary {
 	return TargetSummary{
-		ID:           target.ID,
-		Layout:       target.Layout,
-		ModulePath:   target.ModulePath,
-		PackagePath:  target.PackagePath,
-		OutputDir:    target.OutputDir,
-		ManifestPath: target.ManifestPath,
+		ID:                    target.ID,
+		Layout:                target.Layout,
+		ModulePath:            target.ModulePath,
+		PackagePath:           target.PackagePath,
+		EntrypointPackagePath: target.EntrypointPackagePath,
+		OutputDir:             target.OutputDir,
+		BridgeDir:             target.BridgeDir,
+		ManifestPath:          target.ManifestPath,
 	}
 }
 

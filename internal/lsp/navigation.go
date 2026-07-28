@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 )
@@ -41,6 +42,12 @@ type annotationReference struct {
 	rangeItem protocolRange
 }
 
+type goInterfaceReference struct {
+	contract compilerservice.GoInterface
+	start    int
+	end      int
+}
+
 func (server *Server) definition(message rpcMessage) error {
 	if !message.request() {
 		return nil
@@ -62,6 +69,27 @@ func (server *Server) definition(message rpcMessage) error {
 	offset, valid := byteOffset(source.content, params.Position)
 	if !valid {
 		return server.writer.response(message.ID, []protocolLocationLink{})
+	}
+	if reference, interfaceFound := goInterfaceReferenceAt(
+		source,
+		metadata,
+		offset,
+	); interfaceFound && reference.contract.HasLocation {
+		origin := protocolRangeAtOffsets(
+			source.content,
+			reference.start,
+			reference.end,
+		)
+		return server.writer.response(message.ID, []protocolLocationLink{{
+			OriginSelectionRange: origin,
+			TargetURI:            reference.contract.Location.URI,
+			TargetRange: protocolRangeFromLocation(
+				reference.contract.Location,
+			),
+			TargetSelectionRange: protocolRangeFromLocation(
+				reference.contract.Location,
+			),
+		}})
 	}
 	occurrence, found := annotationOccurrenceAt(source.content, offset)
 	if !found {
@@ -94,6 +122,175 @@ func (server *Server) definition(message rpcMessage) error {
 		TargetRange:          reference.rangeItem,
 		TargetSelectionRange: reference.rangeItem,
 	}})
+}
+
+func goInterfaceReferenceAt(
+	source document,
+	metadata metadataView,
+	offset int,
+) (goInterfaceReference, bool) {
+	context := inspectCompletionContext(source.content, offset)
+	if context.kind != completionArgument {
+		return goInterfaceReference{}, false
+	}
+	definitions := fileScopedDefinitions(
+		source.content,
+		metadata.definitions,
+	)
+	definition, found := annotationDefinition(
+		definitions,
+		context.annotation,
+	)
+	if !found {
+		return goInterfaceReference{}, false
+	}
+	argument, found := findCompletionArgument(
+		definition.Arguments,
+		context.argument,
+	)
+	if !found ||
+		argument.ValueDomain != sdk.ValueDomainGoInterface {
+		return goInterfaceReference{}, false
+	}
+	start, end, expression, found := qualifiedGoTypeAt(
+		source.content,
+		offset,
+	)
+	if !found {
+		return goInterfaceReference{}, false
+	}
+	qualifier, name, qualified := strings.Cut(expression, ".")
+	if !qualified {
+		name = qualifier
+		qualifier = ""
+	}
+	sourcePackage := interfaceSourcePackage(
+		metadata.goInterfaces,
+		source.path,
+	)
+	imports := inspectGoImports(source.content)
+	namespaces := inspectSpiceNamespaces(source.content)
+	for _, pkg := range metadata.goInterfaces.Packages {
+		if !interfacePackageMatches(
+			pkg,
+			qualifier,
+			sourcePackage,
+			imports,
+			namespaces,
+		) {
+			continue
+		}
+		for _, contract := range pkg.Interfaces {
+			if contract.Name == name {
+				return goInterfaceReference{
+					contract: contract,
+					start:    start,
+					end:      end,
+				}, true
+			}
+		}
+	}
+	return goInterfaceReference{}, false
+}
+
+func interfacePackageMatches(
+	pkg compilerservice.GoInterfacePackage,
+	qualifier string,
+	sourcePackage string,
+	imports goImportState,
+	namespaces spiceNamespaceState,
+) bool {
+	if qualifier == "" {
+		return pkg.Path == sourcePackage
+	}
+	if namespace, found := namespaces.byPath[pkg.Path]; found {
+		return namespace == qualifier
+	}
+	alias, found := imports.byPath[pkg.Path]
+	if !found {
+		return false
+	}
+	if alias != "" {
+		return alias == qualifier
+	}
+	return pkg.Name == qualifier
+}
+
+func qualifiedGoTypeAt(
+	content []byte,
+	offset int,
+) (int, int, string, bool) {
+	start, end, found := goTypeReferenceBounds(content, offset)
+	if !found {
+		return 0, 0, "", false
+	}
+	value := string(content[start:end])
+	if !validQualifiedGoType(value) {
+		return 0, 0, "", false
+	}
+	return start, end, value, true
+}
+
+func goTypeReferenceBounds(
+	content []byte,
+	offset int,
+) (int, int, bool) {
+	if offset < 0 || offset > len(content) {
+		return 0, 0, false
+	}
+	cursor := offset
+	if cursor == len(content) ||
+		cursor > 0 && !goTypeReferenceByte(content[cursor]) {
+		cursor--
+	}
+	if cursor < 0 || cursor >= len(content) ||
+		!goTypeReferenceByte(content[cursor]) {
+		return 0, 0, false
+	}
+	start := cursor
+	for start > 0 && goTypeReferenceByte(content[start-1]) {
+		start--
+	}
+	end := cursor + 1
+	for end < len(content) && goTypeReferenceByte(content[end]) {
+		end++
+	}
+	return start, end, true
+}
+
+func validQualifiedGoType(value string) bool {
+	if strings.Count(value, ".") > 1 ||
+		strings.HasPrefix(value, ".") ||
+		strings.HasSuffix(value, ".") {
+		return false
+	}
+	for segment := range strings.SplitSeq(value, ".") {
+		if !validGoIdentifier(segment) {
+			return false
+		}
+	}
+	return true
+}
+
+func goTypeReferenceByte(value byte) bool {
+	return value == '.' ||
+		value == '_' ||
+		value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9'
+}
+
+func validGoIdentifier(value string) bool {
+	if value == "" ||
+		value[0] >= '0' && value[0] <= '9' {
+		return false
+	}
+	for index := range len(value) {
+		if value[index] == '.' || !goTypeReferenceByte(value[index]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (server *Server) implementation(message rpcMessage) error {

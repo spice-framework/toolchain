@@ -177,14 +177,29 @@ func Mux() *http.ServeMux {
 			stderr,
 		)
 	}
-	generatedPath := filepath.Join(root, "cmd", "shop", "zz_spice_gen.go")
+	generatedPath := filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"shop",
+		"zz_spice_gen.go",
+	)
 	content, err := os.ReadFile(generatedPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), "package main") ||
+	bridge, err := os.ReadFile(filepath.Join(
+		root,
+		"cmd",
+		"shop",
+		"zz_spice_bridge_gen.go",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "package spicegen") ||
 		!strings.Contains(
-			string(content),
+			string(bridge),
 			"func spiceMain(arguments []string) int",
 		) ||
 		!strings.Contains(string(content), "platform.Mux()") {

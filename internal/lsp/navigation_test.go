@@ -172,3 +172,67 @@ func TestDefinitionForOccurrenceUsesExactImportedDescriptor(t *testing.T) {
 		t.Fatalf("locationLink() = %+v", link)
 	}
 }
+
+func TestGoInterfaceReferenceUsesSpiceNamespaceImport(t *testing.T) {
+	t.Parallel()
+	sourcePath := filepath.Join(
+		"C:",
+		"workspace",
+		"implementation",
+		"service.go",
+	)
+	content := []byte(
+		"package implementation\n\n" +
+			"// @import { Implements } from \"example.com/sdk/core\"\n" +
+			"// @import * as contracts from \"example.com/contracts\"\n\n" +
+			"// @Implements(contracts.Processor[string])\n" +
+			"type Service struct{}\n",
+	)
+	target := diagnostic.SourceLocation(
+		"C:/workspace",
+		"C:/workspace/contracts/processor.go",
+		"C:/workspace/contracts/processor.go",
+		9,
+		6,
+		100,
+	)
+	metadata := metadataView{
+		definitions: []compilerservice.AnnotationDefinition{{
+			Name:              "core.Implements",
+			DescriptorPackage: "example.com/sdk/core",
+			DescriptorSymbol:  "Implements",
+			Arguments: []compilerservice.AnnotationArgument{{
+				Name:        "interfaces",
+				ValueDomain: annotation.ValueDomainGoInterface,
+				Positional:  true,
+				Variadic:    true,
+			}},
+		}},
+		goInterfaces: compilerservice.GoInterfaceCatalog{
+			Packages: []compilerservice.GoInterfacePackage{{
+				Name: "contracts",
+				Path: "example.com/contracts",
+				Interfaces: []compilerservice.GoInterface{{
+					Name:        "Processor",
+					PackageName: "contracts",
+					PackagePath: "example.com/contracts",
+					Location:    target,
+					HasLocation: true,
+				}},
+			}},
+		},
+	}
+	offset := strings.Index(string(content), "Processor") + 3
+	reference, found := goInterfaceReferenceAt(
+		document{path: sourcePath, content: content},
+		metadata,
+		offset,
+	)
+	if !found ||
+		reference.contract.Name != "Processor" ||
+		string(content[reference.start:reference.end]) !=
+			"contracts.Processor" ||
+		reference.contract.Location.Path != target.Path {
+		t.Fatalf("goInterfaceReferenceAt() = %#v, %t", reference, found)
+	}
+}

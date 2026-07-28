@@ -18,6 +18,7 @@ import (
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/load"
+	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 )
 
@@ -133,13 +134,6 @@ type Provider struct {
 	ReturnsError     bool
 	SourceID         string
 	SourceVersion    string
-}
-
-// InterfaceAssertionValue returns the ordinary Go expression used on the
-// right-hand side of a compile-time interface assertion for this provider's
-// exact output type.
-func (provider Provider) InterfaceAssertionValue() string {
-	return assertionValue(provider.Output)
 }
 
 // Entrypoint identifies one explicitly selected starter provider function.
@@ -929,7 +923,7 @@ func (build buildContext) resolveObject(
 				"go symbol must be an identifier or package-qualified selector",
 			)
 		}
-		imported, importErr := importedPackage(
+		imported, importErr := build.importedPackage(
 			pkg,
 			file,
 			qualifier.Name,
@@ -984,7 +978,7 @@ func (build buildContext) sourceFile(
 	)
 }
 
-func importedPackage(
+func (build buildContext) importedPackage(
 	pkg load.Package,
 	file *ast.File,
 	qualifier string,
@@ -1006,10 +1000,52 @@ func importedPackage(
 			return imported.Types, nil
 		}
 	}
-	return nil, fmt.Errorf(
-		"package qualifier %q is not imported by the annotation source file",
+	packagePath, found := spiceNamespaceImport(
+		pkg,
+		file,
 		qualifier,
 	)
+	if found {
+		imported, loaded := build.packages[packagePath]
+		if !loaded || imported.Types == nil {
+			return nil, fmt.Errorf(
+				"spice namespace %q resolves to package %q, which is not available in the typed program",
+				qualifier,
+				packagePath,
+			)
+		}
+		return imported.Types, nil
+	}
+	return nil, fmt.Errorf(
+		"package qualifier %q is not imported by Go or a file-scoped Spice namespace import",
+		qualifier,
+	)
+}
+
+func spiceNamespaceImport(
+	pkg load.Package,
+	file *ast.File,
+	qualifier string,
+) (string, bool) {
+	if pkg.Raw == nil || pkg.Raw.Fset == nil {
+		return "", false
+	}
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			position := pkg.Raw.Fset.PositionFor(comment.Pos(), true)
+			directive, recognized, err := annotationparser.ParseImportComment(
+				comment.Text,
+				position,
+			)
+			if err != nil || !recognized ||
+				directive.Kind != annotation.ImportNamespace ||
+				directive.Namespace != qualifier {
+				continue
+			}
+			return directive.Package, true
+		}
+	}
+	return "", false
 }
 
 func attachInterfaceBindings(
@@ -1017,7 +1053,6 @@ func attachInterfaceBindings(
 	build buildContext,
 	resolution resolve.Result,
 ) {
-	groupStarts := annotationGroupStarts(resolution.Occurrences)
 	index := make(map[string]int, len(catalog.providers))
 	constructorIndex := make(map[string]int, len(catalog.providers))
 	for providerIndex := range catalog.providers {
@@ -1088,39 +1123,6 @@ func attachInterfaceBindings(
 				)
 				continue
 			}
-			if !build.hasInterfaceAssertion(
-				occurrence.PackagePath,
-				binding.Type,
-				item.Output,
-			) {
-				missing := occurrenceDiagnostic(
-					occurrence,
-					"missing-interface-assertion",
-					fmt.Sprintf(
-						"@%s binding from %s to %s requires an ordinary Go compile-time assertion such as %s",
-						occurrence.Annotation.Name,
-						item.OutputTypeID,
-						binding.TypeID,
-						assertionExample(
-							expression,
-							item.Output,
-						),
-					),
-				)
-				if fix, available := interfaceAssertionFix(
-					occurrence,
-					groupStarts[occurrence.SymbolID],
-					expression,
-					item.Output,
-				); available {
-					missing.Fixes = []SuggestedFix{fix}
-				}
-				catalog.diagnostics = append(
-					catalog.diagnostics,
-					missing,
-				)
-				continue
-			}
 			item.Interfaces = append(item.Interfaces, binding)
 		}
 		sort.SliceStable(item.Interfaces, func(i, j int) bool {
@@ -1128,20 +1130,6 @@ func attachInterfaceBindings(
 				item.Interfaces[j].TypeID
 		})
 	}
-}
-
-func annotationGroupStarts(
-	occurrences []resolve.Occurrence,
-) map[string]resolve.Occurrence {
-	result := make(map[string]resolve.Occurrence)
-	for _, occurrence := range occurrences {
-		current, found := result[occurrence.SymbolID]
-		if !found ||
-			occurrence.PhysicalOffset < current.PhysicalOffset {
-			result[occurrence.SymbolID] = occurrence
-		}
-	}
-	return result
 }
 
 func attachBeanMetadata(
@@ -1520,146 +1508,6 @@ func (build buildContext) instantiateType(
 		return nil, fmt.Errorf("instantiate generic interface: %w", err)
 	}
 	return instantiated, nil
-}
-
-func (build buildContext) hasInterfaceAssertion(
-	packagePath string,
-	interfaceType types.Type,
-	output types.Type,
-) bool {
-	pkg, found := build.packages[packagePath]
-	if !found || pkg.TypesInfo == nil {
-		return false
-	}
-	for _, file := range pkg.Syntax {
-		for _, declaration := range file.Decls {
-			generic, ok := declaration.(*ast.GenDecl)
-			if !ok || generic.Tok != token.VAR {
-				continue
-			}
-			for _, specification := range generic.Specs {
-				value, ok := specification.(*ast.ValueSpec)
-				if !ok || value.Type == nil {
-					continue
-				}
-				if !types.Identical(
-					pkg.TypesInfo.TypeOf(value.Type),
-					interfaceType,
-				) {
-					continue
-				}
-				for index, name := range value.Names {
-					if name.Name != "_" || index >= len(value.Values) {
-						continue
-					}
-					if types.Identical(
-						pkg.TypesInfo.TypeOf(value.Values[index]),
-						output,
-					) {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-func assertionExample(
-	interfaceExpression string,
-	output types.Type,
-) string {
-	return "`var _ " + interfaceExpression + " = " +
-		assertionValue(output) + "`"
-}
-
-func assertionValue(output types.Type) string {
-	switch typed := types.Unalias(output).(type) {
-	case *types.Pointer:
-		if named, ok := types.Unalias(typed.Elem()).(*types.Named); ok {
-			return fmt.Sprintf("(*%s)(nil)", named.Obj().Name())
-		}
-	case *types.Named:
-		if _, structure := typed.Underlying().(*types.Struct); structure {
-			return typed.Obj().Name() + "{}"
-		}
-		return "*new(" + typed.Obj().Name() + ")"
-	}
-	return "<bean-output>"
-}
-
-func interfaceAssertionFix(
-	anchor resolve.Occurrence,
-	insertion resolve.Occurrence,
-	interfaceExpression string,
-	output types.Type,
-) (SuggestedFix, bool) {
-	value := assertionValue(output)
-	if value == "<bean-output>" {
-		return SuggestedFix{}, false
-	}
-	displayPosition, physicalPosition := occurrenceFixPositions(insertion)
-	anchorDisplay, anchorPhysical := occurrenceFixPositions(anchor)
-	display, displayOK := lineStartPosition(displayPosition)
-	physical, physicalOK := lineStartPosition(physicalPosition)
-	if !displayOK || !physicalOK {
-		return SuggestedFix{}, false
-	}
-	return SuggestedFix{
-		Title:             "Add compile-time assertion for " + interfaceExpression,
-		AppliesAt:         anchorDisplay,
-		AppliesAtPhysical: anchorPhysical,
-		Edits: []SuggestedEdit{{
-			Position:         display,
-			PhysicalPosition: physical,
-			NewText: "var _ " + interfaceExpression + " = " +
-				value + "\n\n",
-		}},
-	}, true
-}
-
-func occurrenceFixPositions(
-	occurrence resolve.Occurrence,
-) (token.Position, token.Position) {
-	display := occurrence.DisplayPosition
-	physical := occurrence.PhysicalPosition
-	if physical.Filename == "" {
-		physical.Filename = occurrence.PhysicalFile
-	}
-	if physical.Line <= 0 {
-		physical.Line = display.Line
-	}
-	if physical.Column <= 0 {
-		physical.Column = display.Column
-	}
-	if physical.Offset <= 0 && occurrence.PhysicalOffset > 0 {
-		physical.Offset = occurrence.PhysicalOffset
-	}
-	if display.Filename == "" {
-		display.Filename = physical.Filename
-	}
-	if display.Line <= 0 {
-		display.Line = physical.Line
-	}
-	if display.Column <= 0 {
-		display.Column = physical.Column
-	}
-	if display.Offset <= 0 && physical.Offset > 0 {
-		display.Offset = physical.Offset
-	}
-	return display, physical
-}
-
-func lineStartPosition(position token.Position) (token.Position, bool) {
-	if position.Filename == "" ||
-		position.Offset < 0 ||
-		position.Line <= 0 ||
-		position.Column <= 0 {
-		return token.Position{}, false
-	}
-	position.Offset -= position.Column - 1
-	position.Column = 1
-	return position, true
 }
 
 type providerProblem struct {

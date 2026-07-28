@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/StevenBuglione/spice/compiler/generate"
 )
 
 func TestThirdPartyAnnotationModuleCompletesCompilerWorkflow(t *testing.T) {
@@ -214,15 +216,21 @@ func assertThirdPartyGeneration(
 ) {
 	t.Helper()
 	plan, found := result.GenerationPlan()
-	if !found || len(plan.Files()) != 1 {
+	if !found || len(plan.Files()) != 2 {
 		t.Fatalf(
 			"GenerationPlan() found=%t files=%d",
 			found,
 			len(plan.Files()),
 		)
 	}
-	generated := plan.Files()[0]
-	if generated.Path != "zz_spice_gen.go" ||
+	var generated generate.File
+	for _, file := range plan.Files() {
+		if file.Role == generate.FileRoleApplication {
+			generated = file
+		}
+	}
+	if generated.Path !=
+		"internal/spicegen/spice_annotation_app/zz_spice_gen.go" ||
 		!bytes.Contains(
 			generated.Content(),
 			[]byte("component.ProvideMessage()"),

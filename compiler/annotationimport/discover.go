@@ -156,6 +156,9 @@ func discoveryFiles(
 			if path != root && excludedDirectory(entry.Name()) {
 				return filepath.SkipDir
 			}
+			if path != root && nestedModuleDirectory(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		path = filepath.Clean(path)
@@ -168,11 +171,36 @@ func discoveryFiles(
 		return nil, fmt.Errorf("discover annotation import sources: %w", err)
 	}
 	for path := range overlay {
-		if discoverySource(path) && withinRoot(root, path) {
+		if discoverySource(path) &&
+			withinRoot(root, path) &&
+			!insideNestedModule(root, path) {
 			files[path] = struct{}{}
 		}
 	}
 	return sortedKeys(files), nil
+}
+
+func nestedModuleDirectory(directory string) bool {
+	info, err := os.Stat(filepath.Join(directory, "go.mod"))
+	if err != nil || info == nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func insideNestedModule(root, file string) bool {
+	directory := filepath.Dir(file)
+	for directory != root {
+		if nestedModuleDirectory(directory) {
+			return true
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory || !withinRoot(root, parent) {
+			return false
+		}
+		directory = parent
+	}
+	return false
 }
 
 func excludedDirectory(name string) bool {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"go/ast"
 	goparser "go/parser"
 	"go/token"
 	"path"
@@ -826,12 +825,14 @@ func argumentSnippet(
 }
 
 type goImportState struct {
-	file       *ast.File
-	fileSet    *token.FileSet
-	byPath     map[string]string
-	unusable   map[string]struct{}
-	occupied   map[string]struct{}
-	lineEnding string
+	byPath   map[string]string
+	unusable map[string]struct{}
+	occupied map[string]struct{}
+}
+
+type spiceNamespaceState struct {
+	byPath   map[string]string
+	occupied map[string]struct{}
 }
 
 func goInterfaceCompletionItems(
@@ -858,6 +859,7 @@ func goInterfaceCompletionItems(
 	}
 
 	imports := inspectGoImports(content)
+	namespaces := inspectSpiceNamespaces(content)
 	sourcePackage := interfaceSourcePackage(
 		metadata.goInterfaces,
 		metadata.sourcePath,
@@ -871,9 +873,8 @@ func goInterfaceCompletionItems(
 		for _, contract := range pkg.Interfaces {
 			item, available := goInterfaceCompletionItem(
 				content,
-				context,
-				metadata,
 				imports,
+				namespaces,
 				pkg,
 				contract,
 				sourcePackage,
@@ -891,9 +892,8 @@ func goInterfaceCompletionItems(
 
 func goInterfaceCompletionItem(
 	content []byte,
-	context completionContext,
-	metadata metadataView,
 	imports goImportState,
+	namespaces spiceNamespaceState,
 	pkg compilerservice.GoInterfacePackage,
 	contract compilerservice.GoInterface,
 	sourcePackage string,
@@ -906,6 +906,7 @@ func goInterfaceCompletionItem(
 	}
 	qualifier, addImport, available := interfaceQualifier(
 		imports,
+		namespaces,
 		pkg,
 		samePackage,
 	)
@@ -939,117 +940,34 @@ func goInterfaceCompletionItem(
 			),
 		},
 	}
-	assertionEdit, hasAssertionEdit := goInterfaceAssertionEdit(
-		content,
-		context,
-		metadata,
-		lookup,
-	)
 	if addImport {
-		// A Go import used only in a comment is invalid Go and may be deleted
-		// by the editor. Add it only when the compiler can atomically add the
-		// ordinary Go interface assertion.
-		if !hasAssertionEdit {
-			return item, true
+		item.AdditionalEdits = []protocolEdit{
+			annotationImportEdit(
+				content,
+				fmt.Sprintf(
+					`// @import * as %s from "%s"`,
+					qualifier,
+					contract.PackagePath,
+				),
+			),
 		}
-		importEdit, ok := additionalGoImportEdit(
-			content,
-			imports,
-			contract.PackagePath,
-			qualifier,
-			pkg.Name,
-		)
-		if !ok {
-			return completionItem{}, false
-		}
-		item.AdditionalEdits = []protocolEdit{importEdit}
-	}
-	if hasAssertionEdit {
-		item.AdditionalEdits = append(
-			item.AdditionalEdits,
-			assertionEdit,
-		)
 	}
 	return item, true
 }
 
-func goInterfaceAssertionEdit(
-	content []byte,
-	context completionContext,
-	metadata metadataView,
-	interfaceExpression string,
-) (protocolEdit, bool) {
-	position := protocolPositionAtOffset(content, context.start)
-	var symbolID string
-	for _, occurrence := range metadata.annotations {
-		if occurrence.Spelling != context.annotation ||
-			occurrence.Location.Range.Start.Line-1 != position.Line {
+func inspectSpiceNamespaces(content []byte) spiceNamespaceState {
+	state := spiceNamespaceState{
+		byPath:   make(map[string]string),
+		occupied: make(map[string]struct{}),
+	}
+	for _, directive := range importDirectives(content) {
+		if directive.Kind != annotation.ImportNamespace {
 			continue
 		}
-		if metadata.sourcePath != "" &&
-			pathKey(occurrence.Location.Path) !=
-				pathKey(metadata.sourcePath) {
-			continue
-		}
-		symbolID = occurrence.SymbolID
-		break
+		state.byPath[directive.Package] = directive.Namespace
+		state.occupied[directive.Namespace] = struct{}{}
 	}
-	if symbolID == "" {
-		return protocolEdit{}, false
-	}
-	var selected compilerservice.Provider
-	found := false
-	for _, candidate := range metadata.providers {
-		if candidate.ID == symbolID {
-			selected = candidate
-			found = true
-			break
-		}
-	}
-	if !found || selected.AssertionValue == "" {
-		return protocolEdit{}, false
-	}
-	statement := "var _ " + interfaceExpression + " = " +
-		selected.AssertionValue
-	if bytes.Contains(content, []byte(statement)) {
-		return protocolEdit{}, false
-	}
-	insertion := annotationGroupStart(content, context.start)
-	lineEnding := "\n"
-	if bytes.Contains(content, []byte("\r\n")) {
-		lineEnding = "\r\n"
-	}
-	return protocolEdit{
-		Range:   protocolRangeAtOffsets(content, insertion, insertion),
-		NewText: statement + lineEnding + lineEnding,
-	}, true
-}
-
-func annotationGroupStart(content []byte, offset int) int {
-	lineStart, found := contentLineAtOffset(content, offset)
-	if !found {
-		return min(max(offset, 0), len(content))
-	}
-	start := lineStart
-	for start > 0 {
-		previousEnd := start - 1
-		if previousEnd > 0 && content[previousEnd-1] == '\r' {
-			previousEnd--
-		}
-		previousStart := bytes.LastIndexByte(
-			content[:previousEnd],
-			'\n',
-		) + 1
-		line := strings.TrimSpace(
-			string(content[previousStart:previousEnd]),
-		)
-		if !strings.HasPrefix(line, "// @") ||
-			strings.HasPrefix(line, "// @import") {
-			break
-		}
-		start = previousStart
-	}
-	return start
+	return state
 }
 
 func findCompletionArgument(
@@ -1085,17 +1003,13 @@ func interfaceSourcePackage(
 
 func inspectGoImports(content []byte) goImportState {
 	state := goImportState{
-		byPath:     make(map[string]string),
-		unusable:   make(map[string]struct{}),
-		occupied:   make(map[string]struct{}),
-		lineEnding: "\n",
+		byPath:   make(map[string]string),
+		unusable: make(map[string]struct{}),
+		occupied: make(map[string]struct{}),
 	}
-	if bytes.Contains(content, []byte("\r\n")) {
-		state.lineEnding = "\r\n"
-	}
-	state.fileSet = token.NewFileSet()
+	fileSet := token.NewFileSet()
 	file, err := goparser.ParseFile(
-		state.fileSet,
+		fileSet,
 		"",
 		content,
 		goparser.ImportsOnly|goparser.SkipObjectResolution,
@@ -1103,7 +1017,6 @@ func inspectGoImports(content []byte) goImportState {
 	if err != nil {
 		return state
 	}
-	state.file = file
 	for _, specification := range file.Imports {
 		packagePath, err := strconv.Unquote(specification.Path.Value)
 		if err != nil {
@@ -1131,6 +1044,7 @@ func inspectGoImports(content []byte) goImportState {
 
 func interfaceQualifier(
 	imports goImportState,
+	namespaces spiceNamespaceState,
 	pkg compilerservice.GoInterfacePackage,
 	samePackage bool,
 ) (qualifier string, addImport bool, available bool) {
@@ -1146,10 +1060,33 @@ func interfaceQualifier(
 		}
 		return pkg.Name, false, pkg.Name != ""
 	}
+	if namespace, imported := namespaces.byPath[pkg.Path]; imported {
+		return namespace, false, namespace != ""
+	}
 	if pkg.Name == "" {
 		return "", false, false
 	}
-	return availableGoQualifier(pkg.Name, imports.occupied), true, true
+	return availableGoQualifier(
+		pkg.Name,
+		mergedNamespaceOccupancy(imports, namespaces),
+	), true, true
+}
+
+func mergedNamespaceOccupancy(
+	imports goImportState,
+	namespaces spiceNamespaceState,
+) map[string]struct{} {
+	occupied := make(
+		map[string]struct{},
+		len(imports.occupied)+len(namespaces.occupied),
+	)
+	for name := range imports.occupied {
+		occupied[name] = struct{}{}
+	}
+	for name := range namespaces.occupied {
+		occupied[name] = struct{}{}
+	}
+	return occupied
 }
 
 func availableGoQualifier(
@@ -1233,81 +1170,6 @@ func goInterfaceDocumentation(
 		"\n\nResolved by Spice's typed Go program; the IDE does not infer DI eligibility.",
 	)
 	return content.String()
-}
-
-func additionalGoImportEdit(
-	content []byte,
-	imports goImportState,
-	packagePath string,
-	qualifier string,
-	packageName string,
-) (protocolEdit, bool) {
-	if imports.file == nil || imports.fileSet == nil {
-		return protocolEdit{}, false
-	}
-	alias := ""
-	if qualifier != packageName {
-		alias = qualifier
-	}
-	specification := strconv.Quote(packagePath)
-	if alias != "" {
-		specification = alias + " " + specification
-	}
-	lineEnding := imports.lineEnding
-	for _, declaration := range imports.file.Decls {
-		generic, ok := declaration.(*ast.GenDecl)
-		if !ok || generic.Tok != token.IMPORT {
-			continue
-		}
-		return existingGoImportEdit(
-			content,
-			imports.fileSet,
-			generic,
-			specification,
-			lineEnding,
-		)
-	}
-	if imports.file.Name == nil {
-		return protocolEdit{}, false
-	}
-	offset := imports.fileSet.PositionFor(
-		imports.file.Name.End(),
-		false,
-	).Offset
-	if offset < 0 || offset > len(content) {
-		return protocolEdit{}, false
-	}
-	return protocolEdit{
-		Range:   protocolRangeAtOffsets(content, offset, offset),
-		NewText: lineEnding + lineEnding + "import " + specification,
-	}, true
-}
-
-func existingGoImportEdit(
-	content []byte,
-	fileSet *token.FileSet,
-	declaration *ast.GenDecl,
-	specification string,
-	lineEnding string,
-) (protocolEdit, bool) {
-	if declaration.Lparen.IsValid() && declaration.Rparen.IsValid() {
-		offset := fileSet.PositionFor(declaration.Rparen, false).Offset
-		if offset < 0 || offset > len(content) {
-			return protocolEdit{}, false
-		}
-		return protocolEdit{
-			Range:   protocolRangeAtOffsets(content, offset, offset),
-			NewText: "\t" + specification + lineEnding,
-		}, true
-	}
-	offset := fileSet.PositionFor(declaration.End(), false).Offset
-	if offset < 0 || offset > len(content) {
-		return protocolEdit{}, false
-	}
-	return protocolEdit{
-		Range:   protocolRangeAtOffsets(content, offset, offset),
-		NewText: lineEnding + "import " + specification,
-	}, true
 }
 
 func argumentCompletionItems(
@@ -1462,6 +1324,25 @@ func (server *Server) hover(message rpcMessage) error {
 	offset, valid := byteOffset(source.content, params.Position)
 	if !valid {
 		return server.writer.response(message.ID, nil)
+	}
+	if reference, interfaceFound := goInterfaceReferenceAt(
+		source,
+		metadata,
+		offset,
+	); interfaceFound {
+		return server.writer.response(message.ID, hoverResult{
+			Contents: markupContent{
+				Kind: "markdown",
+				Value: goInterfaceDocumentation(
+					reference.contract,
+				),
+			},
+			Range: new(protocolRangeAtOffsets(
+				source.content,
+				reference.start,
+				reference.end,
+			)),
+		})
 	}
 	value, start, end := tokenAt(source.content, offset)
 	if occurrence, occurrenceFound := annotationOccurrenceAt(

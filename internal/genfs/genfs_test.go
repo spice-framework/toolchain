@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -96,13 +97,13 @@ func TestApplyApplicationPackagePreservesHandwrittenSource(t *testing.T) {
 			name:       "nested command",
 			sourcePath: "cmd/shop/main.go",
 			pattern:    "./...",
-			outputDir:  "cmd/shop",
+			outputDir:  "internal/spicegen/shop",
 		},
 		{
 			name:       "module root command",
 			sourcePath: "main.go",
 			pattern:    ".",
-			outputDir:  ".",
+			outputDir:  "internal/spicegen/genfs",
 		},
 	}
 	for _, test := range tests {
@@ -121,7 +122,9 @@ func main() {}
 				source,
 			)
 			if plan.Target().Layout != generate.LayoutApplicationPackage ||
-				plan.Target().OutputDir != test.outputDir {
+				plan.Target().OutputDir != test.outputDir ||
+				plan.Target().BridgeDir !=
+					path.Dir(filepath.ToSlash(test.sourcePath)) {
 				t.Fatalf("Target() = %#v", plan.Target())
 			}
 			result, err := Apply(plan)
@@ -206,7 +209,6 @@ func TestApplyMigratesUnchangedLegacyGeneratedPackageOwnership(t *testing.T) {
 	)
 	status, err := Check(plan)
 	if err != nil ||
-		!hasDifference(status, DifferenceStaleOwnedFile) ||
 		!hasDifference(status, DifferenceMissingFile) {
 		t.Fatalf("Check(legacy migration) = %#v, %v", status, err)
 	}
@@ -214,13 +216,12 @@ func TestApplyMigratesUnchangedLegacyGeneratedPackageOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply(legacy migration) error = %v", err)
 	}
-	if !slices.Equal(
-		result.Removed,
-		[]string{"internal/spicegen/application/zz_spice_gen.go"},
-	) ||
+	if len(result.Removed) != 0 ||
 		!slices.Equal(
 			result.Written,
-			[]string{"cmd/application/zz_spice_gen.go"},
+			[]string{
+				"cmd/application/zz_spice_bridge_gen.go",
+			},
 		) ||
 		!result.ManifestUpdated {
 		t.Fatalf("Apply(legacy migration) = %#v", result)
@@ -231,8 +232,8 @@ func TestApplyMigratesUnchangedLegacyGeneratedPackageOwnership(t *testing.T) {
 		"spicegen",
 		"application",
 		"zz_spice_gen.go",
-	)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("legacy generated file remains: %v", err)
+	)); err != nil {
+		t.Fatalf("migrated generated application is missing: %v", err)
 	}
 }
 

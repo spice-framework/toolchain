@@ -280,7 +280,7 @@ func instantiatedHandleType(
 	return value
 }
 
-func TestInterfaceBindingRequiresGoAssertion(t *testing.T) {
+func TestInterfaceBindingDoesNotRequireHandwrittenAssertion(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/missingassertion\n\ngo 1.26.0\n",
 		"app.go": `package missingassertion
@@ -297,46 +297,14 @@ func (*Stripe) Process() error { return nil }
 	program, resolved := loadAndResolve(t, root, ".")
 	catalog := buildQuiet(t, program, resolved)
 	diagnostics := catalog.Diagnostics()
-	joined := strings.Join(diagnosticStrings(diagnostics), "\n")
-	if !strings.Contains(joined, "requires an ordinary Go compile-time assertion") ||
-		!strings.Contains(
-			joined,
-			"var _ Processor = (*Stripe)(nil)",
-		) {
-		t.Fatalf("diagnostics = %s", joined)
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %s", strings.Join(diagnosticStrings(diagnostics), "\n"))
 	}
-	var missing *Diagnostic
-	for index := range diagnostics {
-		if diagnostics[index].Kind == "missing-interface-assertion" {
-			missing = &diagnostics[index]
-			break
-		}
-	}
-	if missing == nil ||
-		len(missing.Fixes) != 1 ||
-		missing.Fixes[0].Title !=
-			"Add compile-time assertion for Processor" ||
-		len(missing.Fixes[0].Edits) != 1 {
-		t.Fatalf("missing assertion diagnostic = %#v", missing)
-	}
-	edit := missing.Fixes[0].Edits[0]
-	if edit.NewText != "var _ Processor = (*Stripe)(nil)\n\n" ||
-		edit.Position.Column != 1 ||
-		edit.PhysicalPosition.Column != 1 {
-		t.Fatalf("missing assertion edit = %#v", edit)
-	}
-	source, err := os.ReadFile(filepath.Join(root, "app.go"))
-	if err != nil {
-		t.Fatalf("ReadFile(app.go) error = %v", err)
-	}
-	if !strings.HasPrefix(
-		string(source[edit.PhysicalPosition.Offset:]),
-		"// @Service",
-	) {
-		t.Fatalf(
-			"assertion insertion offset %d does not precede the annotation group",
-			edit.PhysicalPosition.Offset,
-		)
+	providers := catalog.Providers()
+	if len(providers) != 1 ||
+		len(providers[0].Interfaces) != 1 ||
+		providers[0].Interfaces[0].Expression != "Processor" {
+		t.Fatalf("providers = %#v", providers)
 	}
 }
 
@@ -469,7 +437,6 @@ func Exact() Processor { return nil }
 	catalog := buildQuiet(t, program, resolved)
 	joined := strings.Join(diagnosticStrings(catalog.Diagnostics()), "\n")
 	for _, expected := range []string{
-		"requires an ordinary Go compile-time assertion",
 		"cannot be resolved",
 		"not an interface",
 		"constraint-only",

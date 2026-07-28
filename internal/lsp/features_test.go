@@ -466,10 +466,6 @@ func TestGoInterfaceCompletionComesFromTheCompilerCatalog(t *testing.T) {
 				},
 			},
 		}},
-		providers: []compilerservice.Provider{{
-			ID:             "type:stripe",
-			AssertionValue: "(*Stripe)(nil)",
-		}},
 		definitions: []compilerservice.AnnotationDefinition{{
 			Name:              "core.ConformsTo",
 			DescriptorPackage: "example.com/sdk/core",
@@ -511,11 +507,9 @@ func TestGoInterfaceCompletionComesFromTheCompilerCatalog(t *testing.T) {
 	if len(items) != 1 ||
 		items[0].Label != "payments.Processor" ||
 		items[0].TextEdit.NewText != "payments.Processor" ||
-		len(items[0].AdditionalEdits) != 2 ||
+		len(items[0].AdditionalEdits) != 1 ||
 		items[0].AdditionalEdits[0].NewText !=
-			"\n\nimport \"example.com/application/payments\"" ||
-		items[0].AdditionalEdits[1].NewText !=
-			"var _ payments.Processor = (*Stripe)(nil)\n\n" ||
+			"// @import * as payments from \"example.com/application/payments\"\n" ||
 		items[0].Documentation == nil ||
 		!strings.Contains(
 			items[0].Documentation.Value,
@@ -530,21 +524,12 @@ func TestGoInterfaceCompletionComesFromTheCompilerCatalog(t *testing.T) {
 		t.Fatalf("interface text edit = %+v", items[0].TextEdit)
 	}
 	if items[0].AdditionalEdits[0].Range != (protocolRange{
-		Start: protocolPosition{Line: 0, Character: 12},
-		End:   protocolPosition{Line: 0, Character: 12},
+		Start: protocolPosition{Line: 3, Character: 0},
+		End:   protocolPosition{Line: 3, Character: 0},
 	}) {
 		t.Fatalf(
-			"Go import edit = %+v",
+			"Spice namespace import edit = %+v",
 			items[0].AdditionalEdits[0],
-		)
-	}
-	if items[0].AdditionalEdits[1].Range != (protocolRange{
-		Start: protocolPosition{Line: 4, Character: 0},
-		End:   protocolPosition{Line: 4, Character: 0},
-	}) {
-		t.Fatalf(
-			"interface assertion edit = %+v",
-			items[0].AdditionalEdits[1],
 		)
 	}
 }
@@ -555,7 +540,8 @@ func TestGoInterfaceCompletionUsesExistingAliasAndGenericSnippet(
 	t.Parallel()
 	content := []byte(
 		"package main\n\n" +
-			"import pay \"example.com/application/payments\"\n\n" +
+			"// @import { Bind } from \"example.com/sdk/core\"\n" +
+			"// @import * as pay from \"example.com/application/payments\"\n\n" +
 			"// @Bind(pay.Rep)\n" +
 			"type Store struct{}\n",
 	)
@@ -563,7 +549,9 @@ func TestGoInterfaceCompletionUsesExistingAliasAndGenericSnippet(
 	items := completionItems(content, offset, metadataView{
 		sourcePath: "C:/workspace/main.go",
 		definitions: []compilerservice.AnnotationDefinition{{
-			Name: "Bind",
+			Name:              "Bind",
+			DescriptorPackage: "example.com/sdk/core",
+			DescriptorSymbol:  "Bind",
 			Arguments: []compilerservice.AnnotationArgument{{
 				Name:        "contracts",
 				Kinds:       []annotation.Kind{annotation.KindIdentifier},
@@ -674,13 +662,11 @@ type Processor interface {
 	})
 	if len(items) != 1 ||
 		items[0].Label != "payments.Processor" ||
-		len(items[0].AdditionalEdits) != 2 ||
+		len(items[0].AdditionalEdits) != 1 ||
 		!strings.Contains(
 			items[0].AdditionalEdits[0].NewText,
-			`import "example.com/interfacecompletion/payments"`,
-		) ||
-		items[0].AdditionalEdits[1].NewText !=
-			"var _ payments.Processor = (*Stripe)(nil)\n\n" {
+			`// @import * as payments from "example.com/interfacecompletion/payments"`,
+		) {
 		t.Fatalf(
 			"real compiler interface completion = %+v; annotations=%+v; providers=%+v",
 			items,

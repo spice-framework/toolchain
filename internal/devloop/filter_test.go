@@ -27,6 +27,8 @@ func TestPathFilterAppliesDefaultsAndCustomRules(t *testing.T) {
 		{path: "module/ignored/service.go", want: false},
 		{path: "module/.service.go.swp", want: false},
 		{path: "examples/commerce/zz_spice_gen.go", want: false},
+		{path: "cmd/shop/zz_spice_bridge_gen.go", want: false},
+		{path: "payments/stripe_shop_spice_gen.go", want: false},
 		{path: "examples/commerce/openapi.json", want: false},
 		{path: ".spice/commerce.manifest.json", want: false},
 	}
@@ -49,6 +51,7 @@ func TestPathFilterSkipsToolAndGeneratedDirectories(t *testing.T) {
 		"module/node_modules/pkg",
 		".spice/dev",
 		".spice/build/candidate",
+		"internal/spicegen",
 		"internal/spicegen/application",
 	} {
 		if !filter.SkipDirectory(directory) {

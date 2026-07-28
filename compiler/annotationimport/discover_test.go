@@ -76,6 +76,41 @@ func TestDiscoverIncludesNewOverlaySourceInsideRoot(t *testing.T) {
 	}
 }
 
+func TestDiscoverExcludesNestedModuleSourcesAndOverlays(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "app.go", `package app
+// @import { Application } from "example.com/core"
+`)
+	writeDiscoveryFile(t, root, "editor/build/project/go.mod", `module example.com/editor
+`)
+	writeDiscoveryFile(t, root, "editor/build/project/fixture.go", `package fixture
+// @import * as contracts from "example.com/unrelated/contracts"
+`)
+	overlayFile := filepath.Join(
+		root,
+		"editor",
+		"build",
+		"project",
+		"overlay.go",
+	)
+	discovery, err := Discover(root, map[string][]byte{
+		overlayFile: []byte(`package fixture
+// @import { Other } from "example.com/unrelated/other"
+`),
+	})
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if want := []string{"example.com/core"}; !reflect.DeepEqual(
+		discovery.Packages,
+		want,
+	) {
+		t.Fatalf("packages = %#v, want %#v", discovery.Packages, want)
+	}
+}
+
 func TestDiscoveryNamespacePackagesAreStableAndUnique(t *testing.T) {
 	t.Parallel()
 	discovery := Discovery{Directives: []annotation.ImportDirective{

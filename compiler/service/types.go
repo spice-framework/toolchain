@@ -139,7 +139,6 @@ type Provider struct {
 	Fallback       bool
 	Order          int64
 	Scope          sdk.BeanScope
-	AssertionValue string
 	Dependencies   []ProviderDependency
 	ReturnsCleanup bool
 	ReturnsError   bool

@@ -113,7 +113,6 @@ func summarizeProviders(providers []provider.Provider) []Provider {
 			Fallback:       item.Fallback,
 			Order:          item.Order,
 			Scope:          item.Scope,
-			AssertionValue: item.InterfaceAssertionValue(),
 			Dependencies:   dependencies,
 			ReturnsCleanup: item.ReturnsCleanup,
 			ReturnsError:   item.ReturnsError,

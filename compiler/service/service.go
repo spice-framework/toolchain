@@ -30,6 +30,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/modulith"
+	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	"github.com/StevenBuglione/spice/compiler/scan"
@@ -1093,9 +1094,13 @@ func selectedDescriptorReferences(
 	program *load.Program,
 	discovery annotationimport.Discovery,
 ) ([]annotation.DefinitionReference, error) {
+	namespacePackages := usedAnnotationNamespacePackages(
+		program,
+		discovery.Directives,
+	)
 	namespaceReferences, err := descriptor.NamespaceReferences(
 		program,
-		discovery.NamespacePackages(),
+		namespacePackages,
 	)
 	if err != nil {
 		return nil, err
@@ -1107,6 +1112,83 @@ func selectedDescriptorReferences(
 		),
 		namespaceReferences...,
 	), nil
+}
+
+func usedAnnotationNamespacePackages(
+	program *load.Program,
+	directives []annotation.ImportDirective,
+) []string {
+	bindings := annotationNamespaceBindings(directives)
+	used := make(map[string]struct{})
+	for _, pkg := range program.Packages() {
+		for _, source := range pkg.Files {
+			namespaces := bindings[filepath.Clean(source.PhysicalPath)]
+			for _, packagePath := range usedAnnotationNamespacesInSource(
+				pkg,
+				source,
+				namespaces,
+			) {
+				used[packagePath] = struct{}{}
+			}
+		}
+	}
+	result := make([]string, 0, len(used))
+	for packagePath := range used {
+		result = append(result, packagePath)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func annotationNamespaceBindings(
+	directives []annotation.ImportDirective,
+) map[string]map[string]string {
+	bindings := make(map[string]map[string]string)
+	for _, directive := range directives {
+		if directive.Kind != annotation.ImportNamespace {
+			continue
+		}
+		file := filepath.Clean(directive.Position.Filename)
+		if bindings[file] == nil {
+			bindings[file] = make(map[string]string)
+		}
+		bindings[file][directive.Namespace] = directive.Package
+	}
+	return bindings
+}
+
+func usedAnnotationNamespacesInSource(
+	pkg load.Package,
+	source load.SourceFile,
+	namespaces map[string]string,
+) []string {
+	if pkg.Raw == nil ||
+		pkg.Raw.Fset == nil ||
+		len(namespaces) == 0 ||
+		source.Syntax == nil {
+		return nil
+	}
+	var result []string
+	for _, group := range source.Syntax.Comments {
+		for _, comment := range group.List {
+			position := pkg.Raw.Fset.PositionFor(comment.Pos(), true)
+			invocation, recognized, err := annotationparser.ParseComment(
+				comment.Text,
+				position,
+			)
+			if err != nil || !recognized {
+				continue
+			}
+			namespace, _, qualified := strings.Cut(invocation.Name, ".")
+			if !qualified {
+				continue
+			}
+			if packagePath, found := namespaces[namespace]; found {
+				result = append(result, packagePath)
+			}
+		}
+	}
+	return result
 }
 
 func prepareDescriptors(

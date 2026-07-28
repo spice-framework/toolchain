@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	publicstarter "github.com/StevenBuglione/spice/starter"
@@ -91,7 +92,9 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 		t.Fatal("Analyze(valid) GenerationReady() = false, want true")
 	}
 	plan, found := result.GenerationPlan()
-	if !found || plan.Target().PackagePath != "example.com/servicefixture" {
+	if !found ||
+		plan.Target().PackagePath !=
+			"example.com/servicefixture/internal/spicegen/servicefixture" {
 		t.Fatalf("GenerationPlan() = %+v, %t", plan.Target(), found)
 	}
 	if len(plan.Files()) == 0 {
@@ -654,25 +657,34 @@ func main() {
 	}
 }
 
-func TestServiceOffersVersionedInterfaceAssertionFix(t *testing.T) {
+func TestServiceGeneratesInterfaceAssertionWithoutSourceEdit(t *testing.T) {
 	t.Parallel()
 	root := writeServiceModule(t)
-	mainPath := filepath.Join(root, "main.go")
-	content := []byte(`package main
-
-// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+	mainPath := filepath.Join(root, "payments", "stripe.go")
+	writeServiceFixtureFile(
+		t,
+		root,
+		"contracts/processor.go",
+		`package contracts
 
 type Processor interface {
 	Process() error
 }
+`,
+	)
+	content := []byte(`package main
+
+// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+// @import * as contracts from "example.com/servicefixture/contracts"
 
 // @Service
-// @Implements(Processor)
+// @Implements(contracts.Processor)
 type Stripe struct{}
 
 func (*Stripe) Process() error { return nil }
 `)
-	writeServiceFixtureFile(t, root, "main.go", string(content))
+	content = bytes.Replace(content, []byte("package main"), []byte("package payments"), 1)
+	writeServiceFixtureFile(t, root, "payments/stripe.go", string(content))
 	compiler, err := New(Config{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -691,7 +703,7 @@ func (*Stripe) Process() error { return nil }
 		context.Background(),
 		Request{
 			WorkspaceRoot: root,
-			Mode:          AnalysisValidate,
+			Mode:          AnalysisGenerate,
 			Overlay: map[string]Document{
 				mainPath: {Version: 29, Content: content},
 			},
@@ -700,16 +712,17 @@ func (*Stripe) Process() error { return nil }
 	if err != nil {
 		t.Fatalf("Analyze() error = %v", err)
 	}
-	items := result.Diagnostics().Items()
-	if len(items) != 1 ||
-		items[0].Code != "spice.provider.missing-interface-assertion" {
-		t.Fatalf("Diagnostics() = %+v", items)
+	if !result.Diagnostics().Empty() {
+		t.Fatalf("Diagnostics() = %+v", result.Diagnostics().Items())
 	}
 	graph := result.ProviderGraph()
 	annotations := result.Annotations()
 	providerID := ""
-	if len(graph.Providers) == 1 {
-		providerID = graph.Providers[0].ID
+	for _, candidate := range graph.Providers {
+		if candidate.PackagePath ==
+			"example.com/servicefixture/payments" {
+			providerID = candidate.ID
+		}
 	}
 	matchingAnnotation := false
 	for _, item := range annotations {
@@ -718,75 +731,43 @@ func (*Stripe) Process() error { return nil }
 			matchingAnnotation = true
 		}
 	}
-	if len(graph.Providers) != 1 ||
-		graph.Providers[0].AssertionValue != "(*Stripe)(nil)" ||
-		!matchingAnnotation {
+	if providerID == "" || !matchingAnnotation {
 		t.Fatalf(
 			"provider authoring metadata = graph %+v, annotations %+v",
 			graph,
 			annotations,
 		)
 	}
-	actions := result.CodeActions()
-	if len(actions) != 1 ||
-		actions[0].Title !=
-			"Add compile-time assertion for Processor" ||
-		len(actions[0].Edits) != 1 {
+	if actions := result.CodeActions(); len(actions) != 0 {
+		t.Fatalf("CodeActions() = %+v, want no handwritten assertion edit", actions)
+	}
+	plan, found := result.GenerationPlan()
+	if !found {
+		t.Fatal("GenerationPlan() found = false")
+	}
+	var assertionFile []byte
+	var assertionPath string
+	for _, file := range plan.Files() {
+		if file.Role != generate.FileRoleSourceShard {
+			continue
+		}
+		assertionPath = file.Path
+		assertionFile = file.Content()
+	}
+	if assertionPath !=
+		"payments/stripe_servicefixture_spice_gen.go" ||
+		!bytes.Contains(
+			assertionFile,
+			[]byte("var spiceImplements"),
+		) ||
+		!bytes.Contains(
+			assertionFile,
+			[]byte("contracts.Processor = *new(*Stripe)"),
+		) {
 		t.Fatalf(
-			"CodeActions() = %+v, Diagnostics() = %+v",
-			actions,
-			items[0].Fixes,
-		)
-	}
-	visibleSigil := bytes.Index(content, []byte("@Implements"))
-	if visibleSigil < 0 ||
-		actions[0].AppliesTo == nil ||
-		actions[0].AppliesTo.Range.Start.Offset != visibleSigil ||
-		items[0].Location.Range.Start.Offset != visibleSigil {
-		t.Fatalf(
-			"diagnostic/action anchors = diagnostic %+v, action %+v; want visible @ offset %d",
-			items[0].Location,
-			actions[0].AppliesTo,
-			visibleSigil,
-		)
-	}
-	edit := actions[0].Edits[0]
-	if edit.NewText != "var _ Processor = (*Stripe)(nil)\n\n" ||
-		edit.DocumentVersion == nil ||
-		*edit.DocumentVersion != 29 ||
-		edit.Location.Range.Start != edit.Location.Range.End {
-		t.Fatalf("CodeActions()[0].Edits[0] = %+v", edit)
-	}
-	start := edit.Location.Range.Start.Offset
-	if !strings.HasPrefix(
-		string(content[start:]),
-		"// @Service",
-	) {
-		t.Fatalf(
-			"assertion insertion offset %d does not precede the annotation group",
-			start,
-		)
-	}
-	fixed := append([]byte(nil), content[:start]...)
-	fixed = append(fixed, edit.NewText...)
-	fixed = append(fixed, content[start:]...)
-	rechecked, err := compiler.Analyze(
-		context.Background(),
-		Request{
-			WorkspaceRoot: root,
-			Mode:          AnalysisValidate,
-			Overlay: map[string]Document{
-				mainPath: {Version: 30, Content: fixed},
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("Analyze(fixed) error = %v", err)
-	}
-	if !rechecked.Diagnostics().Empty() {
-		t.Fatalf(
-			"Analyze(fixed) diagnostics = %+v",
-			rechecked.Diagnostics().Items(),
+			"generated assertion path=%q content=%s",
+			assertionPath,
+			assertionFile,
 		)
 	}
 }
@@ -847,8 +828,8 @@ type Processor interface {
 	}
 	graph := result.ProviderGraph()
 	if len(graph.Providers) != 2 ||
-		graph.Providers[0].AssertionValue == "" ||
-		graph.Providers[1].AssertionValue == "" {
+		graph.Providers[0].ID == "" ||
+		graph.Providers[1].ID == "" {
 		t.Fatalf("ProviderGraph() = %+v", graph)
 	}
 	var implementsDomain sdk.ValueDomain

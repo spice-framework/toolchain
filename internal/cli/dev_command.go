@@ -405,7 +405,7 @@ func (pipeline *developmentPipeline) Prepare(
 	if buildErr := pipeline.builder(
 		ctx,
 		plan.Target().ModuleRoot,
-		plan.Target().PackagePath,
+		plan.Target().EntrypointPackagePath,
 		executable,
 		output,
 		output,
