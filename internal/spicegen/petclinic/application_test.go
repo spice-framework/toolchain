@@ -178,6 +178,131 @@ func TestGeneratedPetclinicOwnerWorkflow(t *testing.T) {
 	}
 }
 
+func TestGeneratedPetclinicPetAndVisitWorkflow(t *testing.T) {
+	t.Parallel()
+
+	application, err := NewApplicationWithOptions(
+		t.Context(),
+		ApplicationOptions{Logger: testLogger()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if stopErr := application.Stop(t.Context()); stopErr != nil {
+			t.Errorf("Stop() error = %v", stopErr)
+		}
+	})
+	handler := application.Handler()
+	if handler == nil {
+		t.Fatal("generated application handler is nil")
+	}
+
+	newPet := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/owners/1/pets/new",
+		nil,
+	)
+	if newPet.Code != http.StatusOK ||
+		!strings.Contains(newPet.Body.String(), "<h1>New Pet</h1>") ||
+		!strings.Contains(newPet.Body.String(), "George Franklin") {
+		t.Fatalf("new pet form = %d %s", newPet.Code, newPet.Body)
+	}
+	duplicate := servePetclinic(
+		handler,
+		http.MethodPost,
+		"/owners/1/pets/new",
+		validPetForm("Leo", "2018-02-03", "2"),
+	)
+	if duplicate.Code != http.StatusOK ||
+		!strings.Contains(duplicate.Body.String(), "already in use") {
+		t.Fatalf("duplicate pet = %d %s", duplicate.Code, duplicate.Body)
+	}
+	created := servePetclinic(
+		handler,
+		http.MethodPost,
+		"/owners/1/pets/new",
+		validPetForm("Comet", "2018-02-03", "2"),
+	)
+	if created.Code != http.StatusSeeOther ||
+		created.Header().Get("Location") != "/owners/1" {
+		t.Fatalf("created pet = %d %#v", created.Code, created.Header())
+	}
+	details := servePetclinic(handler, http.MethodGet, "/owners/1", nil)
+	if details.Code != http.StatusOK ||
+		!strings.Contains(details.Body.String(), "Comet") {
+		t.Fatalf("created pet details = %d %s", details.Code, details.Body)
+	}
+
+	edit := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/owners/1/pets/14/edit",
+		nil,
+	)
+	if edit.Code != http.StatusOK ||
+		!strings.Contains(edit.Body.String(), "Comet") {
+		t.Fatalf("edit pet form = %d %s", edit.Code, edit.Body)
+	}
+	updated := servePetclinic(
+		handler,
+		http.MethodPost,
+		"/owners/1/pets/14/edit",
+		validPetForm("Comet II", "2018-02-03", "2"),
+	)
+	if updated.Code != http.StatusSeeOther {
+		t.Fatalf("updated pet = %d %s", updated.Code, updated.Body)
+	}
+
+	newVisit := servePetclinic(
+		handler,
+		http.MethodGet,
+		"/owners/1/pets/14/visits/new",
+		nil,
+	)
+	if newVisit.Code != http.StatusOK ||
+		!strings.Contains(newVisit.Body.String(), "Comet II") {
+		t.Fatalf("new visit form = %d %s", newVisit.Code, newVisit.Body)
+	}
+	invalidVisit := servePetclinic(
+		handler,
+		http.MethodPost,
+		"/owners/1/pets/14/visits/new",
+		url.Values{},
+	)
+	if invalidVisit.Code != http.StatusOK ||
+		!strings.Contains(invalidVisit.Body.String(), "description") {
+		t.Fatalf(
+			"invalid visit = %d %s",
+			invalidVisit.Code,
+			invalidVisit.Body,
+		)
+	}
+	visit := servePetclinic(
+		handler,
+		http.MethodPost,
+		"/owners/1/pets/14/visits/new",
+		url.Values{
+			"date":        {"2026-07-28"},
+			"description": {"annual wellness examination"},
+		},
+	)
+	if visit.Code != http.StatusSeeOther ||
+		visit.Header().Get("Location") != "/owners/1" {
+		t.Fatalf("created visit = %d %#v", visit.Code, visit.Header())
+	}
+	details = servePetclinic(handler, http.MethodGet, "/owners/1", nil)
+	if details.Code != http.StatusOK ||
+		!strings.Contains(details.Body.String(), "Comet II") ||
+		!strings.Contains(
+			details.Body.String(),
+			"annual wellness examination",
+		) {
+		t.Fatalf("visit details = %d %s", details.Code, details.Body)
+	}
+}
+
 func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 	t.Parallel()
 
@@ -205,6 +330,9 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 		"/owners/new",
 		"/owners/1",
 		"/owners/1/edit",
+		"/owners/1/pets/new",
+		"/owners/1/pets/1/edit",
+		"/owners/1/pets/1/visits/new",
 	} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
 		request.Header.Set("Accept", "application/json")
@@ -214,11 +342,27 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 			t.Errorf("%s status = %d, want %d", target, response.Code, http.StatusNotAcceptable)
 		}
 	}
-	for _, target := range []string{"/owners/new", "/owners/1/edit"} {
+	for _, target := range []string{
+		"/owners/new",
+		"/owners/1/edit",
+		"/owners/1/pets/new",
+		"/owners/1/pets/1/edit",
+		"/owners/1/pets/1/visits/new",
+	} {
+		form := validOwnerForm("Ada", "Lovelace")
+		switch target {
+		case "/owners/1/pets/new", "/owners/1/pets/1/edit":
+			form = validPetForm("Comet", "2018-02-03", "2")
+		case "/owners/1/pets/1/visits/new":
+			form = url.Values{
+				"date":        {"2026-07-28"},
+				"description": {"annual wellness examination"},
+			}
+		}
 		request := httptest.NewRequest(
 			http.MethodPost,
 			target,
-			strings.NewReader(validOwnerForm("Ada", "Lovelace").Encode()),
+			strings.NewReader(form.Encode()),
 		)
 		request.Header.Set(
 			"Content-Type",
@@ -236,6 +380,11 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 		"/owners?lastName=one&lastName=two",
 		"/owners/not-a-number",
 		"/owners/not-a-number/edit",
+		"/owners/not-a-number/pets/new",
+		"/owners/1/pets/not-a-number/edit",
+		"/owners/not-a-number/pets/1/edit",
+		"/owners/1/pets/not-a-number/visits/new",
+		"/owners/not-a-number/pets/1/visits/new",
 	} {
 		response := servePetclinic(handler, http.MethodGet, target, nil)
 		if response.Code != http.StatusBadRequest {
@@ -335,6 +484,186 @@ func TestGeneratedPetclinicOwnerRouteBoundaries(t *testing.T) {
 		!strings.Contains(invalidEdit.Body.String(), "firstName") {
 		t.Errorf("invalid edit = %d %s", invalidEdit.Code, invalidEdit.Body)
 	}
+	for _, target := range []string{
+		"/owners/1/pets/new",
+		"/owners/1/pets/1/edit",
+	} {
+		response := servePetclinic(
+			handler,
+			http.MethodPost,
+			target,
+			url.Values{},
+		)
+		if response.Code != http.StatusOK ||
+			!strings.Contains(response.Body.String(), "birthDate") ||
+			!strings.Contains(response.Body.String(), "type") {
+			t.Errorf("invalid pet form %s = %d %s", target, response.Code, response.Body)
+		}
+	}
+	for _, target := range []string{
+		"/owners/1/pets/999/edit",
+		"/owners/1/pets/999/visits/new",
+	} {
+		response := servePetclinic(handler, http.MethodGet, target, nil)
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s status = %d, want %d", target, response.Code, http.StatusNotFound)
+		}
+	}
+	repeatedPet := validPetForm("Comet", "2018-02-03", "2")
+	repeatedPet.Add("type", "3")
+	repeatedPetResponse := servePetclinic(
+		handler,
+		http.MethodPost,
+		"/owners/1/pets/new",
+		repeatedPet,
+	)
+	if repeatedPetResponse.Code != http.StatusOK ||
+		!strings.Contains(repeatedPetResponse.Body.String(), "type") {
+		t.Errorf(
+			"repeated pet type = %d %s",
+			repeatedPetResponse.Code,
+			repeatedPetResponse.Body,
+		)
+	}
+	for _, target := range []string{
+		"/owners/1/pets/new",
+		"/owners/1/pets/1/edit",
+	} {
+		for _, field := range []string{"name", "birthDate", "type"} {
+			form := validPetForm("Comet", "2018-02-03", "2")
+			form.Add(field, "duplicate")
+			response := servePetclinic(
+				handler,
+				http.MethodPost,
+				target,
+				form,
+			)
+			if response.Code != http.StatusOK ||
+				!strings.Contains(response.Body.String(), field) {
+				t.Errorf(
+					"repeated %s for %s = %d %s",
+					field,
+					target,
+					response.Code,
+					response.Body,
+				)
+			}
+		}
+		invalidType := validPetForm("Comet", "2018-02-03", "invalid")
+		response := servePetclinic(
+			handler,
+			http.MethodPost,
+			target,
+			invalidType,
+		)
+		if response.Code != http.StatusOK ||
+			!strings.Contains(response.Body.String(), "type") {
+			t.Errorf(
+				"invalid type for %s = %d %s",
+				target,
+				response.Code,
+				response.Body,
+			)
+		}
+	}
+	for _, field := range []string{"date", "description"} {
+		form := url.Values{
+			"date":        {"2026-07-28"},
+			"description": {"annual wellness examination"},
+		}
+		form.Add(field, "duplicate")
+		response := servePetclinic(
+			handler,
+			http.MethodPost,
+			"/owners/1/pets/1/visits/new",
+			form,
+		)
+		if response.Code != http.StatusOK ||
+			!strings.Contains(response.Body.String(), field) {
+			t.Errorf(
+				"repeated visit %s = %d %s",
+				field,
+				response.Code,
+				response.Body,
+			)
+		}
+	}
+	for _, target := range []string{
+		"/owners/1/pets/new",
+		"/owners/1/pets/1/edit",
+		"/owners/1/pets/1/visits/new",
+	} {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			target,
+			strings.NewReader("invalid=form"),
+		)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK ||
+			!strings.Contains(response.Body.String(), "Content-Type") {
+			t.Errorf("malformed %s = %d %s", target, response.Code, response.Body)
+		}
+	}
+	for target, form := range map[string]url.Values{
+		"/owners/1/pets/new": validPetForm(
+			"Comet",
+			"2018-02-03",
+			"2",
+		),
+		"/owners/1/pets/1/edit": validPetForm(
+			"Leo",
+			"2010-09-07",
+			"1",
+		),
+		"/owners/1/pets/1/visits/new": {
+			"date":        {"2026-07-28"},
+			"description": {"annual wellness examination"},
+		},
+	} {
+		form.Set("unexpected", "value")
+		response := servePetclinic(
+			handler,
+			http.MethodPost,
+			target,
+			form,
+		)
+		if response.Code != http.StatusOK ||
+			!strings.Contains(response.Body.String(), "unexpected") {
+			t.Errorf("unknown field %s = %d %s", target, response.Code, response.Body)
+		}
+	}
+	for _, target := range []string{
+		"/owners/not-a-number/pets/new",
+		"/owners/not-a-number/pets/1/edit",
+		"/owners/1/pets/not-a-number/edit",
+		"/owners/not-a-number/pets/1/visits/new",
+		"/owners/1/pets/not-a-number/visits/new",
+	} {
+		response := servePetclinic(
+			handler,
+			http.MethodPost,
+			target,
+			url.Values{},
+		)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("bad POST path %s = %d %s", target, response.Code, response.Body)
+		}
+	}
+	for _, target := range []string{
+		"/owners/1/pets/999/edit",
+		"/owners/1/pets/999/visits/new",
+	} {
+		response := servePetclinic(
+			handler,
+			http.MethodPost,
+			target,
+			url.Values{},
+		)
+		if response.Code != http.StatusNotFound {
+			t.Errorf("missing POST target %s = %d %s", target, response.Code, response.Body)
+		}
+	}
 }
 
 func TestGeneratedPetclinicResponseWriteFailures(t *testing.T) {
@@ -364,6 +693,9 @@ func TestGeneratedPetclinicResponseWriteFailures(t *testing.T) {
 		"/owners/new",
 		"/owners/1",
 		"/owners/1/edit",
+		"/owners/1/pets/new",
+		"/owners/1/pets/1/edit",
+		"/owners/1/pets/1/visits/new",
 	} {
 		handler.ServeHTTP(
 			&errorResponseWriter{header: make(http.Header)},
@@ -376,14 +708,214 @@ func TestGeneratedPetclinicResponseWriteFailures(t *testing.T) {
 			request,
 		)
 	}
+	for target, form := range map[string]url.Values{
+		"/owners/1/pets/new": validPetForm(
+			"Comet",
+			"2018-02-03",
+			"2",
+		),
+		"/owners/1/pets/1/edit": validPetForm(
+			"Leo",
+			"2010-09-07",
+			"1",
+		),
+		"/owners/1/pets/1/visits/new": {
+			"date":        {"2026-07-28"},
+			"description": {"annual wellness examination"},
+		},
+	} {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			target,
+			strings.NewReader(form.Encode()),
+		)
+		request.Header.Set(
+			"Content-Type",
+			"application/x-www-form-urlencoded",
+		)
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			request,
+		)
+		request = httptest.NewRequest(
+			http.MethodPost,
+			target,
+			strings.NewReader(form.Encode()),
+		)
+		request.Header.Set(
+			"Content-Type",
+			"application/x-www-form-urlencoded",
+		)
+		request.Header.Set("Accept", "application/json")
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			request,
+		)
+	}
 	for _, target := range []string{
 		"/owners?page=invalid",
 		"/owners/not-a-number",
 		"/owners/not-a-number/edit",
+		"/owners/not-a-number/pets/new",
+		"/owners/1/pets/not-a-number/edit",
+		"/owners/1/pets/not-a-number/visits/new",
 	} {
 		handler.ServeHTTP(
 			&errorResponseWriter{header: make(http.Header)},
 			httptest.NewRequest(http.MethodGet, target, nil),
+		)
+	}
+	for _, target := range []string{
+		"/owners/999",
+		"/owners/999/edit",
+		"/owners/999/pets/new",
+		"/owners/1/pets/999/edit",
+		"/owners/1/pets/999/visits/new",
+	} {
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			httptest.NewRequest(http.MethodGet, target, nil),
+		)
+	}
+	for _, target := range []string{
+		"/owners/not-a-number/pets/new",
+		"/owners/not-a-number/pets/1/edit",
+		"/owners/1/pets/not-a-number/edit",
+		"/owners/not-a-number/pets/1/visits/new",
+		"/owners/1/pets/not-a-number/visits/new",
+	} {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			target,
+			strings.NewReader(url.Values{}.Encode()),
+		)
+		request.Header.Set(
+			"Content-Type",
+			"application/x-www-form-urlencoded",
+		)
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			request,
+		)
+	}
+	for target, form := range map[string]url.Values{
+		"/owners/999/edit": validOwnerForm("Missing", "Owner"),
+		"/owners/999/pets/new": validPetForm(
+			"Comet",
+			"2018-02-03",
+			"2",
+		),
+		"/owners/1/pets/999/edit": validPetForm(
+			"Comet",
+			"2018-02-03",
+			"2",
+		),
+		"/owners/1/pets/999/visits/new": {
+			"date":        {"2026-07-28"},
+			"description": {"annual wellness examination"},
+		},
+	} {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			target,
+			strings.NewReader(form.Encode()),
+		)
+		request.Header.Set(
+			"Content-Type",
+			"application/x-www-form-urlencoded",
+		)
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			request,
+		)
+	}
+}
+
+func TestGeneratedPetclinicCancelledRequests(t *testing.T) {
+	t.Parallel()
+
+	application, err := NewApplicationWithOptions(
+		t.Context(),
+		ApplicationOptions{Logger: testLogger()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if stopErr := application.Stop(t.Context()); stopErr != nil {
+			t.Errorf("Stop() error = %v", stopErr)
+		}
+	})
+	handler := application.Handler()
+	if handler == nil {
+		t.Fatal("generated application handler is nil")
+	}
+
+	requests := []struct {
+		method string
+		target string
+		form   url.Values
+	}{
+		{method: http.MethodGet, target: "/owners?lastName=Dav"},
+		{method: http.MethodGet, target: "/owners/1"},
+		{method: http.MethodGet, target: "/owners/1/edit"},
+		{method: http.MethodGet, target: "/owners/1/pets/new"},
+		{method: http.MethodGet, target: "/owners/1/pets/1/edit"},
+		{
+			method: http.MethodGet,
+			target: "/owners/1/pets/1/visits/new",
+		},
+		{
+			method: http.MethodPost,
+			target: "/owners/new",
+			form:   validOwnerForm("Ada", "Lovelace"),
+		},
+		{
+			method: http.MethodPost,
+			target: "/owners/1/edit",
+			form:   validOwnerForm("George", "Franklin"),
+		},
+		{
+			method: http.MethodPost,
+			target: "/owners/1/pets/new",
+			form:   validPetForm("Comet", "2018-02-03", "2"),
+		},
+		{
+			method: http.MethodPost,
+			target: "/owners/1/pets/1/edit",
+			form:   validPetForm("Leo", "2010-09-07", "1"),
+		},
+		{
+			method: http.MethodPost,
+			target: "/owners/1/pets/1/visits/new",
+			form: url.Values{
+				"date":        {"2026-07-28"},
+				"description": {"annual wellness examination"},
+			},
+		},
+	}
+	for _, item := range requests {
+		request := cancelledPetclinicRequest(t, item.method, item.target, item.form)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusInternalServerError {
+			t.Errorf(
+				"%s %s status = %d, want %d",
+				item.method,
+				item.target,
+				response.Code,
+				http.StatusInternalServerError,
+			)
+		}
+		request = cancelledPetclinicRequest(
+			t,
+			item.method,
+			item.target,
+			item.form,
+		)
+		handler.ServeHTTP(
+			&errorResponseWriter{header: make(http.Header)},
+			request,
 		)
 	}
 }
@@ -480,6 +1012,28 @@ func TestGeneratedPetclinicNilAndConfigurationBoundaries(t *testing.T) {
 		},
 	); err == nil {
 		t.Fatal("nil HTTP observer succeeded")
+	}
+	if _, err := NewApplicationWithOptions(
+		t.Context(),
+		ApplicationOptions{
+			Logger:     testLogger(),
+			Middleware: []web.Middleware{nil},
+		},
+	); err == nil {
+		t.Fatal("nil HTTP middleware succeeded")
+	}
+	if _, err := NewApplicationWithOptions(
+		t.Context(),
+		ApplicationOptions{
+			Logger: testLogger(),
+			Middleware: []web.Middleware{
+				func(http.Handler) http.Handler {
+					return nil
+				},
+			},
+		},
+	); err == nil {
+		t.Fatal("nil-returning HTTP middleware succeeded")
 	}
 	source, err := config.NewMapSource("invalid", map[string]string{
 		"spice.shutdown-timeout": "0s",
@@ -596,6 +1150,36 @@ func TestGeneratedPetclinicCommandCheckAndFailures(t *testing.T) {
 	}
 }
 
+func TestGeneratedPetclinicRunCommandLifecycle(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancelled := make(chan struct{})
+	go func() {
+		defer close(cancelled)
+		timer := time.NewTimer(250 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	if exit := RunCommand(CommandOptions{
+		Context: ctx,
+		Logger:  testLogger(),
+	}); exit != ExitSuccess {
+		t.Fatalf("run exit = %d", exit)
+	}
+	<-cancelled
+}
+
+func TestGeneratedPetclinicMainUsage(t *testing.T) {
+	if exit := Main([]string{"-unknown"}); exit != ExitUsage {
+		t.Fatalf("Main() exit = %d, want %d", exit, ExitUsage)
+	}
+}
+
 type errorWriter struct{}
 
 func (errorWriter) Write([]byte) (int, error) {
@@ -653,4 +1237,39 @@ func validOwnerForm(firstName, lastName string) url.Values {
 		"city":      {"Madison"},
 		"telephone": {"6085550100"},
 	}
+}
+
+func validPetForm(name, birthDate, typeID string) url.Values {
+	return url.Values{
+		"name":      {name},
+		"birthDate": {birthDate},
+		"type":      {typeID},
+	}
+}
+
+func cancelledPetclinicRequest(
+	t *testing.T,
+	method string,
+	target string,
+	form url.Values,
+) *http.Request {
+	t.Helper()
+
+	var request *http.Request
+	if form == nil {
+		request = httptest.NewRequest(method, target, nil)
+	} else {
+		request = httptest.NewRequest(
+			method,
+			target,
+			strings.NewReader(form.Encode()),
+		)
+		request.Header.Set(
+			"Content-Type",
+			"application/x-www-form-urlencoded",
+		)
+	}
+	ctx, cancel := context.WithCancel(request.Context())
+	cancel()
+	return request.WithContext(ctx)
 }

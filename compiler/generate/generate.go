@@ -1935,18 +1935,16 @@ func writeTypedRoute(
 	source.WriteString("\t\t}\n")
 	switch {
 	case route.NoContent:
-		source.WriteString("\t\tif writeErr := spiceweb.WriteNoContent(writer); writeErr != nil {\n")
+		source.WriteString("\t\t_ = spiceweb.WriteNoContent(writer)\n")
 	case route.View:
 		fmt.Fprintf(
 			source,
-			"\t\tif writeErr := %s.Respond(httpRequest.Context(), writer, responseValue); writeErr != nil {\n",
+			"\t\t_ = %s.Respond(httpRequest.Context(), writer, responseValue)\n",
 			providerVariables[route.ViewRendererID],
 		)
 	default:
-		source.WriteString("\t\tif writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {\n")
+		source.WriteString("\t\t_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)\n")
 	}
-	source.WriteString("\t\t\treturn\n")
-	source.WriteString("\t\t}\n")
 	fmt.Fprintf(
 		source,
 		"\t}), %s, %s...); routeErr != nil {\n",
@@ -1968,9 +1966,7 @@ func writeRouteNegotiation(
 		source.WriteString("\t\t\t\tStatus: http.StatusNotAcceptable,\n")
 		source.WriteString("\t\t\t\tDetail: \"the endpoint produces text/html\",\n")
 		source.WriteString("\t\t\t}\n")
-		source.WriteString("\t\t\tif writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {\n")
-		source.WriteString("\t\t\t\treturn\n")
-		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\t_ = spiceweb.WriteProblem(writer, problem)\n")
 		source.WriteString("\t\t\treturn\n")
 		source.WriteString("\t\t}\n")
 	} else if !route.NoContent {
@@ -1981,9 +1977,7 @@ func writeRouteNegotiation(
 		source.WriteString("\t\t\t\tStatus: http.StatusNotAcceptable,\n")
 		source.WriteString("\t\t\t\tDetail: \"the endpoint produces application/json\",\n")
 		source.WriteString("\t\t\t}\n")
-		source.WriteString("\t\t\tif writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {\n")
-		source.WriteString("\t\t\t\treturn\n")
-		source.WriteString("\t\t\t}\n")
+		source.WriteString("\t\t\t_ = spiceweb.WriteProblem(writer, problem)\n")
 		source.WriteString("\t\t\treturn\n")
 		source.WriteString("\t\t}\n")
 	}
@@ -2048,11 +2042,7 @@ func writeTransactionalRouteCall(
 }
 
 func writeFormSetup(source *bytes.Buffer, route controller.Route) {
-	source.WriteString("\t\tbindingResult, bindingResultErr := spiceweb.NewBindingResult()\n")
-	source.WriteString("\t\tif bindingResultErr != nil {\n")
-	writeGeneratedError(source, "bindingResultErr", 3)
-	source.WriteString("\t\t\treturn\n")
-	source.WriteString("\t\t}\n")
+	source.WriteString("\t\tbindingResult := spiceweb.BindingResult{}\n")
 	source.WriteString("\t\tformValues, formErr := spiceweb.DecodeForm(httpRequest, options.MaxRequestBodyBytes)\n")
 	source.WriteString("\t\tif formErr != nil {\n")
 	writeBindingRejection(source, "formErr", 3)
@@ -2271,12 +2261,10 @@ func writeGeneratedError(source *bytes.Buffer, variable string, tabs int) {
 	indent := strings.Repeat("\t", tabs)
 	fmt.Fprintf(
 		source,
-		"%sif writeErr := spiceweb.WriteError(writer, httpRequest, %s, options.ErrorMapper); writeErr != nil {\n",
+		"%s_ = spiceweb.WriteError(writer, httpRequest, %s, options.ErrorMapper)\n",
 		indent,
 		variable,
 	)
-	fmt.Fprintf(source, "%s\treturn\n", indent)
-	fmt.Fprintf(source, "%s}\n", indent)
 }
 
 func bindingValues(binding controller.Binding) string {

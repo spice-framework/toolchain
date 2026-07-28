@@ -876,9 +876,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 				Status: http.StatusNotAcceptable,
 				Detail: "the endpoint produces application/json",
 			}
-			if writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteProblem(writer, problem)
 			return
 		}
 		requestValue := orders.CatalogRequest{}
@@ -890,14 +888,10 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 		}
 		if routeErr != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
-		if writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {
-			return
-		}
+		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
 	}), routeObservation0, options.Middleware...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /catalog: %w", routeErr))
 	}
@@ -913,17 +907,13 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 				Status: http.StatusNotAcceptable,
 				Detail: "the endpoint produces application/json",
 			}
-			if writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteProblem(writer, problem)
 			return
 		}
 		requestValue := orders.GetOrderRequest{}
 		raw0, present0, bindErr0 := spiceweb.Parameter(spiceweb.LocationPath, "id", []string{httpRequest.PathValue("id")}, true)
 		if bindErr0 != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper)
 			return
 		}
 		if present0 {
@@ -931,14 +921,10 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		}
 		responseValue, routeErr := provider22.Get(httpRequest.Context(), requestValue)
 		if routeErr != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
-		if writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {
-			return
-		}
+		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
 	}), routeObservation1, routeMiddleware1...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route GET /orders/{id}: %w", routeErr))
 	}
@@ -954,22 +940,16 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 				Status: http.StatusNotAcceptable,
 				Detail: "the endpoint produces application/json",
 			}
-			if writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteProblem(writer, problem)
 			return
 		}
 		requestValue := orders.PlaceOrderRequest{}
 		if bindErr := spiceweb.DecodeJSON(httpRequest, &requestValue.Body, options.MaxRequestBodyBytes); bindErr != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, bindErr, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, bindErr, options.ErrorMapper)
 			return
 		}
 		if validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, validationErr, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, validationErr, options.ErrorMapper)
 			return
 		}
 		var responseValue orders.OrderResponse
@@ -983,14 +963,10 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			return transactionErr
 		})
 		if routeErr != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
-		if writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {
-			return
-		}
+		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
 	}), routeObservation2, routeMiddleware2...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /orders: %w", routeErr))
 	}
@@ -1006,17 +982,13 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 				Status: http.StatusNotAcceptable,
 				Detail: "the endpoint produces application/json",
 			}
-			if writeErr := spiceweb.WriteProblem(writer, problem); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteProblem(writer, problem)
 			return
 		}
 		requestValue := orders.ReceiptRequest{}
 		raw0, present0, bindErr0 := spiceweb.Parameter(spiceweb.LocationPath, "id", []string{httpRequest.PathValue("id")}, true)
 		if bindErr0 != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper)
 			return
 		}
 		if present0 {
@@ -1024,14 +996,10 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		}
 		responseValue, routeErr := provider22.SendReceipt(httpRequest.Context(), requestValue)
 		if routeErr != nil {
-			if writeErr := spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper); writeErr != nil {
-				return
-			}
+			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
 			return
 		}
-		if writeErr := spiceweb.WriteJSON(writer, http.StatusOK, responseValue); writeErr != nil {
-			return
-		}
+		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
 	}), routeObservation3, routeMiddleware3...); routeErr != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("register generated route POST /orders/{id}/receipt: %w", routeErr))
 	}

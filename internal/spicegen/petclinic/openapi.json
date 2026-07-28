@@ -376,6 +376,370 @@
         },
         "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|10:Controller|6:Update"
       }
+    },
+    "/owners/{ownerId}/pets/new": {
+      "get": {
+        "operationId": "PetController_NewForm",
+        "summary": "NewForm",
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|7:NewForm"
+      },
+      "post": {
+        "operationId": "PetController_Create",
+        "summary": "Create",
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "birthDate": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                },
+                "required": [
+                  "birthDate",
+                  "name",
+                  "type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|6:Create"
+      }
+    },
+    "/owners/{ownerId}/pets/{petId}/edit": {
+      "get": {
+        "operationId": "PetController_EditForm",
+        "summary": "EditForm",
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|8:EditForm"
+      },
+      "post": {
+        "operationId": "PetController_Update",
+        "summary": "Update",
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "birthDate": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                },
+                "required": [
+                  "birthDate",
+                  "name",
+                  "type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|13:PetController|6:Update"
+      }
+    },
+    "/owners/{ownerId}/pets/{petId}/visits/new": {
+      "get": {
+        "operationId": "VisitController_NewForm",
+        "summary": "NewForm",
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|7:NewForm"
+      },
+      "post": {
+        "operationId": "VisitController_Create",
+        "summary": "Create",
+        "parameters": [
+          {
+            "name": "ownerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "date",
+                  "description"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "See Other"
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpiceProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-spice-symbol": "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/petclinic/owner|15:VisitController|6:Create"
+      }
     }
   },
   "components": {

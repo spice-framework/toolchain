@@ -1295,11 +1295,12 @@ func Forms(*api.Owners) {}
 	))
 	for _, expected := range []string{
 		`spiceview "github.com/StevenBuglione/spice/view"`,
+		"bindingResult := spiceweb.BindingResult{}",
 		"spiceweb.DecodeForm(",
 		"spiceweb.RejectUnknownForm(",
 		"bindingResult.RejectBinding(",
 		".Save(httpRequest.Context(), requestValue, bindingResult)",
-		".Respond(httpRequest.Context(), writer, responseValue)",
+		"_ = provider0.Respond(httpRequest.Context(), writer, responseValue)",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(
@@ -1308,6 +1309,18 @@ func Forms(*api.Owners) {}
 				source,
 			)
 		}
+	}
+	if strings.Contains(source, "bindingResultErr") {
+		t.Fatalf(
+			"generated source contains impossible empty binding-result error path:\n%s",
+			source,
+		)
+	}
+	if strings.Contains(source, "if writeErr :=") {
+		t.Fatalf(
+			"generated source contains redundant terminal response-write branch:\n%s",
+			source,
+		)
 	}
 	var openAPI openAPIDocument
 	if err := json.Unmarshal(
