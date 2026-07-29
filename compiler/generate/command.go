@@ -33,21 +33,22 @@ type modelHashBootstrapEntryPoint struct {
 }
 
 type commandFeatures struct {
-	endpoints       []compilerbootstrap.Endpoint
-	management      bool
-	logging         bool
-	metrics         bool
-	configProps     bool
-	modules         bool
-	hasMux          bool
-	authorization   bool
-	scheduling      bool
-	asynchronous    bool
-	transactions    bool
-	events          bool
-	caching         bool
-	httpObservation bool
-	requestScope    bool
+	endpoints        []compilerbootstrap.Endpoint
+	managementAccess string
+	management       bool
+	logging          bool
+	metrics          bool
+	configProps      bool
+	modules          bool
+	hasMux           bool
+	authorization    bool
+	scheduling       bool
+	asynchronous     bool
+	transactions     bool
+	events           bool
+	caching          bool
+	httpObservation  bool
+	requestScope     bool
 }
 
 func commandFeaturesFor(
@@ -61,14 +62,15 @@ func commandFeaturesFor(
 		compilerbootstrap.CapabilityHTTPObservation,
 	)
 	return commandFeatures{
-		endpoints:       endpoints,
-		management:      managementEnabled,
-		logging:         metadata.Enabled(compilerbootstrap.CapabilityLogging),
-		metrics:         slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
-		configProps:     slices.Contains(endpoints, compilerbootstrap.EndpointConfigProps),
-		modules:         slices.Contains(endpoints, compilerbootstrap.EndpointModules),
-		hasMux:          hasControllers || managementEnabled || httpObservation,
-		httpObservation: httpObservation,
+		endpoints:        endpoints,
+		managementAccess: management.Access(),
+		management:       managementEnabled,
+		logging:          metadata.Enabled(compilerbootstrap.CapabilityLogging),
+		metrics:          slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
+		configProps:      slices.Contains(endpoints, compilerbootstrap.EndpointConfigProps),
+		modules:          slices.Contains(endpoints, compilerbootstrap.EndpointModules),
+		hasMux:           hasControllers || managementEnabled || httpObservation,
+		httpObservation:  httpObservation,
 	}
 }
 
@@ -281,6 +283,11 @@ func writeManagementSetup(
 		fmt.Fprintf(source, "\t\t\t%s,\n", managementEndpointName(endpoint))
 	}
 	source.WriteString("\t\t},\n")
+	fmt.Fprintf(
+		source,
+		"\t\tAccess: spicemanagement.Access(%s),\n",
+		strconv.Quote(features.managementAccess),
+	)
 	source.WriteString("\t})\n")
 	source.WriteString("\tif err != nil {\n")
 	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management handler: %w\", err))\n")

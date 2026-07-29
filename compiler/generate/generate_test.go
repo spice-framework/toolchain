@@ -560,6 +560,7 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 		"spicemanagement.EndpointMetrics",
 		"spicemanagement.EndpointConfigProps",
 		"spicemanagement.EndpointModules",
+		`Access: spicemanagement.Access("loopback")`,
 		"spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler)",
 		"application.mux = routeMux",
 		"return ExitFailure",
@@ -2698,7 +2699,7 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 		{path: "/actuator/health/readiness", status: http.StatusNotFound},
 	} {
 		response := httptest.NewRecorder()
-		application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		application.Handler().ServeHTTP(response, managementRequest(test.path))
 		if response.Code != test.status {
 			t.Fatalf("%s status = %d, want %d; body=%s", test.path, response.Code, test.status, response.Body.String())
 		}
@@ -2709,11 +2710,7 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(
 		response,
-		httptest.NewRequest(
-			http.MethodGet,
-			"/actuator/configprops",
-			nil,
-		),
+		managementRequest("/actuator/configprops"),
 	)
 	if response.Code != http.StatusOK {
 		t.Fatalf(
@@ -2751,11 +2748,7 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 	response = httptest.NewRecorder()
 	application.Handler().ServeHTTP(
 		response,
-		httptest.NewRequest(
-			http.MethodGet,
-			"/actuator/modules",
-			nil,
-		),
+		managementRequest("/actuator/modules"),
 	)
 	if response.Code != http.StatusOK {
 		t.Fatalf(
@@ -2777,9 +2770,24 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 		) {
 		t.Fatalf("modules report = %#v", modules)
 	}
+	remoteRequest := httptest.NewRequest(http.MethodGet, "/actuator/health", nil)
+	remoteRequest.RemoteAddr = "192.0.2.10:49152"
+	remoteRequest.Header.Set("X-Forwarded-For", "127.0.0.1")
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, remoteRequest)
+	if response.Code != http.StatusForbidden ||
+		!strings.Contains(response.Body.String(), "loopback-required") {
+		t.Fatalf("remote management response = %d %s", response.Code, response.Body)
+	}
 	if err := application.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
+}
+
+func managementRequest(path string) *http.Request {
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.RemoteAddr = "127.0.0.1:49152"
+	return request
 }
 
 func TestGeneratedCommandCancellationUsesFreshBoundedShutdownContext(t *testing.T) {
@@ -3567,7 +3575,7 @@ func (*Server) Stop(ctx context.Context) error {
 import "example.com/command/components"
 
 // @Application
-// @management.Enable(expose=["metrics", "health", "configprops", "modules"])
+// @management.Enable(expose=["metrics", "health", "configprops", "modules"], access="loopback")
 // @observability.Logging
 func Command(*components.Server) {
 	panic("application marker bodies must not execute")

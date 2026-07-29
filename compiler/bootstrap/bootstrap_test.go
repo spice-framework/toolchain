@@ -40,6 +40,10 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 					},
 				},
 			},
+			annotation.Argument{
+				Name:  "access",
+				Value: annotation.Value{Kind: annotation.KindString, String: "loopback"},
+			},
 		),
 	}}
 
@@ -75,6 +79,9 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 	if endpoints := management.Endpoints(); !slices.Equal(endpoints, wantEndpoints) {
 		t.Fatalf("Endpoints() = %v, want %v", endpoints, wantEndpoints)
 	}
+	if access := management.Access(); access != "loopback" {
+		t.Fatalf("Access() = %q, want loopback", access)
+	}
 	if missing := metadata.MissingRequirements(nil); len(missing) != 1 ||
 		missing[0].Capability != CapabilityManagement {
 		t.Fatalf("MissingRequirements(nil) = %#v", missing)
@@ -87,8 +94,13 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 
 	features[0].Annotation = "changed"
 	options := features[0].Options()
-	value := options[0].Value()
-	value.List[0].String = "changed"
+	for _, option := range options {
+		if option.Name != "expose" {
+			continue
+		}
+		value := option.Value()
+		value.List[0].String = "changed"
+	}
 	endpoints := management.Endpoints()
 	endpoints[0] = Endpoint("changed")
 	fresh := result.Metadata("app")
@@ -97,6 +109,74 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 		fresh.Features()[0].Annotation != ManagementAnnotation ||
 		!slices.Equal(freshManagement.Endpoints(), wantEndpoints) {
 		t.Fatal("compiled metadata was mutated through an accessor")
+	}
+}
+
+func TestManagementAccessDefaultsToPublic(t *testing.T) {
+	t.Parallel()
+	resolution := resolve.Result{Occurrences: []resolve.Occurrence{
+		bootstrapOccurrence(
+			1,
+			"app",
+			ManagementAnnotation,
+			annotation.TargetFunction,
+			"Commerce",
+			annotation.Argument{
+				Name: "expose",
+				Value: annotation.Value{
+					Kind: annotation.KindList,
+					List: []annotation.Value{{
+						Kind:   annotation.KindString,
+						String: "health",
+					}},
+				},
+			},
+		),
+	}}
+	result := Compile(
+		resolution,
+		[]Application{{SymbolID: "app", Name: "Commerce"}},
+		Builtins(),
+	)
+	if diagnostics := result.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Compile() diagnostics = %v", diagnosticText(diagnostics))
+	}
+	management, found := result.Metadata("app").Management()
+	if !found || management.Access() != "public" {
+		t.Fatalf("Management() = %#v, %v", management, found)
+	}
+}
+
+func TestCompileRejectsInvalidManagementAccess(t *testing.T) {
+	t.Parallel()
+	result := Compile(
+		resolve.Result{Occurrences: []resolve.Occurrence{bootstrapOccurrence(
+			7,
+			"app",
+			ManagementAnnotation,
+			annotation.TargetFunction,
+			"Commerce",
+			annotation.Argument{
+				Name: "expose",
+				Value: annotation.Value{
+					Kind: annotation.KindList,
+					List: []annotation.Value{{
+						Kind:   annotation.KindString,
+						String: "health",
+					}},
+				},
+			},
+			annotation.Argument{
+				Name:  "access",
+				Value: annotation.Value{Kind: annotation.KindString, String: "proxy"},
+			},
+		)}},
+		[]Application{{SymbolID: "app", Name: "Commerce"}},
+		Builtins(),
+	)
+	diagnostics := diagnosticText(result.Diagnostics())
+	if !strings.Contains(diagnostics, `unsupported value "proxy"`) {
+		t.Fatalf("Compile() diagnostics = %q", diagnostics)
 	}
 }
 

@@ -147,14 +147,34 @@ func (f Feature) StringList(name string) ([]string, bool) {
 	return nil, false
 }
 
+// String returns one normalized string option.
+func (f Feature) String(name string) (string, bool) {
+	for _, option := range f.options {
+		if option.Name == name &&
+			option.value.Kind == annotation.KindString {
+			return option.value.String, true
+		}
+	}
+	return "", false
+}
+
 // Management is the typed view of management bootstrap metadata.
 type Management struct {
 	endpoints []Endpoint
+	access    string
 }
 
 // Endpoints returns the normalized endpoint allowlist.
 func (m Management) Endpoints() []Endpoint {
 	return append([]Endpoint(nil), m.endpoints...)
+}
+
+// Access returns the normalized management network-origin policy.
+func (m Management) Access() string {
+	if m.access == "" {
+		return "public"
+	}
+	return m.access
 }
 
 // Metadata is the immutable set of compiled features for one application.
@@ -187,7 +207,8 @@ func (m Metadata) Management() (Management, bool) {
 	for index, value := range values {
 		endpoints[index] = Endpoint(value)
 	}
-	return Management{endpoints: endpoints}, true
+	access, _ := feature.String("access")
+	return Management{endpoints: endpoints, access: access}, true
 }
 
 // MissingRequirements returns enabled requirements absent from available.
@@ -278,6 +299,11 @@ func Builtins() []Definition {
 					UniqueItems:    true,
 					MinimumItems:   1,
 					SortItems:      true,
+				},
+				{
+					Name:           "access",
+					Kind:           annotation.KindString,
+					AllowedStrings: []string{"public", "loopback"},
 				},
 			},
 			Requirements: []RuntimeCapability{RuntimeHTTPServeMux},
@@ -695,6 +721,22 @@ func compileOption(
 	}
 	value := cloneValue(argument.Value)
 	if value.Kind != annotation.KindList {
+		text := valueText(value)
+		if len(definition.AllowedStrings) != 0 &&
+			!slices.Contains(definition.AllowedStrings, text) {
+			return Option{}, []Diagnostic{optionDiagnostic(
+				occurrence,
+				"unsupported-value",
+				definition.Name,
+				fmt.Sprintf(
+					"bootstrap annotation @%s option %q has unsupported value %q; allowed values: %s",
+					occurrence.Annotation.Name,
+					definition.Name,
+					text,
+					strings.Join(definition.AllowedStrings, ", "),
+				),
+			)}
+		}
 		return Option{Name: definition.Name, value: value}, nil
 	}
 	diagnostics := validateListOption(occurrence, definition, value.List)
