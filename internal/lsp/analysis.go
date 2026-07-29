@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -415,6 +416,12 @@ func (server *Server) publicationsLocked(
 	grouped := make(map[string][]protocolDiagnostic)
 	var global []string
 	for _, item := range result.Diagnostics().Items() {
+		if generatedMainBridgeEditorDiagnostic(
+			item.Message,
+			server.documents,
+		) {
+			continue
+		}
 		if item.Location.URI == "" || item.Location.Path == "" {
 			global = append(global, item.Message)
 			continue
@@ -457,6 +464,40 @@ func (server *Server) publicationsLocked(
 		})
 	}
 	return publications, global
+}
+
+func generatedMainBridgeEditorDiagnostic(
+	message string,
+	documents map[string]*document,
+) bool {
+	trimmed := strings.TrimSpace(message)
+	if trimmed != "undefined: spiceMain" &&
+		!generatedMainBridgeDriverMessage(trimmed) {
+		return false
+	}
+	for _, document := range documents {
+		if document == nil {
+			continue
+		}
+		source := string(document.content)
+		if strings.Contains(source, "// @Application") &&
+			strings.Contains(source, "func main()") &&
+			strings.Contains(source, "spiceMain(") {
+			return true
+		}
+	}
+	return false
+}
+
+func generatedMainBridgeDriverMessage(message string) bool {
+	lines := strings.Split(message, "\n")
+	if len(lines) != 2 ||
+		!strings.HasPrefix(strings.TrimSpace(lines[0]), "# ") {
+		return false
+	}
+	errorLine := strings.TrimSpace(lines[1])
+	return strings.HasSuffix(errorLine, ": undefined: spiceMain") &&
+		strings.Contains(strings.ToLower(errorLine), "gocommand-")
 }
 
 func (server *Server) locationContentLocked(

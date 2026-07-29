@@ -473,6 +473,48 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	}
 }
 
+func TestGeneratedMainBridgeEditorDiagnosticIsNarrow(t *testing.T) {
+	t.Parallel()
+	documents := map[string]*document{
+		"file:///main.go": {
+			content: []byte(
+				"package main\n\n" +
+					"// @Application\n" +
+					"func main() { _ = spiceMain(nil) }\n",
+			),
+		},
+	}
+	if !generatedMainBridgeEditorDiagnostic(
+		"# example.com/app\n"+
+			"D:/Temp/gocommand-123/1-main.go:4:19: undefined: spiceMain",
+		documents,
+	) {
+		t.Fatal("exact editor bridge transient was rejected")
+	}
+	if !generatedMainBridgeEditorDiagnostic(
+		"undefined: spiceMain",
+		documents,
+	) {
+		t.Fatal("source-positioned editor bridge diagnostic was rejected")
+	}
+	for _, message := range []string{
+		"# example.com/app\nD:/main.go:4:19: undefined: spiceMain",
+		"# example.com/app\nD:/Temp/gocommand-1/1-main.go:4:19: undefined: missing",
+		"# example.com/app\nD:/Temp/gocommand-1/1-main.go:4:19: undefined: spiceMain\nother error",
+	} {
+		if generatedMainBridgeEditorDiagnostic(message, documents) {
+			t.Fatalf("unrelated editor message %q was accepted", message)
+		}
+	}
+	if generatedMainBridgeEditorDiagnostic(
+		"# example.com/app\n"+
+			"D:/Temp/gocommand-1/1-main.go:4:19: undefined: spiceMain",
+		map[string]*document{},
+	) {
+		t.Fatal("bridge transient without an annotated open document was accepted")
+	}
+}
+
 func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
 	t.Parallel()
 	root, mainPath, source := writeImportedLSPModule(t)

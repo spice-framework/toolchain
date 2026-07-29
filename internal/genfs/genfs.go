@@ -853,7 +853,10 @@ func validateGeneratedContent(filePath string, content []byte) error {
 	switch path.Ext(filePath) {
 	case ".go":
 		if !hasGeneratedMarker(content) {
-			return fmt.Errorf("generated Go file %q does not begin with the Spice generated marker", filePath)
+			return fmt.Errorf(
+				"generated Go file %q does not contain the canonical Spice generated header",
+				filePath,
+			)
 		}
 	case ".json":
 		if len(content) == 0 || content[len(content)-1] != '\n' || !json.Valid(content) {
@@ -1290,7 +1293,17 @@ func withinTargetOutput(
 }
 
 func hasGeneratedMarker(content []byte) bool {
-	return bytes.HasPrefix(content, []byte(generatedMarker+"\n"))
+	if bytes.HasPrefix(content, []byte(generatedMarker+"\n")) {
+		return true
+	}
+	if !bytes.HasPrefix(content, []byte("//go:build ")) {
+		return false
+	}
+	_, remainder, found := bytes.Cut(content, []byte("\n\n"))
+	return found && bytes.HasPrefix(
+		remainder,
+		[]byte(generatedMarker+"\n"),
+	)
 }
 
 func requiresGeneratedMarker(filePath string) bool {
