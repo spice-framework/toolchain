@@ -21,7 +21,6 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
-	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	"github.com/StevenBuglione/spice/internal/genfs"
 )
 
@@ -29,10 +28,7 @@ import (
 // development value through Go's link-time string-variable mechanism.
 var Version = "0.1.0-dev"
 
-const (
-	starterSelectionPath    = ".spice/starters.json"
-	maxStarterSelectionSize = 4 << 20
-)
+const legacyStarterSelectionPath = ".spice/starters.json"
 
 type (
 	programLoader func(context.Context, load.Options, ...string) (*load.Program, error)
@@ -96,8 +92,14 @@ func runWithExecutors(
 			options,
 			loader,
 		)
-	case "modules":
-		return modulesCommand(arguments[1:], stdout, stderr, options, loader)
+	case "modules", "beans":
+		return architectureCommand(
+			arguments,
+			stdout,
+			stderr,
+			options,
+			loader,
+		)
 	case "generated":
 		return generatedCommand(arguments[1:], stdout, stderr, options)
 	case "test":
@@ -115,6 +117,19 @@ func runWithExecutors(
 	default:
 		return unknownCommand(arguments[0], stderr)
 	}
+}
+
+func architectureCommand(
+	arguments []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	options load.Options,
+	loader programLoader,
+) int {
+	if arguments[0] == "modules" {
+		return modulesCommand(arguments[1:], stdout, stderr, options, loader)
+	}
+	return beansCommand(arguments[1:], stdout, stderr, options, loader)
 }
 
 func helpCommand(stdout io.Writer) int {
@@ -800,15 +815,13 @@ func newCompilerAnalysisService(
 	options load.Options,
 	loader programLoader,
 ) (*compilerservice.Service, error) {
-	metadata, err := loadCompilerMetadata(options)
-	if err != nil {
+	if err := rejectLegacyStarterSelection(options); err != nil {
 		return nil, err
 	}
 	return compilerservice.New(compilerservice.Config{
 		Loader:         compilerservice.Loader(loader),
 		ModuleVersions: loadModuleVersions,
 		LoadOptions:    options,
-		StarterCatalog: metadata.starterCatalog,
 		SpiceVersion:   Version,
 	})
 }
@@ -1180,93 +1193,28 @@ func addTagValue(tags map[string]struct{}, value string) {
 	}
 }
 
-type compilerMetadata struct {
-	starterCatalog compilerstarter.Catalog
-}
-
-func loadCompilerMetadata(options load.Options) (compilerMetadata, error) {
-	result := compilerMetadata{}
+func rejectLegacyStarterSelection(options load.Options) error {
 	directory := options.Dir
 	if directory == "" {
 		directory = "."
 	}
-	content, found, err := readStarterSelection(directory)
-	if err != nil {
-		return compilerMetadata{}, err
-	}
-	if !found {
-		return result, nil
-	}
-
-	catalog, err := compilerstarter.Parse(content)
-	if err != nil {
-		return compilerMetadata{}, fmt.Errorf(
-			"parse starter selection %s: %w",
-			starterSelectionPath,
-			err,
-		)
-	}
-	result.starterCatalog = catalog
-	return result, nil
-}
-
-func readStarterSelection(
-	directory string,
-) (content []byte, found bool, returnErr error) {
-	root, err := os.OpenRoot(directory)
-	if err != nil {
-		return nil, false, fmt.Errorf("open starter selection root: %w", err)
-	}
-	defer func() {
-		if closeErr := root.Close(); closeErr != nil {
-			returnErr = errors.Join(
-				returnErr,
-				fmt.Errorf("close starter selection root: %w", closeErr),
-			)
-		}
-	}()
-
-	relativePath := filepath.FromSlash(starterSelectionPath)
-	info, err := root.Lstat(relativePath)
+	path := filepath.Join(directory, filepath.FromSlash(legacyStarterSelectionPath))
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
+		return nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf(
-			"inspect starter selection %s: %w",
-			starterSelectionPath,
+		return fmt.Errorf(
+			"inspect retired starter selection %s: %w",
+			legacyStarterSelectionPath,
 			err,
 		)
 	}
-	if !info.Mode().IsRegular() {
-		return nil, false, fmt.Errorf(
-			"starter selection %s must be a regular file",
-			starterSelectionPath,
-		)
-	}
-	if info.Size() > maxStarterSelectionSize {
-		return nil, false, fmt.Errorf(
-			"starter selection %s exceeds the %d-byte limit",
-			starterSelectionPath,
-			maxStarterSelectionSize,
-		)
-	}
-	content, err = root.ReadFile(relativePath)
-	if err != nil {
-		return nil, false, fmt.Errorf(
-			"read starter selection %s: %w",
-			starterSelectionPath,
-			err,
-		)
-	}
-	if len(content) > maxStarterSelectionSize {
-		return nil, false, fmt.Errorf(
-			"starter selection %s exceeds the %d-byte limit",
-			starterSelectionPath,
-			maxStarterSelectionSize,
-		)
-	}
-	return content, true, nil
+	return fmt.Errorf(
+		"retired starter selection %s exists (%s); remove it and blank-import a dedicated .../autoconfigure package instead",
+		legacyStarterSelectionPath,
+		info.Mode(),
+	)
 }
 
 func packagePatterns(arguments []string) []string {
@@ -1286,6 +1234,7 @@ Usage:
   spice annotations list [package-pattern ...]
   spice annotations doctor [package-pattern ...]
   spice modules [--format json|mermaid|plantuml] [--focus module] [package-pattern ...]
+  spice beans --explain [--format text|json] [package-pattern ...]
   spice generated (--source path | --generated path) [--line n] [--target name] [--format text|json]
   spice test --module module [--race] [--count n] [--run regexp] [--timeout duration] [package-pattern ...]
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
@@ -1299,6 +1248,7 @@ Commands:
   verify       Load, resolve, and validate Spice annotations for Go packages.
   annotations  List occurrences, inspect descriptors, or verify annotation tools.
   modules      Validate and render application-module documentation.
+  beans        Explain provider selection and imported library defaults.
   generated    Locate generated code from source, or source from generated code.
   test         Validate and run one focused application-module test graph.
   generate     Render and safely apply or check generated application code.
@@ -1315,10 +1265,10 @@ Development options:
   --include pattern        Add a watched workspace-relative path pattern.
   --exclude pattern        Exclude a workspace-relative path pattern.
 
-Starter selection:
-  Commit .spice/starters.json to explicitly compose compatible third-party
-  annotations and constructor entrypoints. Installed or imported modules are
-  never auto-enabled.`)
+Library auto-configuration:
+  Blank-import a dedicated .../autoconfigure package to select statically
+  decoded, direct-call default beans. Use spice beans --explain to inspect
+  selection, replacement, dependency backoff, and module provenance.`)
 	return err
 }
 

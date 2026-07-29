@@ -620,6 +620,8 @@ func providerRole(item *provider.Provider) string {
 		return "@Bean provider"
 	case provider.SourceStarter:
 		return "starter entrypoint"
+	case provider.SourceAutoConfiguration:
+		return "auto-configuration factory"
 	case provider.SourceStereotype:
 		return "stereotype bean"
 	case provider.SourceConfiguration:

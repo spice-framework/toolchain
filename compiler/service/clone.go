@@ -141,6 +141,7 @@ func cloneResult(result Result) Result {
 	result.diagnostics = diagnostic.NewSet(result.diagnostics.Items()...)
 	result.annotations = slices.Clone(result.annotations)
 	result.providerGraph = cloneProviderGraph(result.providerGraph)
+	result.autoConfigs = slices.Clone(result.autoConfigs)
 	result.moduleGraph = cloneModuleGraph(result.moduleGraph)
 	result.configurations = cloneConfigurations(result.configurations)
 	result.goInterfaces = cloneGoInterfaceCatalog(result.goInterfaces)

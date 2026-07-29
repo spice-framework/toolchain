@@ -94,6 +94,9 @@ const (
 	SourceEvent Source = "event"
 	// SourceStarter identifies an explicitly selected starter entrypoint.
 	SourceStarter Source = "starter"
+	// SourceAutoConfiguration identifies a statically decoded library default
+	// selected by an explicit Go import.
+	SourceAutoConfiguration Source = "auto-configuration"
 )
 
 // Construction identifies the generated construction form.
@@ -142,6 +145,13 @@ type Entrypoint struct {
 	Symbol        string
 	SourceID      string
 	SourceVersion string
+	Source        Source
+	Name          string
+	Aliases       []string
+	Qualifiers    []string
+	Primary       bool
+	Fallback      bool
+	Order         int64
 }
 
 // Diagnostic is one deterministic source-positioned catalog failure.
@@ -370,20 +380,22 @@ func BuildEntrypoints(program *load.Program, entrypoints []Entrypoint) Catalog {
 			PhysicalOffset:  symbol.PhysicalPosition.Offset,
 			DisplayPosition: symbol.Position,
 		}
+		source, role := entrypointSource(entrypoint)
 		item, diagnostic := analyzeProvider(
 			occurrence,
 			symbol,
 			fileSets[symbol.PackagePath],
 			cleanupType,
-			SourceStarter,
+			source,
 			entrypoint.SourceID,
 			entrypoint.SourceVersion,
-			"starter entrypoint",
+			role,
 		)
 		if diagnostic != nil {
 			catalog.diagnostics = append(catalog.diagnostics, *diagnostic)
 			continue
 		}
+		applyEntrypointMetadata(&item, entrypoint)
 		catalog.providers = append(catalog.providers, item)
 	}
 	sort.SliceStable(catalog.providers, func(i, j int) bool {
@@ -402,8 +414,31 @@ func BuildEntrypoints(program *load.Program, entrypoints []Entrypoint) Catalog {
 	return catalog
 }
 
+func entrypointSource(entrypoint Entrypoint) (Source, string) {
+	if entrypoint.Source == SourceAutoConfiguration {
+		return SourceAutoConfiguration, "auto-configuration factory"
+	}
+	return SourceStarter, "starter entrypoint"
+}
+
+func applyEntrypointMetadata(item *Provider, entrypoint Entrypoint) {
+	if entrypoint.Name != "" {
+		item.Name = entrypoint.Name
+		item.ExplicitName = true
+	}
+	item.Aliases = append(item.Aliases, entrypoint.Aliases...)
+	item.Qualifiers = append(item.Qualifiers, entrypoint.Qualifiers...)
+	item.Primary = entrypoint.Primary
+	item.Fallback = entrypoint.Fallback
+	item.Order = entrypoint.Order
+}
+
 func entrypointProblem(entrypoint Entrypoint) string {
 	switch {
+	case entrypoint.Source != "" &&
+		entrypoint.Source != SourceStarter &&
+		entrypoint.Source != SourceAutoConfiguration:
+		return fmt.Sprintf("entrypoint source %q is unsupported", entrypoint.Source)
 	case strings.TrimSpace(entrypoint.PackagePath) == "" ||
 		strings.TrimSpace(entrypoint.PackagePath) != entrypoint.PackagePath:
 		return "starter entrypoint requires a trimmed package path"

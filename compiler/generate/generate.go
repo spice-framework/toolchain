@@ -1778,6 +1778,7 @@ func sourceUnitProvider(item provider.Provider) bool {
 	switch item.Source {
 	case provider.SourceBean,
 		provider.SourceStarter,
+		provider.SourceAutoConfiguration,
 		provider.SourceStereotype,
 		provider.SourceConfiguration:
 		return true
@@ -2262,6 +2263,7 @@ func sourceUnitConstructsProvider(item provider.Provider) bool {
 	switch item.Source {
 	case provider.SourceBean,
 		provider.SourceStarter,
+		provider.SourceAutoConfiguration,
 		provider.SourceStereotype:
 		return true
 	case provider.SourceConfiguration, provider.SourceEvent:
@@ -3049,7 +3051,9 @@ func writeProviders(
 			continue
 		}
 		switch item.Source {
-		case provider.SourceBean, provider.SourceStarter:
+		case provider.SourceBean,
+			provider.SourceStarter,
+			provider.SourceAutoConfiguration:
 			adapter, found := adapters[item.SymbolID]
 			if !found {
 				return fmt.Errorf(

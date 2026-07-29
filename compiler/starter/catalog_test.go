@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -119,7 +120,7 @@ func TestCatalogSelectsExplicitProviderEntrypoints(t *testing.T) {
 		Symbol:        "New",
 		SourceID:      "example.com/acme/starter/cache",
 		SourceVersion: "1.0.0",
-	}}; !slices.Equal(constructorOnly, want) {
+	}}; !reflect.DeepEqual(constructorOnly, want) {
 		t.Fatalf("ProviderEntrypoints(nil) = %#v, want %#v", constructorOnly, want)
 	}
 
@@ -160,7 +161,7 @@ func TestCatalogSelectsExplicitProviderEntrypoints(t *testing.T) {
 			SourceVersion: "1.2.0",
 		},
 	}
-	if !slices.Equal(selected, want) {
+	if !reflect.DeepEqual(selected, want) {
 		t.Fatalf("ProviderEntrypoints() = %#v, want %#v", selected, want)
 	}
 	otherFunction := occurrence
@@ -168,7 +169,7 @@ func TestCatalogSelectsExplicitProviderEntrypoints(t *testing.T) {
 	if got := catalog.ProviderEntrypoints([]resolve.Occurrence{
 		application,
 		otherFunction,
-	}); !slices.Equal(got, constructorOnly) {
+	}); !reflect.DeepEqual(got, constructorOnly) {
 		t.Fatalf("non-application annotation selected entrypoints: %#v", got)
 	}
 }

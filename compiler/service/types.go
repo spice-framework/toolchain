@@ -161,6 +161,20 @@ type ProviderGraph struct {
 	Edges     []ProviderEdge
 }
 
+// AutoConfiguration is one imported library default and its compiler-owned
+// activation decision.
+type AutoConfiguration struct {
+	PackagePath     string                           `json:"package"`
+	Factory         string                           `json:"factory"`
+	OutputTypeID    string                           `json:"output"`
+	Status          provider.AutoConfigurationStatus `json:"status"`
+	Reason          string                           `json:"reason"`
+	ModulePath      string                           `json:"module"`
+	ModuleVersion   string                           `json:"version"`
+	ReplacementPath string                           `json:"replacement,omitempty"`
+	Review          string                           `json:"review"`
+}
+
 // NamedInterface is one explicitly exposed module descendant.
 type NamedInterface struct {
 	Name        string
@@ -334,6 +348,7 @@ type Result struct {
 	diagnostics    diagnostic.Set
 	annotations    []Annotation
 	providerGraph  ProviderGraph
+	autoConfigs    []AutoConfiguration
 	moduleGraph    ModuleGraph
 	moduleModel    modulith.Model
 	configurations []Configuration
@@ -375,6 +390,11 @@ func (result Result) Files() int {
 // ProviderGraph returns a deep defensive graph summary.
 func (result Result) ProviderGraph() ProviderGraph {
 	return cloneProviderGraph(result.providerGraph)
+}
+
+// AutoConfigurations returns imported library-default activation decisions.
+func (result Result) AutoConfigurations() []AutoConfiguration {
+	return slices.Clone(result.autoConfigs)
 }
 
 // ModuleGraph returns a deep defensive module summary.

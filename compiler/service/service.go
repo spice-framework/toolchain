@@ -23,6 +23,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/annotationhost"
 	"github.com/StevenBuglione/spice/compiler/annotationimport"
 	"github.com/StevenBuglione/spice/compiler/application"
+	compilerauto "github.com/StevenBuglione/spice/compiler/autoconfigure"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/descriptor"
 	"github.com/StevenBuglione/spice/compiler/diagnostic"
@@ -411,7 +412,7 @@ func (service *Service) analyze(
 		result.actions = actionsFromDiagnostics(result.diagnostics)
 		return result, nil
 	}
-	program, discovery, loadDiagnostics, err := service.loadAnalysisProgram(
+	program, discovery, autoDiscovery, loadDiagnostics, err := service.loadAnalysisProgram(
 		ctx,
 		request,
 	)
@@ -515,11 +516,14 @@ func (service *Service) analyze(
 	result.providerGraph.Providers = summarizeProviders(
 		primaryProviderCatalog.Providers(),
 	)
-	providerCatalogs, catalogDiagnostics := service.buildProviderCatalogs(
+	providerCatalogs, autoConfigurations, catalogDiagnostics := service.prepareProviderCatalogs(
 		request,
 		program,
 		resolution,
+		primaryProviderCatalog,
+		autoDiscovery,
 	)
+	result.autoConfigs = autoConfigurations
 	if !catalogDiagnostics.Empty() {
 		result.diagnostics = catalogDiagnostics
 		result.actions = actionsFromDiagnostics(result.diagnostics)
@@ -701,18 +705,35 @@ func completeAnalysis(
 func (service *Service) loadAnalysisProgram(
 	ctx context.Context,
 	request normalizedRequest,
-) (*load.Program, annotationimport.Discovery, diagnostic.Set, error) {
+) (
+	*load.Program,
+	annotationimport.Discovery,
+	compilerauto.Discovery,
+	diagnostic.Set,
+	error,
+) {
 	options := service.analysisLoadOptions(request)
 	discovery, err := annotationimport.Discover(
 		request.root,
 		options.Overlay,
 	)
 	if err != nil {
-		return nil, annotationimport.Discovery{}, diagnostic.Set{}, err
+		return nil, annotationimport.Discovery{}, compilerauto.Discovery{}, diagnostic.Set{}, err
+	}
+	autoDiscovery, err := compilerauto.Discover(
+		request.root,
+		options.Overlay,
+	)
+	if err != nil {
+		return nil, annotationimport.Discovery{}, compilerauto.Discovery{}, diagnostic.Set{}, err
 	}
 	options.AuxiliaryPackages = append(
 		options.AuxiliaryPackages,
 		discovery.Packages...,
+	)
+	options.AuxiliaryPackages = append(
+		options.AuxiliaryPackages,
+		autoDiscovery.Packages...,
 	)
 	program, loadErr := service.config.loader(
 		ctx,
@@ -720,13 +741,13 @@ func (service *Service) loadAnalysisProgram(
 		request.patterns...,
 	)
 	if contextErr := ctx.Err(); contextErr != nil {
-		return nil, annotationimport.Discovery{}, diagnostic.Set{}, contextErr
+		return nil, annotationimport.Discovery{}, compilerauto.Discovery{}, diagnostic.Set{}, contextErr
 	}
 	if loadErr == nil {
-		return program, discovery, diagnostic.Set{}, nil
+		return program, discovery, autoDiscovery, diagnostic.Set{}, nil
 	}
 	if program == nil {
-		return nil, discovery, diagnosticadapt.Failure(
+		return nil, discovery, autoDiscovery, diagnosticadapt.Failure(
 			"load",
 			"operation",
 			loadErr.Error(),
@@ -739,7 +760,7 @@ func (service *Service) loadAnalysisProgram(
 		),
 		request.overlay,
 	)
-	return program, discovery, diagnostics, nil
+	return program, discovery, autoDiscovery, diagnostics, nil
 }
 
 func (service *Service) starterDependencyDiagnostics(
