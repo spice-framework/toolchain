@@ -216,7 +216,9 @@ func discoverySource(path string) bool {
 	base := filepath.Base(path)
 	return strings.EqualFold(filepath.Ext(base), ".go") &&
 		!strings.HasSuffix(base, "_test.go") &&
-		base != "zz_spice_gen.go"
+		!strings.HasSuffix(base, "_spice_gen.go") &&
+		(!strings.HasPrefix(base, "spice_") ||
+			!strings.HasSuffix(base, "_gen.go"))
 }
 
 func withinRoot(root, path string) bool {

@@ -22,7 +22,13 @@ func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "Spice generated target Application") || stderr != "" {
 		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	generatedPath := filepath.Join(root, "internal", "spicegen", "application", "zz_spice_gen.go")
+	generatedPath := filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"application",
+		"spice_assembly_gen.go",
+	)
 	sourceUnitPath := filepath.Join(
 		root,
 		"internal",
@@ -79,7 +85,7 @@ func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
 	}
 
 	code, stdout, stderr = runModule(root, "generate", "./...")
-	if code != 0 || !strings.Contains(stdout, "wrote 2 file") || stderr != "" {
+	if code != 0 || !strings.Contains(stdout, "wrote 4 file") || stderr != "" {
 		t.Fatalf("regenerate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	content, err := os.ReadFile(sourceUnitPath)
@@ -112,7 +118,7 @@ func Application(Value) {}
 		t.Fatal(writeErr)
 	}
 	code, stdout, stderr = runModule(root, "generate", "./...")
-	if code != 0 || !strings.Contains(stdout, "wrote 2 file") || stderr != "" {
+	if code != 0 || !strings.Contains(stdout, "wrote 4 file") || stderr != "" {
 		t.Fatalf("recover stale uncompilable output: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	content, err = os.ReadFile(sourceUnitPath)
@@ -195,7 +201,7 @@ func Mux() *http.ServeMux {
 		"internal",
 		"spicegen",
 		"shop",
-		"zz_spice_gen.go",
+		"spice_assembly_gen.go",
 	)
 	content, err := os.ReadFile(generatedPath)
 	if err != nil {
@@ -299,7 +305,13 @@ func Beta() {}
 	if code != 0 || !strings.Contains(stdout, "target Beta") || stderr != "" {
 		t.Fatalf("selected: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if _, err := os.Stat(filepath.Join(root, "internal", "spicegen", "beta", "zz_spice_gen.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"beta",
+		"spice_assembly_gen.go",
+	)); err != nil {
 		t.Fatalf("selected generated file: %v", err)
 	}
 

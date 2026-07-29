@@ -163,6 +163,8 @@ func temporaryEditorPath(filePath string) bool {
 func defaultGeneratedPath(filePath string) bool {
 	base := path.Base(filePath)
 	return strings.HasSuffix(base, "_spice_gen.go") ||
+		(strings.HasPrefix(base, "spice_") &&
+			strings.HasSuffix(base, "_gen.go")) ||
 		base == "zz_spice_bridge_gen.go" ||
 		base == "openapi.json" ||
 		(strings.HasPrefix(filePath, ".spice/") &&

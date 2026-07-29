@@ -31,7 +31,7 @@ func TestRunCommandBuildsAndExecutesPreferredApplication(t *testing.T) {
 	}
 	for _, relative := range []string{
 		"internal/spicegen/runfixture/sources/_root/main_spice_gen.go",
-		"internal/spicegen/runfixture/zz_spice_gen.go",
+		"internal/spicegen/runfixture/spice_command_gen.go",
 		".spice/runfixture.manifest.json",
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); err != nil {

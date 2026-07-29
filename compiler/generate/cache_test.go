@@ -71,14 +71,37 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 			t.Fatalf("generated cache source missing %q:\n%s", required, firstSource)
 		}
 	}
+	providerWiring := string(generatedFileContent(
+		t,
+		firstPlan,
+		"internal/spicegen/cachegenerated/"+providersFilename,
+	))
+	httpWiring := string(generatedRoleContent(
+		t,
+		firstPlan,
+		FileRoleTargetHTTP,
+	))
+	assemblyWiring := string(generatedFileContent(
+		t,
+		firstPlan,
+		"internal/spicegen/cachegenerated/"+assemblyFilename,
+	))
+	if !bytes.Contains([]byte(providerWiring), []byte("spicesource0.Construct")) {
+		t.Fatalf("generated provider wiring omitted direct construction:\n%s", providerWiring)
+	}
 	assertOrdered(
 		t,
-		string(firstSource),
-		"spicesource0.Construct",
+		httpWiring,
 		"spicecache.NewMemory[api.Request, api.Response](",
 		"generatedCache0.Get(httpRequest.Context(), requestValue)",
 		"provider0.Product(httpRequest.Context(), requestValue)",
 		"generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)",
+	)
+	assertOrdered(
+		t,
+		assemblyWiring,
+		"constructApplicationDependencies(",
+		"configureGeneratedHTTP(",
 	)
 	apiSource := generatedSourceUnitContent(t, firstPlan, "api/api.go")
 	if !bytes.Contains(apiSource, []byte("api.NewAPI()")) {

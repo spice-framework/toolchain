@@ -8,7 +8,6 @@ import (
 	"go/types"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -46,12 +45,18 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 			t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(renderDiagnostics))
 		}
 		files := plan.Files()
-		if len(files) != 3 ||
-			files[0].Path !=
-				"internal/spicegen/shop/sources/bootstrap/application_spice_gen.go" ||
-			files[1].Path !=
-				"internal/spicegen/shop/sources/components/providers_spice_gen.go" ||
-			files[2].Path != "internal/spicegen/shop/zz_spice_gen.go" {
+		expectedPaths := []string{
+			"internal/spicegen/shop/sources/bootstrap/application_spice_gen.go",
+			"internal/spicegen/shop/sources/components/providers_spice_gen.go",
+			"internal/spicegen/shop/spice_assembly_gen.go",
+			"internal/spicegen/shop/spice_command_gen.go",
+			"internal/spicegen/shop/spice_configuration_gen.go",
+			"internal/spicegen/shop/spice_contracts_gen.go",
+			"internal/spicegen/shop/spice_features_gen.go",
+			"internal/spicegen/shop/spice_lifecycle_gen.go",
+			"internal/spicegen/shop/spice_providers_gen.go",
+		}
+		if !slices.Equal(filePaths(files), expectedPaths) {
 			t.Fatalf("Files() = %#v", files)
 		}
 		applicationSource := generatedGoContent(t, plan)
@@ -590,11 +595,15 @@ func main() {
 	if len(diagnostics) != 0 {
 		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
-	if files := plan.Files(); len(files) != 2 ||
-		files[0].Path !=
-			"internal/spicegen/rootcommand/sources/_root/main_spice_gen.go" ||
-		files[1].Path !=
-			"internal/spicegen/rootcommand/"+generatedFilename {
+	if files := plan.Files(); !slices.Equal(filePaths(files), []string{
+		"internal/spicegen/rootcommand/sources/_root/main_spice_gen.go",
+		"internal/spicegen/rootcommand/spice_assembly_gen.go",
+		"internal/spicegen/rootcommand/spice_command_gen.go",
+		"internal/spicegen/rootcommand/spice_configuration_gen.go",
+		"internal/spicegen/rootcommand/spice_contracts_gen.go",
+		"internal/spicegen/rootcommand/spice_lifecycle_gen.go",
+		"internal/spicegen/rootcommand/spice_providers_gen.go",
+	}) {
 		t.Fatalf("Files() = %#v", files)
 	}
 	writePlan(t, root, plan)
@@ -1260,13 +1269,58 @@ func Web(*api.API) {}
 		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
 	files := plan.Files()
-	if got, want := filePaths(files), []string{
+	wantFiles := []string{
 		"internal/spicegen/web/artifacts/openapi.json",
 		"internal/spicegen/web/sources/api/api_spice_gen.go",
 		"internal/spicegen/web/sources/bootstrap/application_spice_gen.go",
-		"internal/spicegen/web/zz_spice_gen.go",
-	}; !slices.Equal(got, want) {
-		t.Fatalf("generated files = %v, want %v", got, want)
+		"internal/spicegen/web/spice_assembly_gen.go",
+		"internal/spicegen/web/spice_command_gen.go",
+		"internal/spicegen/web/spice_configuration_gen.go",
+		"internal/spicegen/web/spice_contracts_gen.go",
+		"internal/spicegen/web/spice_http_gen.go",
+		"internal/spicegen/web/spice_lifecycle_gen.go",
+		"internal/spicegen/web/spice_providers_gen.go",
+	}
+	for _, item := range model.Controllers() {
+		for _, route := range item.Routes() {
+			_, filename := generatedRouteIdentity(route)
+			wantFiles = append(
+				wantFiles,
+				"internal/spicegen/web/"+filename,
+			)
+		}
+	}
+	sort.Strings(wantFiles)
+	if got := filePaths(files); !slices.Equal(got, wantFiles) {
+		t.Fatalf("generated files = %v, want %v", got, wantFiles)
+	}
+	routeFileCount := 0
+	for _, file := range files {
+		name := filepath.Base(file.Path)
+		if !strings.HasPrefix(name, "spice_http_route_") {
+			continue
+		}
+		routeFileCount++
+		if !strings.Contains(name, "_api_api_") ||
+			file.Role != FileRoleTargetHTTPRoute ||
+			bytes.Count(file.Content(), []byte("spiceweb.RegisterObserved(")) != 1 ||
+			len(file.Mappings) != 1 ||
+			file.Mappings[0].Kind != "http-route-wiring" ||
+			len(file.RelatedSources) == 0 {
+			t.Fatalf("generated route unit %s has invalid ownership: %#v", file.Path, file)
+		}
+		for _, origin := range file.RelatedSources {
+			if origin.Path != "api/api.go" {
+				t.Fatalf(
+					"generated route unit %s owns unrelated source %#v",
+					file.Path,
+					origin,
+				)
+			}
+		}
+	}
+	if routeFileCount != 3 {
+		t.Fatalf("generated route units = %d, want 3", routeFileCount)
 	}
 	var openAPI openAPIDocument
 	if err := json.Unmarshal(files[0].Content(), &openAPI); err != nil {
@@ -1325,7 +1379,7 @@ func Web(*api.API) {}
 		`AnyRoles:  []string{"admin", "reader"}`,
 		`AllScopes: []string{"users:read"}`,
 		"spicesecurity.Guard(",
-		"routeMiddleware1",
+		"routeMiddleware0",
 		"[]spiceweb.HTTPObserver",
 		"options.Middleware...",
 		"spiceweb.Parameter(",
@@ -1338,12 +1392,19 @@ func Web(*api.API) {}
 			t.Fatalf("generated source missing %q:\n%s", expected, source)
 		}
 	}
-	assertOrdered(
+	httpAssembly := string(generatedFileContent(
 		t,
-		source,
-		"spicesecurity.NewPolicy(",
-		`spiceweb.RegisterObserved(routeMux, "GET /users/raw/status"`,
-	)
+		plan,
+		"internal/spicegen/web/"+httpFilename,
+	))
+	var routeCalls []string
+	for _, item := range model.Controllers() {
+		for _, route := range item.Routes() {
+			functionName, _ := generatedRouteIdentity(route)
+			routeCalls = append(routeCalls, functionName+"(")
+		}
+	}
+	assertOrdered(t, httpAssembly, routeCalls...)
 	writePlan(t, root, plan)
 	writeTestFile(t, root, "internal/spicegen/web/http_test.go", generatedHTTPTest)
 	runGoTest(t, root, "./internal/spicegen/web")
@@ -1449,10 +1510,10 @@ func Forms(*api.Owners) {}
 		)
 	}
 	files := plan.Files()
-	source := string(fileContentByPath(
+	source := string(generatedRoleContent(
 		t,
-		files,
-		"internal/spicegen/forms/zz_spice_gen.go",
+		plan,
+		FileRoleTargetHTTP,
 	))
 	for _, expected := range []string{
 		`spiceview "github.com/StevenBuglione/spice/view"`,
@@ -1461,7 +1522,7 @@ func Forms(*api.Owners) {}
 		"spiceweb.RejectUnknownForm(",
 		"bindingResult.RejectBinding(",
 		".Save(httpRequest.Context(), requestValue, bindingResult)",
-		"_ = provider0.Respond(httpRequest.Context(), writer, responseValue)",
+		"_ = dependencies.provider0.Respond(httpRequest.Context(), writer, responseValue)",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(
@@ -3108,13 +3169,38 @@ func filePaths(files []File) []string {
 
 func generatedGoContent(t *testing.T, plan Plan) []byte {
 	t.Helper()
+	var result bytes.Buffer
 	for _, file := range plan.Files() {
-		if path.Base(file.Path) == generatedFilename {
-			return file.Content()
+		if isTargetGeneratedRole(file.Role) {
+			result.Write(file.Content())
+			result.WriteByte('\n')
 		}
 	}
-	t.Fatalf("generated plan does not contain %s", generatedFilename)
-	return nil
+	if result.Len() == 0 {
+		t.Fatal("generated plan does not contain target Go")
+	}
+	return result.Bytes()
+}
+
+func isTargetGeneratedRole(role FileRole) bool {
+	switch role {
+	case FileRoleTargetContracts,
+		FileRoleTargetConfiguration,
+		FileRoleTargetProviders,
+		FileRoleTargetAssembly,
+		FileRoleTargetFeatures,
+		FileRoleTargetHTTP,
+		FileRoleTargetHTTPRoute,
+		FileRoleTargetLifecycle,
+		FileRoleTargetCommand:
+		return true
+	case FileRoleTargetOrchestrator,
+		FileRoleCommandBridge,
+		FileRoleSourceUnit,
+		FileRoleArtifact:
+		return false
+	}
+	return false
 }
 
 func generatedFileContent(t *testing.T, plan Plan, filePath string) []byte {
@@ -3126,6 +3212,28 @@ func generatedFileContent(t *testing.T, plan Plan, filePath string) []byte {
 	}
 	t.Fatalf("generated plan does not contain %s", filePath)
 	return nil
+}
+
+func generatedRoleContent(
+	t *testing.T,
+	plan Plan,
+	role FileRole,
+) []byte {
+	t.Helper()
+	var result bytes.Buffer
+	for _, file := range plan.Files() {
+		if file.Role != role &&
+			(role != FileRoleTargetHTTP ||
+				file.Role != FileRoleTargetHTTPRoute) {
+			continue
+		}
+		result.Write(file.Content())
+		result.WriteByte('\n')
+	}
+	if result.Len() == 0 {
+		t.Fatalf("generated plan does not contain role %s", role)
+	}
+	return result.Bytes()
 }
 
 func generatedSourceUnitContent(

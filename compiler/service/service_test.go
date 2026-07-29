@@ -138,7 +138,7 @@ func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
 		}
 	}
 	for _, relativePath := range []string{
-		"zz_spice_gen.go",
+		"internal/spicegen/servicefixture/spice_assembly_gen.go",
 		".spice/servicefixture.manifest.json",
 	} {
 		if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(relativePath))); !errors.Is(statErr, os.ErrNotExist) {
@@ -1438,7 +1438,7 @@ func main() {
 	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `,
-		"internal/spicegen/servicefixture/zz_spice_gen.go": `//go:build !spice_generate
+		"internal/spicegen/servicefixture/spice_command_gen.go": `//go:build !spice_generate
 
 package spicegen
 

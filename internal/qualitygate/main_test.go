@@ -321,6 +321,53 @@ func TestCoverageAndExecutableHelpers(t *testing.T) {
 	}
 }
 
+func TestCheckGeneratedTargetBoundariesRejectsMonolithsAndOversizedUnits(
+	t *testing.T,
+) {
+	t.Parallel()
+	root := t.TempDir()
+	validPath := "internal/spicegen/app/spice_assembly_gen.go"
+	writeTestFile(
+		t,
+		root,
+		validPath,
+		strings.Repeat("line\n", maximumGeneratedTargetLines),
+	)
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/app/sources/orders/orders_spice_gen.go",
+		strings.Repeat("line\n", maximumGeneratedTargetLines+1),
+	)
+	if err := checkGeneratedTargetBoundaries(root); err != nil {
+		t.Fatalf("checkGeneratedTargetBoundaries(valid) error = %v", err)
+	}
+
+	writeTestFile(
+		t,
+		root,
+		validPath,
+		strings.Repeat("line\n", maximumGeneratedTargetLines+1),
+	)
+	if err := checkGeneratedTargetBoundaries(root); err == nil ||
+		!strings.Contains(err.Error(), "must not exceed") {
+		t.Fatalf("checkGeneratedTargetBoundaries(oversized) error = %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, filepath.FromSlash(validPath))); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(
+		t,
+		root,
+		"internal/spicegen/app/zz_spice_gen.go",
+		"package spicegen\n",
+	)
+	if err := checkGeneratedTargetBoundaries(root); err == nil ||
+		!strings.Contains(err.Error(), "retired generated target monolith") {
+		t.Fatalf("checkGeneratedTargetBoundaries(monolith) error = %v", err)
+	}
+}
+
 func TestFilterGeneratedCoverageProfileKeepsProductSource(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

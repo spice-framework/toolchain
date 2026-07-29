@@ -137,6 +137,25 @@ func TestDiscoveryNamespacePackagesAreStableAndUnique(t *testing.T) {
 	}
 }
 
+func TestDiscoverySourceExcludesAllSpiceGeneratedUnits(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "application.go", want: true},
+		{name: "application_test.go", want: false},
+		{name: "spice_assembly_gen.go", want: false},
+		{name: "spice_http_route_deadbeef_gen.go", want: false},
+		{name: "application_spice_gen.go", want: false},
+	}
+	for _, test := range tests {
+		if got := discoverySource(test.name); got != test.want {
+			t.Errorf("discoverySource(%q) = %t, want %t", test.name, got, test.want)
+		}
+	}
+}
+
 func writeDiscoveryFile(
 	t *testing.T,
 	root string,

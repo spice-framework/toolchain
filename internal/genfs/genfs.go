@@ -216,7 +216,14 @@ func Diff(plan generate.Plan) (string, error) {
 	for filePath := range paths {
 		ordered = append(ordered, filePath)
 	}
-	sort.Strings(ordered)
+	sort.Slice(ordered, func(left, right int) bool {
+		leftManifest := ordered[left] == plan.Target().ManifestPath
+		rightManifest := ordered[right] == plan.Target().ManifestPath
+		if leftManifest != rightManifest {
+			return !leftManifest
+		}
+		return ordered[left] < ordered[right]
+	})
 
 	var builder strings.Builder
 	remaining := maxDiffLines
@@ -606,15 +613,16 @@ func normalizeManifestTarget(
 				"ownership manifest target does not match the selected generation target",
 			)
 		}
-	case 3:
+	case 4, 3:
 		expected := plan.Manifest().Target
 		compatiblePreEntrypoint := manifest.Target
 		if compatiblePreEntrypoint.EntrypointPackagePath == "" {
 			compatiblePreEntrypoint.EntrypointPackagePath = expected.EntrypointPackagePath
 		}
 		if compatiblePreEntrypoint != expected {
-			return errors.New(
-				"schema-3 ownership manifest target does not match the selected generation target",
+			return fmt.Errorf(
+				"schema-%d ownership manifest target does not match the selected generation target",
+				manifest.Schema,
 			)
 		}
 	case 2:

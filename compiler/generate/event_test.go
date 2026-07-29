@@ -70,7 +70,11 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 	}
 	assertOrdered(
 		t,
-		string(firstSource),
+		string(generatedFileContent(
+			t,
+			firstPlan,
+			"internal/spicegen/eventgenerated/"+providersFilename,
+		)),
 		"provider0,",
 		"provider1,",
 		"spiceevent.NewTopic(",
@@ -92,7 +96,11 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 	}
 	assertOrdered(
 		t,
-		string(firstSource),
+		string(generatedFileContent(
+			t,
+			firstPlan,
+			"internal/spicegen/eventgenerated/"+providersFilename,
+		)),
 		`ID:     "spice:symbol:v1|method|33:example.com/eventgenerated/events|9:Inventory|7:Reserve"`,
 		`ID:     "spice:symbol:v1|method|33:example.com/eventgenerated/events|5:Audit|6:Record"`,
 	)

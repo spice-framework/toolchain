@@ -161,7 +161,7 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 	source := string(generatedGoContent(t, first))
 	for _, expected := range []string{
 		"spicesource",
-		"httpObservers = append(httpObservers, provider",
+		"httpObservers = append(httpObservers, dependencies.provider",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(
@@ -173,11 +173,29 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 	}
 	assertOrdered(
 		t,
-		source,
+		string(generatedFileContent(
+			t,
+			first,
+			"internal/spicegen/application/"+providersFilename,
+		)),
 		"provider4,",
-		"httpObservers = append(httpObservers, provider",
-		"spiceweb.ObservationMiddleware",
 	)
+	assertOrdered(
+		t,
+		string(generatedFileContent(
+			t,
+			first,
+			"internal/spicegen/application/"+httpFilename,
+		)),
+		"httpObservers = append(httpObservers, dependencies.provider",
+		"registerGeneratedRoute",
+	)
+	if !bytes.Contains(
+		generatedRoleContent(t, first, FileRoleTargetHTTP),
+		[]byte("spiceweb.ObservationMiddleware"),
+	) {
+		t.Fatal("generated route wiring omitted HTTP observation")
+	}
 	telemetrySource := generatedSourceUnitContent(
 		t,
 		first,

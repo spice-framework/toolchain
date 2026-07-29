@@ -1101,7 +1101,7 @@ func main() {
 			"replace github.com/StevenBuglione/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": original,
-		"internal/spicegen/lspfixture/zz_spice_gen.go": `//go:build !spice_generate
+		"internal/spicegen/lspfixture/spice_command_gen.go": `//go:build !spice_generate
 
 package spicegen
 
@@ -1165,7 +1165,7 @@ func main() {
 	for relative, content := range map[string]string{
 		"go.mod":  mod,
 		"main.go": source,
-		"internal/spicegen/importedlsp/zz_spice_gen.go": `//go:build !spice_generate
+		"internal/spicegen/importedlsp/spice_command_gen.go": `//go:build !spice_generate
 
 package spicegen
 

@@ -190,6 +190,25 @@ func Hidden() sdk.Definition {
 	}
 }
 
+func TestCatalogGoFileExcludesAllSpiceGeneratedUnits(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "controller.go", want: true},
+		{name: "controller_test.go", want: false},
+		{name: "spice_contracts_gen.go", want: false},
+		{name: "spice_http_route_deadbeef_gen.go", want: false},
+		{name: "controller_spice_gen.go", want: false},
+	}
+	for _, test := range tests {
+		if got := catalogGoFile(test.name); got != test.want {
+			t.Errorf("catalogGoFile(%q) = %t, want %t", test.name, got, test.want)
+		}
+	}
+}
+
 func writeCatalogFile(
 	t *testing.T,
 	root string,

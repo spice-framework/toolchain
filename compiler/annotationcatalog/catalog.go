@@ -728,7 +728,9 @@ func excludedCatalogDirectory(name string) bool {
 func catalogGoFile(name string) bool {
 	return strings.HasSuffix(name, ".go") &&
 		!strings.HasSuffix(name, "_test.go") &&
-		name != "zz_spice_gen.go"
+		!strings.HasSuffix(name, "_spice_gen.go") &&
+		(!strings.HasPrefix(name, "spice_") ||
+			!strings.HasSuffix(name, "_gen.go"))
 }
 
 func compactCandidates(values []Candidate) []Candidate {

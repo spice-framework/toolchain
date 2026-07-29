@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"io/fs"
@@ -40,7 +42,7 @@ import (
 
 const (
 	// SchemaVersion is the current generated ownership manifest schema.
-	SchemaVersion = 4
+	SchemaVersion = 5
 	// GeneratorVersion is recorded in manifests to make generator compatibility
 	// explicit during freshness checks.
 	GeneratorVersion = "0.1.0-dev"
@@ -50,7 +52,14 @@ const (
 	// source, allowing stale output to be regenerated safely.
 	AnalysisBuildTag = "spice_generate"
 
-	generatedFilename = "zz_spice_gen.go"
+	contractsFilename     = "spice_contracts_gen.go"
+	configurationFilename = "spice_configuration_gen.go"
+	providersFilename     = "spice_providers_gen.go"
+	assemblyFilename      = "spice_assembly_gen.go"
+	featuresFilename      = "spice_features_gen.go"
+	httpFilename          = "spice_http_gen.go"
+	lifecycleFilename     = "spice_lifecycle_gen.go"
+	commandFilename       = "spice_command_gen.go"
 	// bridgeFilename is retained for ownership migration tests. New plans never
 	// emit a same-package bridge.
 	bridgeFilename    = "zz_spice_bridge_gen.go"
@@ -117,8 +126,27 @@ type FileRole string
 
 const (
 	// FileRoleTargetOrchestrator is target-wide application coordination that
-	// cannot truthfully belong to one source file.
+	// cannot truthfully belong to one source file. It is retained for guarded
+	// migration from schema-4 monolithic output; new plans do not emit it.
 	FileRoleTargetOrchestrator FileRole = "target-orchestrator"
+	// FileRoleTargetContracts contains the stable public generated types.
+	FileRoleTargetContracts FileRole = "target-contracts"
+	// FileRoleTargetConfiguration contains generated configuration metadata.
+	FileRoleTargetConfiguration FileRole = "target-configuration"
+	// FileRoleTargetProviders contains dependency-ordered graph construction.
+	FileRoleTargetProviders FileRole = "target-providers"
+	// FileRoleTargetAssembly coordinates bounded generated construction phases.
+	FileRoleTargetAssembly FileRole = "target-assembly"
+	// FileRoleTargetFeatures contains lifecycle, schedule, and async wiring.
+	FileRoleTargetFeatures FileRole = "target-features"
+	// FileRoleTargetHTTP contains generated HTTP and management wiring.
+	FileRoleTargetHTTP FileRole = "target-http"
+	// FileRoleTargetHTTPRoute contains one source-linked generated route.
+	FileRoleTargetHTTPRoute FileRole = "target-http-route"
+	// FileRoleTargetLifecycle contains the public generated runtime methods.
+	FileRoleTargetLifecycle FileRole = "target-lifecycle"
+	// FileRoleTargetCommand contains the process-level generated command API.
+	FileRoleTargetCommand FileRole = "target-command"
 	// FileRoleCommandBridge is retained only to migrate previously owned
 	// same-package bridges. New plans never emit this role.
 	FileRoleCommandBridge FileRole = "command-bridge"
@@ -128,9 +156,8 @@ const (
 	// FileRoleArtifact is a non-Go generated contract such as OpenAPI.
 	FileRoleArtifact FileRole = "artifact"
 
-	// FileRoleApplication is retained as a source-compatible alias while
-	// callers migrate to the truthful target-orchestrator name.
-	FileRoleApplication = FileRoleTargetOrchestrator
+	// FileRoleApplication identifies the generated construction entrypoint.
+	FileRoleApplication = FileRoleTargetAssembly
 	// FileRoleSourceShard is retained as a source-compatible alias while
 	// callers migrate to the source-unit name.
 	FileRoleSourceShard = FileRoleSourceUnit
@@ -413,10 +440,17 @@ func Render(
 		return Plan{}, diagnostics
 	}
 
-	source, renderErr := renderSource(
+	modelOrigins := modelSourceOrigins(
+		program,
 		model,
 		applicationTarget,
 		target,
+	)
+	targetFiles, renderErr := renderTargetFiles(
+		model,
+		applicationTarget,
+		target,
+		modelOrigins,
 	)
 	if renderErr != nil {
 		return Plan{}, []Diagnostic{targetDiagnostic(
@@ -425,22 +459,7 @@ func Render(
 			fmt.Sprintf("render generated Go: %v", renderErr),
 		)}
 	}
-	generatedPath := path.Join(target.OutputDir, generatedFilename)
-	applicationOrigins := modelSourceOrigins(
-		program,
-		model,
-		applicationTarget,
-		target,
-	)
-	files := []File{{
-		Path:           generatedPath,
-		Mode:           0o644,
-		SHA256:         contentHash(source),
-		Role:           FileRoleTargetOrchestrator,
-		RelatedSources: applicationOrigins,
-		Sources:        applicationOrigins,
-		content:        source,
-	}}
+	files := append([]File(nil), targetFiles...)
 	sourceUnits, sourceUnitErr := renderSourceUnits(
 		program,
 		applicationTarget,
@@ -465,13 +484,17 @@ func Render(
 				fmt.Sprintf("render OpenAPI document: %v", openAPIErr),
 			)}
 		}
+		openAPIOrigins := controllerSourceOrigins(
+			modelOrigins,
+			model.Controllers(),
+		)
 		files = append(files, File{
 			Path:           path.Join(target.OutputDir, "artifacts", openAPIFilename),
 			Mode:           0o644,
 			SHA256:         contentHash(openAPIContent),
 			Role:           FileRoleArtifact,
-			RelatedSources: applicationOrigins,
-			Sources:        applicationOrigins,
+			RelatedSources: openAPIOrigins,
+			Sources:        openAPIOrigins,
 			content:        openAPIContent,
 		})
 	}
@@ -518,11 +541,12 @@ func Render(
 	}, nil
 }
 
-func renderSource(
+func renderTargetFiles(
 	model application.Model,
 	applicationTarget application.Target,
 	target Target,
-) ([]byte, error) {
+	modelOrigins []SourceOrigin,
+) ([]File, error) {
 	providers := model.Providers()
 	configTypes := model.Configurations()
 	controllers := model.Controllers()
@@ -575,18 +599,360 @@ func renderSource(
 	if err != nil {
 		return nil, err
 	}
-	providerVariables := make(map[string]string, len(providers))
-	for index, item := range providers {
-		providerVariables[item.SymbolID] = providerVariable(index)
-	}
 	componentFields := generatedComponentFields(providers)
+	applicationOrigins := sourceOriginsForSymbolFamilies(
+		modelOrigins,
+		applicationTarget.SymbolID,
+	)
+	providerOrigins := providerSourceOrigins(
+		modelOrigins,
+		providers,
+		events,
+	)
+	configurationOrigins := configurationSourceOrigins(
+		modelOrigins,
+		configTypes,
+	)
+	featureOrigins := featureSourceOrigins(
+		modelOrigins,
+		model.Components(),
+		jobs,
+		asyncTasks,
+	)
+	controllerOrigins := controllerSourceOrigins(
+		modelOrigins,
+		controllers,
+	)
 
+	contracts := renderContractsTargetSource(
+		applicationAdapter,
+		componentFields,
+		aliases,
+		features,
+		asyncTasks,
+	)
+
+	var configurationSource bytes.Buffer
+	writeConfigurationAPI(
+		&configurationSource,
+		configTypes,
+		caches,
+		features.asynchronous,
+	)
+
+	localProviderVariables, dependencyProviderVariables := targetProviderVariables(providers)
+	providerSource, providerErr := renderProvidersTargetSource(
+		providers,
+		configTypes,
+		aliases,
+		dependencies,
+		providerModules,
+		localProviderVariables,
+		events,
+		providerAdapters,
+	)
+	if providerErr != nil {
+		return nil, providerErr
+	}
+
+	hasLifecycleFeatures := len(model.Components()) != 0 || len(jobs) != 0
+	assembly := renderAssemblyTargetSource(
+		target,
+		features,
+		componentFields,
+		dependencyProviderVariables,
+		hasLifecycleFeatures,
+	)
+
+	featureSource := renderFeaturesTargetSource(
+		model,
+		applicationTarget,
+		features,
+		asyncTasks,
+		jobs,
+		dependencyProviderVariables,
+		providerModules,
+		aliases,
+	)
+
+	httpSource, routeSpecifications, httpErr := renderHTTPTargetSources(
+		model,
+		applicationTarget,
+		features,
+		providers,
+		controllers,
+		transactions,
+		caches,
+		dependencyProviderVariables,
+		aliases,
+		modelOrigins,
+	)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+
+	var lifecycleSource bytes.Buffer
+	writeLifecycleMethods(&lifecycleSource)
+	writeComponentsMethod(&lifecycleSource)
+	writeAsyncApplicationMethods(&lifecycleSource, asyncTasks, aliases)
+	if features.hasMux {
+		writeHandlerMethod(&lifecycleSource)
+	}
+
+	var commandSource bytes.Buffer
+	writeCommandAPI(&commandSource, features)
+
+	specifications := targetFileSpecifications(
+		targetSourceBodies{
+			contracts:     contracts,
+			configuration: configurationSource.Bytes(),
+			providers:     providerSource,
+			assembly:      assembly,
+			features:      featureSource,
+			http:          httpSource,
+			lifecycle:     lifecycleSource.Bytes(),
+			command:       commandSource.Bytes(),
+		},
+		targetSourceOrigins{
+			application:   applicationOrigins,
+			providers:     providerOrigins,
+			configuration: configurationOrigins,
+			features:      featureOrigins,
+			controllers:   controllerOrigins,
+		},
+		routeSpecifications,
+	)
+
+	return materializeTargetFiles(
+		specifications,
+		aliases,
+		target,
+		applicationTarget,
+	)
+}
+
+type targetSourceBodies struct {
+	contracts     []byte
+	configuration []byte
+	providers     []byte
+	assembly      []byte
+	features      []byte
+	http          []byte
+	lifecycle     []byte
+	command       []byte
+}
+
+type targetSourceOrigins struct {
+	application   []SourceOrigin
+	providers     []SourceOrigin
+	configuration []SourceOrigin
+	features      []SourceOrigin
+	controllers   []SourceOrigin
+}
+
+func targetFileSpecifications(
+	bodies targetSourceBodies,
+	origins targetSourceOrigins,
+	routes []targetFileSpecification,
+) []targetFileSpecification {
+	specifications := []targetFileSpecification{
+		{
+			filename: contractsFilename,
+			role:     FileRoleTargetContracts,
+			body:     bodies.contracts,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.providers,
+				origins.features,
+			),
+		},
+		{
+			filename: configurationFilename,
+			role:     FileRoleTargetConfiguration,
+			body:     bodies.configuration,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.configuration,
+			),
+		},
+		{
+			filename: providersFilename,
+			role:     FileRoleTargetProviders,
+			body:     bodies.providers,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.providers,
+			),
+		},
+		{
+			filename: assemblyFilename,
+			role:     FileRoleTargetAssembly,
+			body:     bodies.assembly,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.providers,
+				origins.features,
+				origins.controllers,
+			),
+		},
+	}
+	if len(bodies.features) != 0 {
+		specifications = append(specifications, targetFileSpecification{
+			filename: featuresFilename,
+			role:     FileRoleTargetFeatures,
+			body:     bodies.features,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.features,
+			),
+		})
+	}
+	if len(bodies.http) != 0 {
+		specifications = append(specifications, targetFileSpecification{
+			filename: httpFilename,
+			role:     FileRoleTargetHTTP,
+			body:     bodies.http,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.controllers,
+			),
+		})
+		specifications = append(specifications, routes...)
+	}
+	return append(
+		specifications,
+		targetFileSpecification{
+			filename: lifecycleFilename,
+			role:     FileRoleTargetLifecycle,
+			body:     bodies.lifecycle,
+			relatedSources: mergeSourceOrigins(
+				origins.application,
+				origins.features,
+			),
+		},
+		targetFileSpecification{
+			filename:       commandFilename,
+			role:           FileRoleTargetCommand,
+			body:           bodies.command,
+			relatedSources: origins.application,
+		},
+	)
+}
+
+func targetProviderVariables(
+	providers []provider.Provider,
+) (map[string]string, map[string]string) {
+	local := make(map[string]string, len(providers))
+	dependencies := make(map[string]string, len(providers))
+	for index, item := range providers {
+		local[item.SymbolID] = providerVariable(index)
+		dependencies[item.SymbolID] = "dependencies." + providerVariable(index)
+	}
+	return local, dependencies
+}
+
+func renderProvidersTargetSource(
+	providers []provider.Provider,
+	configTypes []configuration.Type,
+	aliases map[string]string,
+	dependencies map[string][]string,
+	providerModules map[string]string,
+	providerVariables map[string]string,
+	events []compilerevent.Topic,
+	adapters map[string]providerSourceAdapter,
+) ([]byte, error) {
 	var source bytes.Buffer
-	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
-	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n\n")
-	packageName := "spicegen"
-	fmt.Fprintf(&source, "package %s\n\n", packageName)
-	writeImports(&source, aliases)
+	writeApplicationDependenciesType(&source, providers, aliases)
+	source.WriteString("func constructApplicationDependencies(\n")
+	source.WriteString("\tctx context.Context,\n")
+	source.WriteString("\tapplication *Application,\n")
+	source.WriteString("\toptions ApplicationOptions,\n")
+	source.WriteString("\tconfigurationSnapshot spiceconfig.Snapshot,\n")
+	source.WriteString(") (*applicationDependencies, error) {\n")
+	source.WriteString("\t_ = ctx\n")
+	source.WriteString("\t_ = application\n")
+	source.WriteString("\t_ = options\n")
+	source.WriteString("\t_ = configurationSnapshot\n")
+	if err := writeProviders(
+		&source,
+		providers,
+		configTypes,
+		aliases,
+		dependencies,
+		providerModules,
+		providerVariables,
+		events,
+		adapters,
+	); err != nil {
+		return nil, err
+	}
+	writeApplicationDependenciesReturn(&source, providers)
+	source.WriteString("}\n")
+	return source.Bytes(), nil
+}
+
+func renderAssemblyTargetSource(
+	target Target,
+	features commandFeatures,
+	componentFields []generatedComponentField,
+	providerVariables map[string]string,
+	hasLifecycleFeatures bool,
+) []byte {
+	var source bytes.Buffer
+	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
+	source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
+	source.WriteString("}\n\n")
+	source.WriteString("func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) (*Application, error) {\n")
+	fmt.Fprintf(
+		&source,
+		"\tif ctx == nil {\n\t\treturn nil, fmt.Errorf(%s)\n\t}\n",
+		strconv.Quote("construct application "+target.ID+": context is nil"),
+	)
+	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
+	writeBootstrapObservers(&source, features)
+	writeAuthorizationSetup(&source, features)
+	source.WriteString("\tfor index, observer := range observers {\n")
+	source.WriteString("\t\tif err := application.coordinator.RegisterObserver(observer); err != nil {\n")
+	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t}\n")
+	writeConfigurationResolution(&source, target)
+	source.WriteString("\tdependencies, err := constructApplicationDependencies(ctx, application, options, configurationSnapshot)\n")
+	source.WriteString("\tif err != nil {\n")
+	source.WriteString("\t\treturn nil, err\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\t_ = dependencies\n")
+	writeComponentAssignments(
+		&source,
+		componentFields,
+		providerVariables,
+	)
+	if features.asynchronous {
+		source.WriteString("\tif _, err := configureGeneratedAsync(ctx, application, options, configurationSnapshot, dependencies); err != nil {\n")
+		source.WriteString("\t\treturn nil, err\n")
+		source.WriteString("\t}\n")
+	}
+	if hasLifecycleFeatures {
+		source.WriteString("\tif _, err := configureGeneratedLifecycle(ctx, application, options, dependencies); err != nil {\n")
+		source.WriteString("\t\treturn nil, err\n")
+		source.WriteString("\t}\n")
+	}
+	if features.hasMux {
+		writeHTTPSetupCall(&source, features)
+	}
+	source.WriteString("\treturn application, nil\n")
+	source.WriteString("}\n")
+	return source.Bytes()
+}
+
+func renderContractsTargetSource(
+	applicationAdapter applicationSourceAdapter,
+	componentFields []generatedComponentField,
+	aliases map[string]string,
+	features commandFeatures,
+	asyncTasks []compilerasync.Task,
+) []byte {
+	var source bytes.Buffer
 	writeGeneratedConstants(
 		&source,
 		applicationAdapter.alias+"."+applicationAdapter.identifier,
@@ -607,116 +973,583 @@ func renderSource(
 	}
 	source.WriteString("}\n\n")
 	writeApplicationOptions(&source, features)
-	writeConfigurationAPI(&source, configTypes, caches, features.asynchronous)
-	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
-	source.WriteString("\treturn NewApplicationWithOptions(ctx, ApplicationOptions{Observers: observers})\n")
-	source.WriteString("}\n\n")
-	source.WriteString("func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) (*Application, error) {\n")
-	fmt.Fprintf(
-		&source,
-		"\tif ctx == nil {\n\t\treturn nil, fmt.Errorf(%s)\n\t}\n",
-		strconv.Quote("construct application "+target.ID+": context is nil"),
-	)
-	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
-	writeBootstrapObservers(&source, features)
-	writeAuthorizationSetup(&source, features)
-	source.WriteString("\tfor index, observer := range observers {\n")
-	source.WriteString("\t\tif err := application.coordinator.RegisterObserver(observer); err != nil {\n")
-	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
-	source.WriteString("\t\t}\n")
-	source.WriteString("\t}\n")
-	writeConfigurationResolution(&source, target)
-	if providerErr := writeProviders(
-		&source,
-		providers,
-		configTypes,
-		aliases,
-		dependencies,
-		providerModules,
-		providerVariables,
-		events,
-		providerAdapters,
-	); providerErr != nil {
-		return nil, providerErr
+	return source.Bytes()
+}
+
+func renderFeaturesTargetSource(
+	model application.Model,
+	applicationTarget application.Target,
+	features commandFeatures,
+	asyncTasks []compilerasync.Task,
+	jobs []compilerschedule.Job,
+	providerVariables map[string]string,
+	providerModules map[string]string,
+	aliases map[string]string,
+) []byte {
+	var source bytes.Buffer
+	if features.asynchronous {
+		source.WriteString("func configureGeneratedAsync(\n")
+		source.WriteString("\tctx context.Context,\n")
+		source.WriteString("\tapplication *Application,\n")
+		source.WriteString("\toptions ApplicationOptions,\n")
+		source.WriteString("\tconfigurationSnapshot spiceconfig.Snapshot,\n")
+		source.WriteString("\tdependencies *applicationDependencies,\n")
+		source.WriteString(") (*Application, error) {\n")
+		source.WriteString("\t_ = dependencies\n")
+		writeAsyncSetup(
+			&source,
+			asyncTasks,
+			providerVariables,
+			providerModules,
+			applicationTarget.PackagePath,
+			aliases,
+		)
+		source.WriteString("\treturn application, nil\n")
+		source.WriteString("}\n\n")
 	}
-	writeComponentAssignments(
-		&source,
-		componentFields,
-		providerVariables,
-	)
-	writeAsyncSetup(
-		&source,
-		asyncTasks,
-		providerVariables,
-		providerModules,
-		applicationTarget.PackagePath,
-		aliases,
-	)
-	cacheRuntimes := writeCacheSetup(
-		&source,
-		caches,
-		aliases,
-	)
+	if len(model.Components()) != 0 || len(jobs) != 0 {
+		source.WriteString("func configureGeneratedLifecycle(\n")
+		source.WriteString("\tctx context.Context,\n")
+		source.WriteString("\tapplication *Application,\n")
+		source.WriteString("\toptions ApplicationOptions,\n")
+		source.WriteString("\tdependencies *applicationDependencies,\n")
+		source.WriteString(") (*Application, error) {\n")
+		source.WriteString("\t_ = ctx\n")
+		source.WriteString("\t_ = options\n")
+		source.WriteString("\t_ = dependencies\n")
+		writeScheduleSetup(
+			&source,
+			jobs,
+			providerVariables,
+			providerModules,
+		)
+		writeHooks(
+			&source,
+			model,
+			providerVariables,
+			providerModules,
+			applicationTarget.PackagePath,
+		)
+		source.WriteString("\treturn application, nil\n")
+		source.WriteString("}\n")
+	}
+	return source.Bytes()
+}
+
+func renderHTTPTargetSources(
+	model application.Model,
+	applicationTarget application.Target,
+	features commandFeatures,
+	providers []provider.Provider,
+	controllers []controller.Controller,
+	transactions []compilertransaction.Boundary,
+	caches []compilercache.Boundary,
+	providerVariables map[string]string,
+	aliases map[string]string,
+	modelOrigins []SourceOrigin,
+) ([]byte, []targetFileSpecification, error) {
+	if !features.hasMux {
+		return nil, nil, nil
+	}
+	var source bytes.Buffer
+	writeHTTPSetupSignature(&source, features)
 	if features.httpObservation {
-		if observerErr := writeFeatureHTTPObservers(
+		if err := writeFeatureHTTPObservers(
 			&source,
 			applicationTarget,
 			providers,
 			providerVariables,
-		); observerErr != nil {
-			return nil, observerErr
+		); err != nil {
+			return nil, nil, err
 		}
 	}
-	writeScheduleSetup(
-		&source,
-		jobs,
-		providerVariables,
-		providerModules,
-	)
-	if features.hasMux {
-		writeRouteMux(&source, providers, providerVariables)
-	}
+	writeRouteMux(&source, providers, providerVariables)
+	var routeSpecifications []targetFileSpecification
 	if len(controllers) != 0 {
-		authorizationMiddleware := writeRouteAuthorizations(
-			&source,
-			controllers,
-		)
-		if routeErr := writeControllerRoutes(
-			&source,
+		var err error
+		routeSpecifications, err = renderRouteSpecifications(
 			controllers,
 			transactions,
-			cacheRuntimes,
+			caches,
 			providerVariables,
 			aliases,
-			authorizationMiddleware,
-		); routeErr != nil {
-			return nil, routeErr
+			features,
+			modelOrigins,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, item := range routeSpecifications {
+			writeRouteSetupCall(
+				&source,
+				item.generatedIdentifier,
+				features,
+			)
 		}
 	}
-	writeHooks(
+	writeManagementSetup(
 		&source,
 		model,
-		providerVariables,
-		providerModules,
-		applicationTarget.PackagePath,
+		applicationTarget,
+		features,
 	)
-	writeManagementSetup(&source, model, applicationTarget, features)
 	writeRequestScopeSetup(&source, features)
 	source.WriteString("\treturn application, nil\n")
-	source.WriteString("}\n\n")
-	writeLifecycleMethods(&source)
-	writeComponentsMethod(&source)
-	writeAsyncApplicationMethods(&source, asyncTasks, aliases)
-	if features.hasMux {
-		writeHandlerMethod(&source)
-	}
-	writeCommandAPI(&source, features)
+	source.WriteString("}\n")
+	return source.Bytes(), routeSpecifications, nil
+}
 
+func materializeTargetFiles(
+	specifications []targetFileSpecification,
+	aliases map[string]string,
+	target Target,
+	applicationTarget application.Target,
+) ([]File, error) {
+	files := make([]File, 0, len(specifications))
+	for _, specification := range specifications {
+		content, err := renderTargetFile(specification.body, aliases)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"render %s for %s: %w",
+				specification.filename,
+				applicationTarget.SymbolID,
+				err,
+			)
+		}
+		relatedSources := specification.relatedSources
+		var mappings []SourceMapping
+		if specification.generatedIdentifier != "" &&
+			len(specification.relatedSources) != 0 {
+			line, column, found := generatedIdentifierPosition(
+				content,
+				specification.generatedIdentifier,
+			)
+			if !found {
+				return nil, fmt.Errorf(
+					"generated %s has no position for %s",
+					specification.filename,
+					specification.generatedIdentifier,
+				)
+			}
+			mappings = append(mappings, SourceMapping{
+				Kind:         specification.mappingKind,
+				Contribution: specification.contribution,
+				Source:       specification.relatedSources[0],
+				Generated: generatedIdentifierRange(
+					line,
+					column,
+					specification.generatedIdentifier,
+				),
+			})
+		}
+		files = append(files, File{
+			Path:   path.Join(target.OutputDir, specification.filename),
+			Mode:   0o644,
+			SHA256: contentHash(content),
+			Role:   specification.role,
+			RelatedSources: append(
+				[]SourceOrigin(nil),
+				relatedSources...,
+			),
+			Mappings: mappings,
+			Sources:  append([]SourceOrigin(nil), relatedSources...),
+			content:  content,
+		})
+	}
+	return files, nil
+}
+
+type targetFileSpecification struct {
+	filename            string
+	role                FileRole
+	body                []byte
+	relatedSources      []SourceOrigin
+	mappingKind         string
+	contribution        string
+	generatedIdentifier string
+}
+
+func renderTargetFile(
+	body []byte,
+	aliases map[string]string,
+) ([]byte, error) {
+	used, err := selectorAliases(body)
+	if err != nil {
+		return nil, err
+	}
+	fileAliases := make(map[string]string)
+	for importPath, alias := range aliases {
+		if _, found := used[alias]; found {
+			fileAliases[importPath] = alias
+		}
+	}
+	var source bytes.Buffer
+	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
+	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n\n")
+	source.WriteString("package spicegen\n\n")
+	writeImports(&source, fileAliases)
+	source.Write(body)
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("format generated source for %s: %w", applicationTarget.SymbolID, err)
+		return nil, err
 	}
 	return formatted, nil
+}
+
+func selectorAliases(body []byte) (map[string]struct{}, error) {
+	source := append([]byte("package spicegen\n"), body...)
+	parsed, err := parser.ParseFile(
+		token.NewFileSet(),
+		"generated.go",
+		source,
+		0,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("parse generated declarations: %w", err)
+	}
+	result := make(map[string]struct{})
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		identifier, ok := selector.X.(*ast.Ident)
+		if ok {
+			result[identifier.Name] = struct{}{}
+		}
+		return true
+	})
+	return result, nil
+}
+
+func writeApplicationDependenciesType(
+	source *bytes.Buffer,
+	providers []provider.Provider,
+	aliases map[string]string,
+) {
+	source.WriteString("type applicationDependencies struct {\n")
+	for index, item := range providers {
+		output := renderedType(item.Output, aliases)
+		if item.Scope != sdk.BeanScopeSingleton {
+			output = "spicebean.Provider[" + output + "]"
+		}
+		fmt.Fprintf(
+			source,
+			"\t%s %s\n",
+			providerVariable(index),
+			output,
+		)
+	}
+	source.WriteString("}\n\n")
+}
+
+func writeApplicationDependenciesReturn(
+	source *bytes.Buffer,
+	providers []provider.Provider,
+) {
+	source.WriteString("\treturn &applicationDependencies{\n")
+	for index := range providers {
+		variable := providerVariable(index)
+		fmt.Fprintf(source, "\t\t%s: %s,\n", variable, variable)
+	}
+	source.WriteString("\t}, nil\n")
+}
+
+func writeHTTPSetupCall(
+	source *bytes.Buffer,
+	features commandFeatures,
+) {
+	source.WriteString("\tif _, err := configureGeneratedHTTP(\n")
+	source.WriteString("\t\tctx,\n")
+	source.WriteString("\t\tapplication,\n")
+	source.WriteString("\t\toptions,\n")
+	source.WriteString("\t\tconfigurationSchema,\n")
+	source.WriteString("\t\tconfigurationSnapshot,\n")
+	source.WriteString("\t\tdependencies,\n")
+	source.WriteString("\t\thttpObservers,\n")
+	if features.metrics {
+		source.WriteString("\t\tmanagementMetrics,\n")
+	}
+	if features.authorization {
+		source.WriteString("\t\tauthorizer,\n")
+	}
+	source.WriteString("\t); err != nil {\n")
+	source.WriteString("\t\treturn nil, err\n")
+	source.WriteString("\t}\n")
+}
+
+func writeHTTPSetupSignature(
+	source *bytes.Buffer,
+	features commandFeatures,
+) {
+	source.WriteString("func configureGeneratedHTTP(\n")
+	source.WriteString("\tctx context.Context,\n")
+	source.WriteString("\tapplication *Application,\n")
+	source.WriteString("\toptions ApplicationOptions,\n")
+	source.WriteString("\tconfigurationSchema spiceconfig.Schema,\n")
+	source.WriteString("\tconfigurationSnapshot spiceconfig.Snapshot,\n")
+	source.WriteString("\tdependencies *applicationDependencies,\n")
+	source.WriteString("\thttpObservers []spiceweb.HTTPObserver,\n")
+	if features.metrics {
+		source.WriteString("\tmanagementMetrics *spicemanagement.HTTPMetrics,\n")
+	}
+	if features.authorization {
+		source.WriteString("\tauthorizer *spicesecurity.Authorizer,\n")
+	}
+	source.WriteString(") (*Application, error) {\n")
+	source.WriteString("\t_ = configurationSchema\n")
+	source.WriteString("\t_ = configurationSnapshot\n")
+	source.WriteString("\t_ = dependencies\n")
+	source.WriteString("\t_ = httpObservers\n")
+}
+
+func renderRouteSpecifications(
+	controllers []controller.Controller,
+	transactions []compilertransaction.Boundary,
+	caches []compilercache.Boundary,
+	providerVariables map[string]string,
+	aliases map[string]string,
+	features commandFeatures,
+	applicationOrigins []SourceOrigin,
+) ([]targetFileSpecification, error) {
+	transactionIndex := make(
+		map[string]compilertransaction.Boundary,
+		len(transactions),
+	)
+	for _, boundary := range transactions {
+		transactionIndex[boundary.RouteID] = boundary
+	}
+	cacheIndex := make(map[string]compilercache.Boundary, len(caches))
+	for _, boundary := range caches {
+		cacheIndex[boundary.RouteID] = boundary
+	}
+
+	var result []targetFileSpecification
+	for _, item := range controllers {
+		receiver := providerVariables[item.ProviderID]
+		for _, route := range item.Routes() {
+			functionName, filename := generatedRouteIdentity(route)
+			var source bytes.Buffer
+			writeRouteSetupSignature(
+				&source,
+				functionName,
+				features,
+			)
+			var routeCaches []compilercache.Boundary
+			if boundary, found := cacheIndex[route.SymbolID]; found {
+				routeCaches = append(routeCaches, boundary)
+			}
+			cacheRuntimes := writeCacheSetup(
+				&source,
+				routeCaches,
+				aliases,
+			)
+			middleware := "options.Middleware"
+			if authorization, protected := route.Authorization(); protected {
+				middleware = writeRouteAuthorization(
+					&source,
+					authorization,
+					route.HTTPMethod+" "+route.Path,
+					0,
+				)
+			}
+			if err := writeControllerRoute(
+				&source,
+				route,
+				transactionIndex,
+				cacheRuntimes,
+				providerVariables,
+				receiver,
+				middleware,
+				aliases,
+				0,
+			); err != nil {
+				return nil, err
+			}
+			source.WriteString("\treturn application, nil\n")
+			source.WriteString("}\n")
+			related := sourceOriginsForSymbol(
+				applicationOrigins,
+				route.SymbolID,
+			)
+			result = append(result, targetFileSpecification{
+				filename:            filename,
+				role:                FileRoleTargetHTTPRoute,
+				body:                source.Bytes(),
+				relatedSources:      related,
+				mappingKind:         "http-route-wiring",
+				contribution:        route.SymbolID,
+				generatedIdentifier: functionName,
+			})
+		}
+	}
+	return result, nil
+}
+
+func generatedRouteIdentity(route controller.Route) (string, string) {
+	digest := sha256.Sum256([]byte(route.SymbolID))
+	suffix := hex.EncodeToString(digest[:6])
+	label := targetid.Default(
+		path.Base(route.Symbol.PackagePath) + "_" +
+			route.Symbol.Receiver + "_" +
+			route.Name,
+	)
+	const maximumRouteLabelLength = 64
+	if len(label) > maximumRouteLabelLength {
+		label = strings.TrimSuffix(
+			label[:maximumRouteLabelLength],
+			"_",
+		)
+	}
+	return "registerGeneratedRoute" + suffix,
+		"spice_http_route_" + label + "_" + suffix + "_gen.go"
+}
+
+func sourceOriginsForSymbol(
+	origins []SourceOrigin,
+	symbolID string,
+) []SourceOrigin {
+	return sourceOriginsForSymbolFamilies(origins, symbolID)
+}
+
+func sourceOriginsForSymbolFamilies(
+	origins []SourceOrigin,
+	symbolIDs ...string,
+) []SourceOrigin {
+	var result []SourceOrigin
+	for _, origin := range origins {
+		for _, symbolID := range symbolIDs {
+			if origin.Symbol == symbolID ||
+				strings.HasPrefix(origin.Symbol, symbolID+".") ||
+				strings.HasPrefix(origin.Symbol, symbolID+"#") {
+				result = append(result, origin)
+				break
+			}
+		}
+	}
+	return result
+}
+
+func mergeSourceOrigins(groups ...[]SourceOrigin) []SourceOrigin {
+	var result []SourceOrigin
+	for _, group := range groups {
+		result = append(result, group...)
+	}
+	sortSourceOrigins(result)
+	return slices.Compact(result)
+}
+
+func providerSourceOrigins(
+	origins []SourceOrigin,
+	providers []provider.Provider,
+	events []compilerevent.Topic,
+) []SourceOrigin {
+	symbols := make([]string, 0, len(providers)+len(events))
+	for _, item := range providers {
+		symbols = append(symbols, item.SymbolID)
+	}
+	for _, topic := range events {
+		symbols = append(symbols, topic.MarkerID)
+		for _, listener := range topic.Listeners() {
+			symbols = append(symbols, listener.MethodID)
+		}
+	}
+	return sourceOriginsForSymbolFamilies(origins, symbols...)
+}
+
+func configurationSourceOrigins(
+	origins []SourceOrigin,
+	configTypes []configuration.Type,
+) []SourceOrigin {
+	symbols := make([]string, 0, len(configTypes))
+	for _, item := range configTypes {
+		symbols = append(symbols, item.SymbolID)
+	}
+	return sourceOriginsForSymbolFamilies(origins, symbols...)
+}
+
+func featureSourceOrigins(
+	origins []SourceOrigin,
+	components []compilerlifecycle.Component,
+	jobs []compilerschedule.Job,
+	tasks []compilerasync.Task,
+) []SourceOrigin {
+	var symbols []string
+	for _, component := range components {
+		if component.Start != nil {
+			symbols = append(symbols, component.Start.MethodID)
+		}
+		if component.Stop != nil {
+			symbols = append(symbols, component.Stop.MethodID)
+		}
+	}
+	for _, job := range jobs {
+		symbols = append(symbols, job.MethodID)
+	}
+	for _, task := range tasks {
+		symbols = append(symbols, task.MethodID)
+	}
+	return sourceOriginsForSymbolFamilies(origins, symbols...)
+}
+
+func controllerSourceOrigins(
+	origins []SourceOrigin,
+	controllers []controller.Controller,
+) []SourceOrigin {
+	var symbols []string
+	for _, item := range controllers {
+		symbols = append(symbols, item.SymbolID)
+		for _, route := range item.Routes() {
+			symbols = append(symbols, route.SymbolID)
+		}
+	}
+	return sourceOriginsForSymbolFamilies(origins, symbols...)
+}
+
+func writeRouteSetupSignature(
+	source *bytes.Buffer,
+	functionName string,
+	features commandFeatures,
+) {
+	fmt.Fprintf(source, "func %s(\n", functionName)
+	source.WriteString("\tctx context.Context,\n")
+	source.WriteString("\tapplication *Application,\n")
+	source.WriteString("\toptions ApplicationOptions,\n")
+	source.WriteString("\tconfigurationSnapshot spiceconfig.Snapshot,\n")
+	source.WriteString("\tdependencies *applicationDependencies,\n")
+	source.WriteString("\thttpObservers []spiceweb.HTTPObserver,\n")
+	source.WriteString("\trouteMux *http.ServeMux,\n")
+	if features.authorization {
+		source.WriteString("\tauthorizer *spicesecurity.Authorizer,\n")
+	}
+	source.WriteString(") (*Application, error) {\n")
+	source.WriteString("\t_ = configurationSnapshot\n")
+	source.WriteString("\t_ = dependencies\n")
+	source.WriteString("\t_ = httpObservers\n")
+	if features.authorization {
+		source.WriteString("\t_ = authorizer\n")
+	}
+}
+
+func writeRouteSetupCall(
+	source *bytes.Buffer,
+	functionName string,
+	features commandFeatures,
+) {
+	fmt.Fprintf(source, "\tif _, err := %s(\n", functionName)
+	source.WriteString("\t\tctx,\n")
+	source.WriteString("\t\tapplication,\n")
+	source.WriteString("\t\toptions,\n")
+	source.WriteString("\t\tconfigurationSnapshot,\n")
+	source.WriteString("\t\tdependencies,\n")
+	source.WriteString("\t\thttpObservers,\n")
+	source.WriteString("\t\trouteMux,\n")
+	if features.authorization {
+		source.WriteString("\t\tauthorizer,\n")
+	}
+	source.WriteString("\t); err != nil {\n")
+	source.WriteString("\t\treturn nil, err\n")
+	source.WriteString("\t}\n")
 }
 
 type providerSourceUnit struct {
@@ -2561,93 +3394,79 @@ func writeCacheSetup(
 	return result
 }
 
-func writeControllerRoutes(
+func writeControllerRoute(
 	source *bytes.Buffer,
-	controllers []controller.Controller,
-	transactions []compilertransaction.Boundary,
+	route controller.Route,
+	transactionIndex map[string]compilertransaction.Boundary,
 	caches map[string]cacheRuntime,
 	providerVariables map[string]string,
+	receiver string,
+	middleware string,
 	aliases map[string]string,
-	authorizationMiddleware map[string]string,
+	routeIndex int,
 ) error {
-	transactionIndex := make(map[string]compilertransaction.Boundary, len(transactions))
-	for _, boundary := range transactions {
-		transactionIndex[boundary.RouteID] = boundary
-	}
-	routeIndex := 0
-	for _, item := range controllers {
-		receiver := providerVariables[item.ProviderID]
-		for _, route := range item.Routes() {
-			pattern := route.HTTPMethod + " " + route.Path
-			middleware := "options.Middleware"
-			if protected, found := authorizationMiddleware[route.SymbolID]; found {
-				middleware = protected
-			}
-			observation := writeRouteObservation(source, route, pattern, routeIndex)
-			if route.Raw {
-				if _, transactional := transactionIndex[route.SymbolID]; transactional {
-					return fmt.Errorf(
-						"raw route %s cannot own a transaction boundary",
-						route.SymbolID,
-					)
-				}
-				fmt.Fprintf(
-					source,
-					"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(%s.%s), %s, %s...); routeErr != nil {\n",
-					strconv.Quote(pattern),
-					receiver,
-					route.Name,
-					observation,
-					middleware,
-				)
-				writeRouteRegistrationError(source, pattern)
-				routeIndex++
-				continue
-			}
-			boundary, transactional := transactionIndex[route.SymbolID]
-			if route.ExecutorParameter != transactional {
-				return fmt.Errorf(
-					"typed route %s transaction metadata does not match its explicit executor parameter",
-					route.SymbolID,
-				)
-			}
-			if transactional &&
-				providerVariables[boundary.ManagerProviderID] == "" {
-				return fmt.Errorf(
-					"transaction boundary %s has no manager provider variable",
-					route.SymbolID,
-				)
-			}
-			if route.View &&
-				providerVariables[route.ViewRendererID] == "" {
-				return fmt.Errorf(
-					"view route %s has no renderer provider variable",
-					route.SymbolID,
-				)
-			}
-			if route.BindingResult {
-				if _, cacheable := caches[route.SymbolID]; cacheable {
-					return fmt.Errorf(
-						"form route %s cannot be cacheable",
-						route.SymbolID,
-					)
-				}
-			}
-			writeTypedRoute(
-				source,
-				route,
-				transactionIndex,
-				caches,
-				providerVariables,
-				receiver,
-				pattern,
-				observation,
-				middleware,
-				aliases,
+	pattern := route.HTTPMethod + " " + route.Path
+	observation := writeRouteObservation(source, route, pattern, routeIndex)
+	if route.Raw {
+		if _, transactional := transactionIndex[route.SymbolID]; transactional {
+			return fmt.Errorf(
+				"raw route %s cannot own a transaction boundary",
+				route.SymbolID,
 			)
-			routeIndex++
+		}
+		fmt.Fprintf(
+			source,
+			"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(%s.%s), %s, %s...); routeErr != nil {\n",
+			strconv.Quote(pattern),
+			receiver,
+			route.Name,
+			observation,
+			middleware,
+		)
+		writeRouteRegistrationError(source, pattern)
+		return nil
+	}
+	boundary, transactional := transactionIndex[route.SymbolID]
+	if route.ExecutorParameter != transactional {
+		return fmt.Errorf(
+			"typed route %s transaction metadata does not match its explicit executor parameter",
+			route.SymbolID,
+		)
+	}
+	if transactional &&
+		providerVariables[boundary.ManagerProviderID] == "" {
+		return fmt.Errorf(
+			"transaction boundary %s has no manager provider variable",
+			route.SymbolID,
+		)
+	}
+	if route.View &&
+		providerVariables[route.ViewRendererID] == "" {
+		return fmt.Errorf(
+			"view route %s has no renderer provider variable",
+			route.SymbolID,
+		)
+	}
+	if route.BindingResult {
+		if _, cacheable := caches[route.SymbolID]; cacheable {
+			return fmt.Errorf(
+				"form route %s cannot be cacheable",
+				route.SymbolID,
+			)
 		}
 	}
+	writeTypedRoute(
+		source,
+		route,
+		transactionIndex,
+		caches,
+		providerVariables,
+		receiver,
+		pattern,
+		observation,
+		middleware,
+		aliases,
+	)
 	return nil
 }
 
@@ -2689,28 +3508,6 @@ func hasAuthorization(controllers []controller.Controller) bool {
 		}
 	}
 	return false
-}
-
-func writeRouteAuthorizations(
-	source *bytes.Buffer,
-	controllers []controller.Controller,
-) map[string]string {
-	result := make(map[string]string)
-	routeIndex := 0
-	for _, item := range controllers {
-		for _, route := range item.Routes() {
-			if authorization, protected := route.Authorization(); protected {
-				result[route.SymbolID] = writeRouteAuthorization(
-					source,
-					authorization,
-					route.HTTPMethod+" "+route.Path,
-					routeIndex,
-				)
-			}
-			routeIndex++
-		}
-	}
-	return result
 }
 
 func writeRouteAuthorization(

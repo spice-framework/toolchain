@@ -216,7 +216,7 @@ func assertThirdPartyGeneration(
 ) {
 	t.Helper()
 	plan, found := result.GenerationPlan()
-	if !found || len(plan.Files()) != 3 {
+	if !found || len(plan.Files()) == 0 {
 		t.Fatalf(
 			"GenerationPlan() found=%t files=%d",
 			found,
@@ -234,7 +234,7 @@ func assertThirdPartyGeneration(
 		}
 	}
 	if generated.Path !=
-		"internal/spicegen/spice_annotation_app/zz_spice_gen.go" ||
+		"internal/spicegen/spice_annotation_app/spice_assembly_gen.go" ||
 		sourceUnit.Path !=
 			"internal/spicegen/spice_annotation_app/sources/component/message_spice_gen.go" ||
 		!bytes.Contains(
