@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -98,6 +99,9 @@ type verificationStep struct {
 
 func check(ctx context.Context, root string) error {
 	return runSequential([]verificationStep{
+		{"Spring coverage resolution", func() error {
+			return checkSpringCoverage(root)
+		}},
 		{"formatting", func() error { return format(ctx, root, false) }},
 		{"module tidiness", func() error { return checkModuleTidy(ctx, root) }},
 		{"go vet", func() error { return vet(ctx, root) }},
@@ -147,6 +151,9 @@ func compileTests(ctx context.Context, root string) error {
 
 func verify(ctx context.Context, root string, release bool) error {
 	if err := runSequential([]verificationStep{
+		{"Spring coverage resolution", func() error {
+			return checkSpringCoverage(root)
+		}},
 		{"formatting", func() error { return format(ctx, root, false) }},
 		{"module tidiness", func() error { return checkModuleTidy(ctx, root) }},
 		{"vendor consistency", func() error { return checkVendor(ctx, root) }},
@@ -201,6 +208,77 @@ func verify(ctx context.Context, root string, release bool) error {
 		return err
 	}
 	output.Println("==> all verification passed")
+	return nil
+}
+
+func checkSpringCoverage(root string) (resultErr error) {
+	repository, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("open repository root: %w", err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, repository.Close())
+	}()
+	file, err := repository.Open("docs/spring-coverage.md")
+	if err != nil {
+		return fmt.Errorf("open Spring coverage map: %w", err)
+	}
+	content, err := io.ReadAll(file)
+	closeErr := file.Close()
+	if err != nil || closeErr != nil {
+		return fmt.Errorf(
+			"read Spring coverage map: %w",
+			errors.Join(err, closeErr),
+		)
+	}
+	allowed := map[string]struct{}{
+		"available":   {},
+		"integration": {},
+		"not-planned": {},
+	}
+	rows := 0
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	for line := 1; scanner.Scan(); line++ {
+		text := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(text, "|") ||
+			strings.HasPrefix(text, "|---") ||
+			strings.HasPrefix(text, "| Area ") {
+			continue
+		}
+		columns := strings.Split(text, "|")
+		if len(columns) != 6 {
+			return fmt.Errorf(
+				"spring coverage map line %d has %d columns, want 4",
+				line,
+				len(columns)-2,
+			)
+		}
+		status := strings.TrimSpace(columns[4])
+		if _, valid := allowed[status]; !valid {
+			return fmt.Errorf(
+				"spring coverage map line %d has unresolved or invalid status %q",
+				line,
+				status,
+			)
+		}
+		if status == "not-planned" &&
+			!strings.Contains(
+				strings.ToLower(columns[3]),
+				"deliberately",
+			) {
+			return fmt.Errorf(
+				"spring coverage map line %d marks not-planned without a deliberate rationale",
+				line,
+			)
+		}
+		rows++
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scan Spring coverage map: %w", err)
+	}
+	if rows == 0 {
+		return errors.New("spring coverage map has no capability rows")
+	}
 	return nil
 }
 

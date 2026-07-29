@@ -26,6 +26,14 @@ func TestVerifyOrchestration(t *testing.T) {
 		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
 	)
 	writeTestFile(t, root, "main.go", "package main\n")
+	writeTestFile(
+		t,
+		root,
+		"docs/spring-coverage.md",
+		"| Area | Spring capability | Spice direction | Status |\n"+
+			"|---|---|---|---|\n"+
+			"| Core | Test | Executable contract | available |\n",
+	)
 	writeTestFile(t, root, "vendor/modules.txt", "# test vendor tree\n")
 	writeTestFile(
 		t,
@@ -122,6 +130,65 @@ func TestVerifyOrchestration(t *testing.T) {
 		if !containsCall(recordedCalls, expected) {
 			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(recordedCalls, "\n"))
 		}
+	}
+}
+
+func TestCheckSpringCoverageRejectsUnresolvedAndUndocumentedNonGoals(
+	t *testing.T,
+) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		row     string
+		wantErr string
+	}{
+		"available": {
+			row: "| Core | DI | Exact generated calls | available |",
+		},
+		"integration": {
+			row: "| Data | SQL | Driver integrations | integration |",
+		},
+		"deliberate non-goal": {
+			row: "| Data | JPA | Deliberately uses explicit SQL | not-planned |",
+		},
+		"unresolved": {
+			row:     "| Core | DI | Work remains | in-progress |",
+			wantErr: `unresolved or invalid status "in-progress"`,
+		},
+		"planned": {
+			row:     "| Core | DI | Work remains | planned |",
+			wantErr: `unresolved or invalid status "planned"`,
+		},
+		"unexplained non-goal": {
+			row:     "| Data | JPA | Explicit SQL | not-planned |",
+			wantErr: "without a deliberate rationale",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			writeTestFile(
+				t,
+				root,
+				"docs/spring-coverage.md",
+				"| Area | Spring capability | Spice direction | Status |\n"+
+					"|---|---|---|---|\n"+
+					test.row+"\n",
+			)
+			err := checkSpringCoverage(root)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("checkSpringCoverage() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf(
+					"checkSpringCoverage() error = %v, want containing %q",
+					err,
+					test.wantErr,
+				)
+			}
+		})
 	}
 }
 
