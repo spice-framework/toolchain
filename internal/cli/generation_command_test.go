@@ -23,6 +23,15 @@ func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
 		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	generatedPath := filepath.Join(root, "internal", "spicegen", "application", "zz_spice_gen.go")
+	sourceUnitPath := filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"application",
+		"sources",
+		"app",
+		"application_spice_gen.go",
+	)
 	manifestPath := filepath.Join(root, ".spice", "application.manifest.json")
 	if _, err := os.Stat(generatedPath); err != nil {
 		t.Fatalf("generated file: %v", err)
@@ -57,7 +66,7 @@ func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
 	}
 	code, stdout, stderr = runModule(root, "generate", "--diff", "./...")
 	if code != 1 ||
-		!strings.Contains(stdout, "+\tprovider0 := app.ValueProvider()") ||
+		!strings.Contains(stdout, "+\tvalue := app.ValueProvider()") ||
 		!strings.Contains(stderr, "generation is stale") {
 		t.Fatalf("generate --diff: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -70,10 +79,10 @@ func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
 	}
 
 	code, stdout, stderr = runModule(root, "generate", "./...")
-	if code != 0 || !strings.Contains(stdout, "wrote 1 file") || stderr != "" {
+	if code != 0 || !strings.Contains(stdout, "wrote 2 file") || stderr != "" {
 		t.Fatalf("regenerate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	content, err := os.ReadFile(generatedPath)
+	content, err := os.ReadFile(sourceUnitPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,10 +112,10 @@ func Application(Value) {}
 		t.Fatal(writeErr)
 	}
 	code, stdout, stderr = runModule(root, "generate", "./...")
-	if code != 0 || !strings.Contains(stdout, "wrote 1 file") || stderr != "" {
+	if code != 0 || !strings.Contains(stdout, "wrote 2 file") || stderr != "" {
 		t.Fatalf("recover stale uncompilable output: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	content, err = os.ReadFile(generatedPath)
+	content, err = os.ReadFile(sourceUnitPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,12 +206,24 @@ func Mux() *http.ServeMux {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sourceUnit, err := os.ReadFile(filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"shop",
+		"sources",
+		"platform",
+		"platform_spice_gen.go",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(content), "package spicegen") ||
 		!strings.Contains(
 			string(bridge),
 			"func spiceMain(arguments []string) int",
 		) ||
-		!strings.Contains(string(content), "platform.Mux()") {
+		!strings.Contains(string(sourceUnit), "platform.Mux()") {
 		t.Fatalf("generated package-main source:\n%s", content)
 	}
 

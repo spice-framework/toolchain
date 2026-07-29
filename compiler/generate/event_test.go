@@ -17,6 +17,7 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 		)
 	}
 
+	var firstPlan Plan
 	var firstSource, firstManifest []byte
 	for iteration := range 10 {
 		plan, renderDiagnostics := Render(
@@ -34,6 +35,7 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 		source := generatedGoContent(t, plan)
 		manifest := plan.ManifestContent()
 		if iteration == 0 {
+			firstPlan = plan
 			firstSource = source
 			firstManifest = manifest
 			writePlan(t, root, plan)
@@ -69,11 +71,25 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 	assertOrdered(
 		t,
 		string(firstSource),
-		"events.NewInventory()",
-		"events.NewAudit()",
+		"provider0,",
+		"provider1,",
 		"spiceevent.NewTopic(",
-		"events.NewService(provider2)",
+		"provider3,",
 	)
+	eventSource := generatedSourceUnitContent(t, firstPlan, "events/events.go")
+	for _, directCall := range [][]byte{
+		[]byte("events.NewInventory()"),
+		[]byte("events.NewAudit()"),
+		[]byte("events.NewService(dependency0)"),
+	} {
+		if !bytes.Contains(eventSource, directCall) {
+			t.Fatalf(
+				"generated event source unit omitted %q:\n%s",
+				directCall,
+				eventSource,
+			)
+		}
+	}
 	assertOrdered(
 		t,
 		string(firstSource),

@@ -755,14 +755,14 @@ func (*Stripe) Process() error { return nil }
 		assertionFile = file.Content()
 	}
 	if assertionPath !=
-		"payments/stripe_servicefixture_spice_gen.go" ||
+		"internal/spicegen/servicefixture/sources/payments/stripe_spice_gen.go" ||
 		!bytes.Contains(
 			assertionFile,
 			[]byte("var spiceImplements"),
 		) ||
 		!bytes.Contains(
 			assertionFile,
-			[]byte("contracts.Processor = *new(*Stripe)"),
+			[]byte("contracts.Processor = *new(*payments.Stripe)"),
 		) {
 		t.Fatalf(
 			"generated assertion path=%q content=%s",

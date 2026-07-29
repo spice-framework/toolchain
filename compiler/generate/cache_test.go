@@ -16,6 +16,7 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		)
 	}
 
+	var firstPlan Plan
 	var firstSource, firstManifest []byte
 	for iteration := range 10 {
 		plan, renderDiagnostics := Render(
@@ -33,6 +34,7 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		source := generatedGoContent(t, plan)
 		manifest := plan.ManifestContent()
 		if iteration == 0 {
+			firstPlan = plan
 			firstSource = source
 			firstManifest = manifest
 			writePlan(t, root, plan)
@@ -72,12 +74,19 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 	assertOrdered(
 		t,
 		string(firstSource),
-		"api.NewAPI()",
+		"spicesource0.Construct",
 		"spicecache.NewMemory[api.Request, api.Response](",
 		"generatedCache0.Get(httpRequest.Context(), requestValue)",
 		"provider0.Product(httpRequest.Context(), requestValue)",
 		"generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)",
 	)
+	apiSource := generatedSourceUnitContent(t, firstPlan, "api/api.go")
+	if !bytes.Contains(apiSource, []byte("api.NewAPI()")) {
+		t.Fatalf(
+			"generated API source unit omitted direct constructor:\n%s",
+			apiSource,
+		)
+	}
 
 	writeTestFile(
 		t,

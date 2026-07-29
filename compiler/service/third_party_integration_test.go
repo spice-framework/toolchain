@@ -216,7 +216,7 @@ func assertThirdPartyGeneration(
 ) {
 	t.Helper()
 	plan, found := result.GenerationPlan()
-	if !found || len(plan.Files()) != 2 {
+	if !found || len(plan.Files()) != 3 {
 		t.Fatalf(
 			"GenerationPlan() found=%t files=%d",
 			found,
@@ -224,25 +224,37 @@ func assertThirdPartyGeneration(
 		)
 	}
 	var generated generate.File
+	var sourceUnit generate.File
 	for _, file := range plan.Files() {
 		if file.Role == generate.FileRoleApplication {
 			generated = file
 		}
+		if file.Role == generate.FileRoleSourceUnit {
+			sourceUnit = file
+		}
 	}
 	if generated.Path !=
 		"internal/spicegen/spice_annotation_app/zz_spice_gen.go" ||
+		sourceUnit.Path !=
+			"internal/spicegen/spice_annotation_app/sources/component/message_spice_gen.go" ||
 		!bytes.Contains(
-			generated.Content(),
+			sourceUnit.Content(),
 			[]byte("component.ProvideMessage()"),
 		) {
-		t.Fatalf("generated file = %q", generated.Content())
+		t.Fatalf(
+			"generated files = orchestrator %q, source unit %q",
+			generated.Content(),
+			sourceUnit.Content(),
+		)
 	}
-	committed, err := os.ReadFile(filepath.Join(root, generated.Path))
-	if err != nil {
-		t.Fatalf("ReadFile(%s) error = %v", generated.Path, err)
-	}
-	if !bytes.Equal(committed, generated.Content()) {
-		t.Fatal("committed third-party generated Go is stale")
+	for _, file := range []generate.File{generated, sourceUnit} {
+		committed, err := os.ReadFile(filepath.Join(root, file.Path))
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", file.Path, err)
+		}
+		if !bytes.Equal(committed, file.Content()) {
+			t.Fatalf("committed third-party generated Go %s is stale", file.Path)
+		}
 	}
 	manifest, err := os.ReadFile(filepath.Join(
 		root,

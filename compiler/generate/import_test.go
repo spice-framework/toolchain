@@ -26,7 +26,6 @@ func TestImportAliasesIncludeFactoryOutputPackage(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 		commandFeatures{},
 	)
 	if aliases[outputPackage.Path()] != "i18n" {

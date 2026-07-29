@@ -74,7 +74,9 @@ func TestCommandsUseExplicitRepositoryStarterSelection(t *testing.T) {
 		"internal",
 		"spicegen",
 		"application",
-		"zz_spice_gen.go",
+		"sources",
+		"searchstarter",
+		"search_spice_gen.go",
 	)
 	generated, err := os.ReadFile(generatedPath)
 	if err != nil {
@@ -105,18 +107,21 @@ func TestUnselectedStarterDoesNotActivateConstructor(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "generated target Application") || stderr != "" {
 		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	generated, err := os.ReadFile(filepath.Join(
+	sourceUnitPath := filepath.Join(
 		root,
 		"internal",
 		"spicegen",
 		"application",
-		"zz_spice_gen.go",
-	))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(generated), "searchstarter.New") {
-		t.Fatalf("absent annotation activated starter constructor:\n%s", generated)
+		"sources",
+		"searchstarter",
+		"search_spice_gen.go",
+	)
+	if _, err := os.Stat(sourceUnitPath); !os.IsNotExist(err) {
+		t.Fatalf(
+			"absent annotation created starter source unit %s: %v",
+			sourceUnitPath,
+			err,
+		)
 	}
 }
 
@@ -148,7 +153,9 @@ func Application(*ApplicationService) {}
 		"internal",
 		"spicegen",
 		"application",
-		"zz_spice_gen.go",
+		"sources",
+		"searchstarter",
+		"search_spice_gen.go",
 	))
 	if err != nil {
 		t.Fatal(err)

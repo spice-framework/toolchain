@@ -44,18 +44,40 @@ func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {
 	if len(diagnostics) != 0 {
 		t.Fatalf("Render() diagnostics = %v", diagnostics)
 	}
-	source := firstPlan.Files()[0].Content()
+	source := generatedGoContent(t, firstPlan)
 	for _, expected := range []string{
-		"app.Options()",
-		"search.New(provider0)",
-		"app.NewServer(provider1)",
+		"spicesource0.Construct",
+		"spicesource1.Construct",
 		`search "example.com/starterfixture/search"`,
 	} {
 		if !bytes.Contains(source, []byte(expected)) {
 			t.Fatalf("generated source missing %q:\n%s", expected, source)
 		}
 	}
-	assertOrdered(t, string(source), "app.Options()", "search.New(provider0)", "app.NewServer(provider1)")
+	assertOrdered(t, string(source), "provider0,", "provider1,", "provider2,")
+	appSource := generatedSourceUnitContent(
+		t,
+		firstPlan,
+		"app/application.go",
+	)
+	searchSource := generatedSourceUnitContent(
+		t,
+		firstPlan,
+		"search/search.go",
+	)
+	for directCall, sourceUnit := range map[string][]byte{
+		"app.Options()":              appSource,
+		"app.NewServer(dependency0)": appSource,
+		"search.New(dependency0)":    searchSource,
+	} {
+		if !bytes.Contains(sourceUnit, []byte(directCall)) {
+			t.Fatalf(
+				"generated source unit omitted %q:\n%s",
+				directCall,
+				sourceUnit,
+			)
+		}
+	}
 
 	secondModel := buildStarterModel(t, program, resolution, "1.2.4")
 	secondTargets := secondModel.Targets()
@@ -66,7 +88,7 @@ func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {
 	if firstPlan.Manifest().InputSHA256 == secondPlan.Manifest().InputSHA256 {
 		t.Fatal("starter source version did not change the generated ownership hash")
 	}
-	if !bytes.Equal(source, secondPlan.Files()[0].Content()) {
+	if !bytes.Equal(source, generatedGoContent(t, secondPlan)) {
 		t.Fatal("starter provenance changed ordinary generated Go source")
 	}
 
@@ -138,7 +160,7 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 	}
 	source := string(generatedGoContent(t, first))
 	for _, expected := range []string{
-		"telemetry.New(provider",
+		"spicesource",
 		"httpObservers = append(httpObservers, provider",
 	} {
 		if !strings.Contains(source, expected) {
@@ -152,10 +174,24 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 	assertOrdered(
 		t,
 		source,
-		"telemetry.New(provider",
+		"provider4,",
 		"httpObservers = append(httpObservers, provider",
 		"spiceweb.ObservationMiddleware",
 	)
+	telemetrySource := generatedSourceUnitContent(
+		t,
+		first,
+		"telemetry/telemetry.go",
+	)
+	if !bytes.Contains(
+		telemetrySource,
+		[]byte("telemetry.New(dependency0)"),
+	) {
+		t.Fatalf(
+			"generated telemetry source unit omitted direct constructor:\n%s",
+			telemetrySource,
+		)
+	}
 
 	writePlan(t, root, first)
 	writeTestFile(

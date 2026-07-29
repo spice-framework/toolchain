@@ -606,6 +606,17 @@ func normalizeManifestTarget(
 				"ownership manifest target does not match the selected generation target",
 			)
 		}
+	case 3:
+		expected := plan.Manifest().Target
+		compatiblePreEntrypoint := manifest.Target
+		if compatiblePreEntrypoint.EntrypointPackagePath == "" {
+			compatiblePreEntrypoint.EntrypointPackagePath = expected.EntrypointPackagePath
+		}
+		if compatiblePreEntrypoint != expected {
+			return errors.New(
+				"schema-3 ownership manifest target does not match the selected generation target",
+			)
+		}
 	case 2:
 		if !compatibleSchema2Target(manifest.Target, plan.Target()) {
 			return errors.New(
@@ -814,30 +825,18 @@ func validatePlanFiles(plan generate.Plan, target generate.Target, manifest gene
 	}
 	seen := make(map[string]struct{}, len(files)+1)
 	for index, file := range files {
-		if err := validateRelativePath(file.Path); err != nil {
-			return fmt.Errorf("generated file %q: %w", file.Path, err)
-		}
-		if !withinTargetOutput(target, file.Path, file.Role) {
-			return fmt.Errorf("generated file %q is outside output directory %q", file.Path, target.OutputDir)
+		if err := validatePlanFile(
+			file,
+			manifest.Files[index],
+			target,
+		); err != nil {
+			return err
 		}
 		key := strings.ToLower(file.Path)
 		if _, duplicate := seen[key]; duplicate {
 			return fmt.Errorf("generation plan contains case-colliding path %q", file.Path)
 		}
 		seen[key] = struct{}{}
-		content := file.Content()
-		if err := validateGeneratedContent(file.Path, content); err != nil {
-			return err
-		}
-		if hashContent(content) != file.SHA256 {
-			return fmt.Errorf("generated file %q content does not match its SHA-256", file.Path)
-		}
-		if manifest.Files[index].Path != file.Path ||
-			manifest.Files[index].SHA256 != file.SHA256 ||
-			manifest.Files[index].Role != file.Role ||
-			!slices.Equal(manifest.Files[index].Sources, file.Sources) {
-			return errors.New("plan files and manifest entries are not identically ordered")
-		}
 	}
 	manifestKey := strings.ToLower(target.ManifestPath)
 	if _, collision := seen[manifestKey]; collision {
@@ -845,6 +844,139 @@ func validatePlanFiles(plan generate.Plan, target generate.Target, manifest gene
 	}
 	if encoded := plan.ManifestContent(); len(encoded) == 0 || encoded[len(encoded)-1] != '\n' {
 		return errors.New("plan manifest content must be non-empty canonical JSON ending in a newline")
+	}
+	return nil
+}
+
+func validatePlanFile(
+	file generate.File,
+	manifestFile generate.ManifestFile,
+	target generate.Target,
+) error {
+	if err := validateRelativePath(file.Path); err != nil {
+		return fmt.Errorf("generated file %q: %w", file.Path, err)
+	}
+	if !withinTargetOutput(target, file.Path, file.Role) {
+		return fmt.Errorf(
+			"generated file %q is outside output directory %q",
+			file.Path,
+			target.OutputDir,
+		)
+	}
+	content := file.Content()
+	if err := validateGeneratedContent(file.Path, content); err != nil {
+		return err
+	}
+	if hashContent(content) != file.SHA256 {
+		return fmt.Errorf(
+			"generated file %q content does not match its SHA-256",
+			file.Path,
+		)
+	}
+	if !planFileMatchesManifest(file, manifestFile) {
+		return errors.New(
+			"plan files and manifest entries are not identically ordered",
+		)
+	}
+	if err := validateFileOwnership(file); err != nil {
+		return fmt.Errorf("generated file %q: %w", file.Path, err)
+	}
+	return nil
+}
+
+func planFileMatchesManifest(
+	file generate.File,
+	manifestFile generate.ManifestFile,
+) bool {
+	return manifestFile.Path == file.Path &&
+		manifestFile.SHA256 == file.SHA256 &&
+		manifestFile.Role == file.Role &&
+		sourceOriginPointersEqual(
+			manifestFile.PrimarySource,
+			file.PrimarySource,
+		) &&
+		slices.Equal(
+			manifestFile.RelatedSources,
+			file.RelatedSources,
+		) &&
+		sourceMappingsEqual(
+			manifestFile.Mappings,
+			file.Mappings,
+		)
+}
+
+func sourceOriginPointersEqual(
+	left *generate.SourceOrigin,
+	right *generate.SourceOrigin,
+) bool {
+	switch {
+	case left == nil:
+		return right == nil
+	case right == nil:
+		return false
+	default:
+		return *left == *right
+	}
+}
+
+func sourceMappingsEqual(
+	left []generate.SourceMapping,
+	right []generate.SourceMapping,
+) bool {
+	return slices.EqualFunc(
+		left,
+		right,
+		func(
+			leftMapping generate.SourceMapping,
+			rightMapping generate.SourceMapping,
+		) bool {
+			return leftMapping.Kind == rightMapping.Kind &&
+				leftMapping.Contribution == rightMapping.Contribution &&
+				leftMapping.Source == rightMapping.Source &&
+				leftMapping.Generated == rightMapping.Generated &&
+				slices.Equal(
+					leftMapping.RelatedSource,
+					rightMapping.RelatedSource,
+				)
+		},
+	)
+}
+
+func validateFileOwnership(file generate.File) error {
+	if file.Role != generate.FileRoleSourceUnit {
+		return nil
+	}
+	if file.PrimarySource == nil {
+		return errors.New("source unit requires one primary source")
+	}
+	if len(file.Mappings) == 0 {
+		return errors.New("source unit requires at least one source mapping")
+	}
+	for _, mapping := range file.Mappings {
+		if mapping.Source.Path != file.PrimarySource.Path {
+			return fmt.Errorf(
+				"source mapping %q names %q instead of primary source %q",
+				mapping.Contribution,
+				mapping.Source.Path,
+				file.PrimarySource.Path,
+			)
+		}
+		if mapping.Kind == "" || mapping.Contribution == "" {
+			return errors.New(
+				"source mapping requires kind and contribution identity",
+			)
+		}
+		if mapping.Generated.StartLine <= 0 ||
+			mapping.Generated.StartColumn <= 0 ||
+			mapping.Generated.EndLine < mapping.Generated.StartLine ||
+			mapping.Generated.EndLine == mapping.Generated.StartLine &&
+				mapping.Generated.EndColumn <=
+					mapping.Generated.StartColumn {
+			return fmt.Errorf(
+				"source mapping %q has an invalid generated range",
+				mapping.Contribution,
+			)
+		}
 	}
 	return nil
 }
@@ -1284,7 +1416,7 @@ func withinTargetOutput(
 		path.Dir(filePath) == target.BridgeDir {
 		return true
 	}
-	return role == generate.FileRoleSourceShard &&
+	return role == generate.FileRole("source-shard") &&
 		path.Ext(filePath) == ".go" &&
 		strings.HasSuffix(
 			path.Base(filePath),

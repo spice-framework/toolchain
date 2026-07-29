@@ -45,7 +45,6 @@ func TestImportNamesExcludeTypesUsedOnlyForSingleDependencyResolution(
 		nil,
 		nil,
 		nil,
-		nil,
 		make(map[string]string),
 	)
 	if _, imported := names[contracts.Path()]; imported {
@@ -57,7 +56,6 @@ func TestImportNamesExcludeTypesUsedOnlyForSingleDependencyResolution(
 	providers[0].Dependencies[0].Kind = provider.DependencySlice
 	names = importNames(
 		providers,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -218,7 +216,7 @@ func Beans(*components.Consumer) {}
 		`spicebean.NewProvider(providerFactory`,
 		`spicebean.NewScoped[*components.RequestValue](spicebean.ScopeRequest`,
 		`spicebean.NewScoped[*components.SessionValue](spicebean.ScopeSession`,
-		`components.NewConsumer(`,
+		`spicesource0.Construct`,
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(
@@ -227,6 +225,20 @@ func Beans(*components.Consumer) {}
 				source,
 			)
 		}
+	}
+	componentSource := string(generatedSourceUnitContent(
+		t,
+		plan,
+		"components/components.go",
+	))
+	if !strings.Contains(
+		componentSource,
+		"components.NewConsumer(",
+	) {
+		t.Fatalf(
+			"generated component source unit omitted direct consumer call:\n%s",
+			componentSource,
+		)
 	}
 	if strings.Contains(source, "reflect.") {
 		t.Fatalf("generated source uses reflection:\n%s", source)

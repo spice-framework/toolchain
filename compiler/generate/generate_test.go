@@ -38,6 +38,7 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		t.Fatalf("DefaultTarget() = %#v", target)
 	}
 
+	var firstPlan Plan
 	var firstSource, firstManifest []byte
 	for iteration := range 20 {
 		plan, renderDiagnostics := Render(program, model, applicationTarget, target)
@@ -45,13 +46,18 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 			t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(renderDiagnostics))
 		}
 		files := plan.Files()
-		if len(files) != 1 || files[0].Path != "internal/spicegen/shop/zz_spice_gen.go" {
+		if len(files) != 2 ||
+			files[0].Path !=
+				"internal/spicegen/shop/sources/components/providers_spice_gen.go" ||
+			files[1].Path != "internal/spicegen/shop/zz_spice_gen.go" {
 			t.Fatalf("Files() = %#v", files)
 		}
+		applicationSource := generatedGoContent(t, plan)
 		if iteration == 0 {
-			firstSource = files[0].Content()
+			firstPlan = plan
+			firstSource = applicationSource
 			firstManifest = plan.ManifestContent()
-		} else if !bytes.Equal(firstSource, files[0].Content()) ||
+		} else if !bytes.Equal(firstSource, applicationSource) ||
 			!bytes.Equal(firstManifest, plan.ManifestContent()) {
 			t.Fatalf("Render() changed bytes at iteration %d", iteration)
 		}
@@ -63,9 +69,8 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		`const TargetID = "shop"`,
 		"type Components struct",
 		"func (application *Application) Components() Components",
-		"components.ConfigProvider()",
-		"components.StoreProvider(provider0)",
-		"components.ServerProvider(provider1)",
+		`spicesource0 "example.com/shop/internal/spicegen/shop/sources/components"`,
+		"spicesource0.Construct",
 		`components "example.com/shop/components"`,
 		"RegisterModuleCleanup(",
 		"provider2.Start",
@@ -77,6 +82,24 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
 			t.Fatalf("generated source missing %q:\n%s", required, firstSource)
+		}
+	}
+	providerSource := string(generatedSourceUnitContent(
+		t,
+		firstPlan,
+		"components/providers.go",
+	))
+	for _, required := range []string{
+		"components.ConfigProvider()",
+		"components.StoreProvider(dependency0)",
+		"components.ServerProvider(dependency0)",
+	} {
+		if !strings.Contains(providerSource, required) {
+			t.Fatalf(
+				"generated provider source unit missing %q:\n%s",
+				required,
+				providerSource,
+			)
 		}
 	}
 	if !bytes.HasPrefix(
@@ -91,12 +114,7 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 			firstSource,
 		)
 	}
-	assertOrdered(
-		t, string(firstSource),
-		"components.ConfigProvider()",
-		"components.StoreProvider(provider0)",
-		"components.ServerProvider(provider1)",
-	)
+	assertOrdered(t, string(firstSource), "provider0,", "provider1,", "provider2,")
 	for _, forbidden := range []string{
 		root,
 		filepath.ToSlash(root),
@@ -119,8 +137,9 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		manifest.GeneratorVersion != GeneratorVersion ||
 		manifest.GoFormatLine != GoFormatLine ||
 		!strings.HasPrefix(manifest.InputSHA256, "sha256:") ||
-		len(manifest.Files) != 1 ||
-		manifest.Files[0].SHA256 != plan.Files()[0].SHA256 {
+		len(manifest.Files) != len(plan.Files()) ||
+		manifest.Files[len(manifest.Files)-1].SHA256 !=
+			plan.Files()[len(plan.Files())-1].SHA256 {
 		t.Fatalf("Manifest() = %#v", manifest)
 	}
 	var decoded Manifest
@@ -134,7 +153,18 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 			return left.Path == right.Path &&
 				left.SHA256 == right.SHA256 &&
 				left.Role == right.Role &&
-				slices.Equal(left.Sources, right.Sources)
+				sourceOriginPointersEqualForTest(
+					left.PrimarySource,
+					right.PrimarySource,
+				) &&
+				slices.Equal(
+					left.RelatedSources,
+					right.RelatedSources,
+				) &&
+				sourceMappingsEqualForTest(
+					left.Mappings,
+					right.Mappings,
+				)
 		},
 	) || decoded.Target != manifest.Target {
 		t.Fatalf("decoded manifest = %#v, want %#v", decoded, manifest)
@@ -216,11 +246,22 @@ func Mux() *http.ServeMux {
 	for _, expected := range []string{
 		"package spicegen",
 		"func Main(arguments []string) int",
-		"platform.Mux()",
+		"spicesource0.Construct",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("generated application source missing %q:\n%s", expected, source)
 		}
+	}
+	platformSource := string(generatedSourceUnitContent(
+		t,
+		plan,
+		"platform/platform.go",
+	))
+	if !strings.Contains(platformSource, "platform.Mux()") {
+		t.Fatalf(
+			"generated platform source unit omitted direct Mux call:\n%s",
+			platformSource,
+		)
 	}
 	for _, forbidden := range []string{
 		"package main",
@@ -292,13 +333,14 @@ func (ValueService) Process(string) error { return nil }
 			generationDiagnosticStrings(diagnostics),
 		)
 	}
-	const assertionPath = "implementation/service_app_spice_gen.go"
+	const assertionPath = "internal/spicegen/app/sources/implementation/service_spice_gen.go"
 	assertions := string(generatedFileContent(t, plan, assertionPath))
 	for _, expected := range []string{
-		"package implementation",
+		"package spicegen",
 		`api "example.com/assertions/api"`,
-		"api.Processor[string] = *new(*PointerService)",
-		"api.Processor[string] = *new(ValueService)",
+		`implementation "example.com/assertions/implementation"`,
+		"api.Processor[string] = *new(*implementation.PointerService)",
+		"api.Processor[string] = *new(implementation.ValueService)",
 		"Source: implementation/service.go:",
 	} {
 		if !strings.Contains(assertions, expected) {
@@ -309,9 +351,9 @@ func (ValueService) Process(string) error { return nil }
 			)
 		}
 	}
-	if strings.Contains(assertions, "package spicegen") {
+	if strings.Contains(assertions, "package implementation") {
 		t.Fatalf(
-			"source-owned interface assertion used generated package:\n%s",
+			"source-owned interface assertion used handwritten package:\n%s",
 			assertions,
 		)
 	}
@@ -335,10 +377,10 @@ func (ValueService) Process(string) error { return nil }
 		if file.Path != assertionPath {
 			continue
 		}
-		found = file.Role == FileRoleSourceShard &&
-			len(file.Sources) == 2 &&
-			file.Sources[0].Path ==
-				"implementation/service.go"
+		found = file.Role == FileRoleSourceUnit &&
+			file.PrimarySource != nil &&
+			file.PrimarySource.Path == "implementation/service.go" &&
+			len(file.Mappings) == 4
 	}
 	if !found {
 		t.Fatalf(
@@ -535,11 +577,11 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 			t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(renderDiagnostics))
 		}
 		if iteration == 0 {
-			firstSource = plan.Files()[0].Content()
+			firstSource = generatedGoContent(t, plan)
 			firstManifest = plan.ManifestContent()
 			continue
 		}
-		if !bytes.Equal(firstSource, plan.Files()[0].Content()) ||
+		if !bytes.Equal(firstSource, generatedGoContent(t, plan)) ||
 			!bytes.Equal(firstManifest, plan.ManifestContent()) {
 			t.Fatalf("annotation-driven output changed at iteration %d", iteration)
 		}
@@ -633,15 +675,15 @@ func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
 		)
 	}
 	if !bytes.Equal(
-		first.Files()[0].Content(),
-		second.Files()[0].Content(),
+		generatedGoContent(t, first),
+		generatedGoContent(t, second),
 	) || !bytes.Equal(
 		first.ManifestContent(),
 		second.ManifestContent(),
 	) {
 		t.Fatal("identical scheduling metadata changed generated output")
 	}
-	source := string(first.Files()[0].Content())
+	source := string(generatedGoContent(t, first))
 	for _, expected := range []string{
 		"ScheduleContext",
 		"ScheduleWaiter",
@@ -670,10 +712,17 @@ func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
 	assertOrdered(
 		t,
 		source,
-		"jobs.NewWorker()",
+		"provider0,",
 		"spiceschedule.New(",
 		"application.hooks = []spicelifecycle.Hook{",
 	)
+	jobSource := generatedSourceUnitContent(t, first, "jobs/jobs.go")
+	if !bytes.Contains(jobSource, []byte("jobs.NewWorker()")) {
+		t.Fatalf(
+			"generated job source unit omitted direct constructor:\n%s",
+			jobSource,
+		)
+	}
 
 	writePlan(t, root, first)
 	writeTestFile(
@@ -720,15 +769,15 @@ func TestRenderGeneratesBoundedTypedAsyncSubmission(t *testing.T) {
 		)
 	}
 	if !bytes.Equal(
-		first.Files()[0].Content(),
-		second.Files()[0].Content(),
+		generatedGoContent(t, first),
+		generatedGoContent(t, second),
 	) || !bytes.Equal(
 		first.ManifestContent(),
 		second.ManifestContent(),
 	) {
 		t.Fatal("identical asynchronous metadata changed generated output")
 	}
-	source := string(first.Files()[0].Content())
+	source := string(generatedGoContent(t, first))
 	for _, expected := range []string{
 		`Key:         "spice.async.max-concurrency"`,
 		`Environment: "SPICE_ASYNC_MAX_CONCURRENCY"`,
@@ -754,10 +803,17 @@ func TestRenderGeneratesBoundedTypedAsyncSubmission(t *testing.T) {
 	assertOrdered(
 		t,
 		source,
-		"tasks.NewWorker()",
+		"provider0,",
 		"spiceasync.NewExecutor(",
-		"RegisterModuleCleanup(",
+		`"spice.async"`,
 	)
+	taskSource := generatedSourceUnitContent(t, first, "tasks/tasks.go")
+	if !bytes.Contains(taskSource, []byte("tasks.NewWorker()")) {
+		t.Fatalf(
+			"generated task source unit omitted direct constructor:\n%s",
+			taskSource,
+		)
+	}
 
 	writePlan(t, root, first)
 	writeTestFile(
@@ -865,7 +921,10 @@ func TestRenderNormalizesBootstrapAnnotationListOrder(t *testing.T) {
 	if len(diagnostics) != 0 {
 		t.Fatalf("Render(second) diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
-	if !bytes.Equal(first.Files()[0].Content(), second.Files()[0].Content()) ||
+	if !bytes.Equal(
+		generatedGoContent(t, first),
+		generatedGoContent(t, second),
+	) ||
 		!bytes.Equal(first.ManifestContent(), second.ManifestContent()) {
 		t.Fatal("management endpoint list order changed generated output")
 	}
@@ -907,16 +966,26 @@ func Collision(shareda.AlphaValue, sharedb.BetaValue) {}
 	if len(diagnostics) != 0 {
 		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
-	source := string(plan.Files()[0].Content())
+	source := string(generatedGoContent(t, plan))
 	for _, expected := range []string{
 		`shared "example.com/collision/a"`,
 		`shared2 "example.com/collision/b"`,
-		"shared.Alpha()",
-		"shared2.Beta()",
+		"spicesource0.Construct",
+		"spicesource1.Construct",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("source missing %q:\n%s", expected, source)
 		}
+	}
+	alphaSource := generatedSourceUnitContent(t, plan, "a/providers.go")
+	betaSource := generatedSourceUnitContent(t, plan, "b/providers.go")
+	if !bytes.Contains(alphaSource, []byte("shared.Alpha()")) ||
+		!bytes.Contains(betaSource, []byte("shared.Beta()")) {
+		t.Fatalf(
+			"generated collision source units omitted direct calls:\n%s\n%s",
+			alphaSource,
+			betaSource,
+		)
 	}
 }
 
@@ -982,25 +1051,63 @@ func Configured(*components.Server) {}
 	if len(diagnostics) != 0 {
 		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
 	}
-	source := string(plan.Files()[0].Content())
+	source := string(generatedGoContent(t, plan))
 	for _, expected := range []string{
 		`spiceconfig "github.com/StevenBuglione/spice/config"`,
 		"type ApplicationOptions struct",
 		"func ConfigurationSchema() (spiceconfig.Schema, error)",
 		"func NewApplicationWithOptions(",
-		"components.Settings{}",
-		"components.WorkerCount(rawValue)",
-		"shared.Level(rawValue)",
-		"if int64(convertedValue) != rawValue",
 		`Key:         "server.port"`,
 		`Environment: "SERVER_PORT"`,
-		"NewServer(provider0)",
+		"spicesource0.Bind",
+		"spicesource0.Construct",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("generated source missing %q:\n%s", expected, source)
 		}
 	}
-	assertOrdered(t, source, "components.Settings{}", "components.NewServer(provider0)")
+	assertOrdered(t, source, "spicesource0.Bind", "spicesource0.Construct")
+	componentSource := generatedSourceUnitContent(
+		t,
+		plan,
+		"components/application.go",
+	)
+	for _, expected := range []string{
+		"components.Settings{}",
+		"components.WorkerCount(rawValue)",
+		"shared.Level(rawValue)",
+		"if int64(convertedValue) != rawValue",
+		"components.NewServer(dependency0)",
+	} {
+		if !bytes.Contains(componentSource, []byte(expected)) {
+			t.Fatalf(
+				"generated configured source unit omitted %q:\n%s",
+				expected,
+				componentSource,
+			)
+		}
+	}
+	manifest := plan.Manifest()
+	var configurationMappingFound bool
+	for _, file := range manifest.Files {
+		if file.PrimarySource == nil ||
+			file.PrimarySource.Path != "components/application.go" {
+			continue
+		}
+		for _, mapping := range file.Mappings {
+			if mapping.Kind == "configuration-binding" &&
+				mapping.Contribution != "" &&
+				mapping.Source.Path == "components/application.go" {
+				configurationMappingFound = true
+			}
+		}
+	}
+	if !configurationMappingFound {
+		t.Fatalf(
+			"manifest omitted source-owned configuration binding: %#v",
+			manifest.Files,
+		)
+	}
 
 	writePlan(t, root, plan)
 	writeTestFile(t, root, "internal/spicegen/configured/configuration_test.go", generatedConfigurationTest)
@@ -1115,7 +1222,8 @@ func Web(*api.API) {}
 	}
 	files := plan.Files()
 	if got, want := filePaths(files), []string{
-		"internal/spicegen/web/openapi.json",
+		"internal/spicegen/web/artifacts/openapi.json",
+		"internal/spicegen/web/sources/api/api_spice_gen.go",
 		"internal/spicegen/web/zz_spice_gen.go",
 	}; !slices.Equal(got, want) {
 		t.Fatalf("generated files = %v, want %v", got, want)
@@ -1163,7 +1271,7 @@ func Web(*api.API) {}
 		openAPI.Components.Schemas["SpiceProblem"].Type != "object" {
 		t.Fatalf("generated OpenAPI = %#v", openAPI)
 	}
-	source := string(files[1].Content())
+	source := string(generatedGoContent(t, plan))
 	for _, expected := range []string{
 		`http "net/http"`,
 		`spicesecurity "github.com/StevenBuglione/spice/security"`,
@@ -1340,7 +1448,7 @@ func Forms(*api.Owners) {}
 		fileContentByPath(
 			t,
 			files,
-			"internal/spicegen/forms/openapi.json",
+			"internal/spicegen/forms/artifacts/openapi.json",
 		),
 		&openAPI,
 	); err != nil {
@@ -1650,8 +1758,8 @@ func Application(Service) {}
 		t.Fatal("module ownership did not change the canonical model input hash")
 	}
 	if bytes.Equal(
-		withoutModule.Files()[0].Content(),
-		withModule.Files()[0].Content(),
+		generatedGoContent(t, withoutModule),
+		generatedGoContent(t, withModule),
 	) {
 		t.Fatal("module ownership did not change generated lifecycle metadata")
 	}
@@ -2974,6 +3082,26 @@ func generatedFileContent(t *testing.T, plan Plan, filePath string) []byte {
 	return nil
 }
 
+func generatedSourceUnitContent(
+	t *testing.T,
+	plan Plan,
+	sourcePath string,
+) []byte {
+	t.Helper()
+	for _, file := range plan.Files() {
+		if file.Role == FileRoleSourceUnit &&
+			file.PrimarySource != nil &&
+			file.PrimarySource.Path == sourcePath {
+			return file.Content()
+		}
+	}
+	t.Fatalf(
+		"generated plan does not contain source unit for %s",
+		sourcePath,
+	)
+	return nil
+}
+
 func generationFixture(t *testing.T) string {
 	t.Helper()
 	return writeModule(t, "example.com/shop", map[string]string{
@@ -3748,6 +3876,40 @@ func generationDiagnosticStrings(diagnostics []Diagnostic) []string {
 		result[index] = diagnostic.Error()
 	}
 	return result
+}
+
+func sourceOriginPointersEqualForTest(
+	left *SourceOrigin,
+	right *SourceOrigin,
+) bool {
+	switch {
+	case left == nil:
+		return right == nil
+	case right == nil:
+		return false
+	default:
+		return *left == *right
+	}
+}
+
+func sourceMappingsEqualForTest(
+	left []SourceMapping,
+	right []SourceMapping,
+) bool {
+	return slices.EqualFunc(
+		left,
+		right,
+		func(leftMapping, rightMapping SourceMapping) bool {
+			return leftMapping.Kind == rightMapping.Kind &&
+				leftMapping.Contribution == rightMapping.Contribution &&
+				leftMapping.Source == rightMapping.Source &&
+				leftMapping.Generated == rightMapping.Generated &&
+				slices.Equal(
+					leftMapping.RelatedSource,
+					rightMapping.RelatedSource,
+				)
+		},
+	)
 }
 
 func applicationDiagnosticStrings(diagnostics []application.Diagnostic) []string {

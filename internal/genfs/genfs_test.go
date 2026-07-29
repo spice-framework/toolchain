@@ -278,11 +278,116 @@ func TestApplyRefusesModifiedLegacyGeneratedPackageMigration(t *testing.T) {
 	}
 }
 
+func TestApplyMigratesSchemaThreeAdjacentSourceShard(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		modified bool
+	}{
+		{name: "unchanged"},
+		{name: "modified", modified: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := generationModule(t)
+			plan := renderPlan(t, root, applicationWithProviderSource)
+			legacyContent := []byte(
+				"//go:build !spice_generate\n\n" +
+					generatedMarker + "\n\n" +
+					"package app\n",
+			)
+			legacyPath := "app/application_application_spice_gen.go"
+			for _, file := range plan.Files() {
+				if file.Role == generate.FileRoleSourceUnit {
+					continue
+				}
+				writeFile(
+					t,
+					filepath.Join(root, filepath.FromSlash(file.Path)),
+					file.Content(),
+				)
+			}
+			writeFile(
+				t,
+				filepath.Join(root, filepath.FromSlash(legacyPath)),
+				legacyContent,
+			)
+			legacyManifest := plan.Manifest()
+			legacyManifest.Schema = 3
+			legacyManifest.Files = slices.DeleteFunc(
+				legacyManifest.Files,
+				func(file generate.ManifestFile) bool {
+					return file.Role == generate.FileRoleSourceUnit
+				},
+			)
+			legacyManifest.Files = append(
+				legacyManifest.Files,
+				generate.ManifestFile{
+					Path:   legacyPath,
+					SHA256: hashContent(legacyContent),
+					Role:   generate.FileRole("source-shard"),
+				},
+			)
+			slices.SortFunc(
+				legacyManifest.Files,
+				func(left, right generate.ManifestFile) int {
+					return strings.Compare(left.Path, right.Path)
+				},
+			)
+			writeManifest(
+				t,
+				filepath.Join(
+					root,
+					filepath.FromSlash(plan.Target().ManifestPath),
+				),
+				legacyManifest,
+			)
+			if test.modified {
+				writeFile(
+					t,
+					filepath.Join(root, filepath.FromSlash(legacyPath)),
+					append(legacyContent, []byte("// manual\n")...),
+				)
+			}
+
+			result, err := Apply(plan)
+			if test.modified {
+				var conflict *ConflictError
+				if !errors.As(err, &conflict) ||
+					!hasDifference(
+						Status{Differences: conflict.Differences},
+						DifferenceManualEdit,
+					) {
+					t.Fatalf("Apply(modified schema-3 shard) error = %v", err)
+				}
+				if _, statErr := os.Stat(filepath.Join(
+					root,
+					filepath.FromSlash(legacyPath),
+				)); statErr != nil {
+					t.Fatalf("modified schema-3 shard was removed: %v", statErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Apply(schema-3 shard) error = %v", err)
+			}
+			if !slices.Contains(result.Removed, legacyPath) {
+				t.Fatalf("Apply(schema-3 shard).Removed = %v", result.Removed)
+			}
+			if _, statErr := os.Stat(filepath.Join(
+				root,
+				filepath.FromSlash(legacyPath),
+			)); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("unchanged schema-3 shard still exists: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestApplyOwnsGeneratedOpenAPI(t *testing.T) {
 	root := generationModule(t)
 	plan := renderPlan(t, root, controllerApplicationSource)
 	if got, want := generatedPaths(plan), []string{
-		"internal/spicegen/application/openapi.json",
+		"internal/spicegen/application/artifacts/openapi.json",
+		"internal/spicegen/application/sources/app/application_spice_gen.go",
 		"internal/spicegen/application/zz_spice_gen.go",
 	}; !slices.Equal(got, want) {
 		t.Fatalf("generated files = %v, want %v", got, want)
@@ -352,7 +457,8 @@ func TestApplyUpdatesOnlyUnmodifiedOwnedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply(second) error = %v", err)
 	}
-	if !result.Changed() || len(result.Written) != 1 || !result.ManifestUpdated {
+	if !result.Changed() || len(result.Written) != 2 ||
+		!result.ManifestUpdated {
 		t.Fatalf("Apply(second) = %#v", result)
 	}
 	status, err = Check(second)
