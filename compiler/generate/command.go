@@ -103,8 +103,11 @@ func bootstrapHashInput(target application.Target) []modelHashBootstrapFeature {
 	return result
 }
 
-func writeGeneratedConstants(source *bytes.Buffer, targetID string) {
-	fmt.Fprintf(source, "const TargetID = %s\n\n", strconv.Quote(targetID))
+func writeGeneratedConstants(
+	source *bytes.Buffer,
+	targetIDExpression string,
+) {
+	fmt.Fprintf(source, "const TargetID = %s\n\n", targetIDExpression)
 	source.WriteString(`const (
 	ExitSuccess = 0
 	ExitFailure = 1
@@ -405,7 +408,6 @@ func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
 func writeCommandAPI(
 	source *bytes.Buffer,
 	features commandFeatures,
-	layout Layout,
 ) {
 	source.WriteString(`
 type ShutdownContextFactory func(time.Duration) (context.Context, context.CancelFunc)
@@ -422,11 +424,7 @@ type CommandOptions struct {
 }
 
 `)
-	entryPoint := "Main"
-	if layout == LayoutApplicationPackage {
-		entryPoint = "spiceMain"
-	}
-	fmt.Fprintf(source, "func %s(arguments []string) int {\n", entryPoint)
+	source.WriteString("func Main(arguments []string) int {\n")
 	source.WriteString(`	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	environment, err := spiceconfig.OSEnvironment("SPICE_")
 	if err != nil {

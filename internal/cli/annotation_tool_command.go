@@ -96,7 +96,6 @@ func inspectAnnotationDescriptors(
 		options.BuildFlags,
 		absolute,
 	)
-	options.AllowGeneratedMainBridge = true
 	program, err := loader(ctx, options, patterns...)
 	if err != nil {
 		return nil, "", err

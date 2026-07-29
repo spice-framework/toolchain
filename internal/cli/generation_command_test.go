@@ -141,7 +141,7 @@ func TestRunBuildGeneratesAndExecutesTrimpathBuild(t *testing.T) {
 	}
 }
 
-func TestRunGenerateBuildsPreferredPackageMainWithoutManualImports(t *testing.T) {
+func TestRunGenerateBuildsPreferredPackageMainWithExplicitGeneratedImport(t *testing.T) {
 	repository, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -153,12 +153,16 @@ func TestRunGenerateBuildsPreferredPackageMainWithoutManualImports(t *testing.T)
 			filepath.ToSlash(repository) + "\n",
 		"cmd/shop/main.go": `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/package-main/internal/spicegen/shop"
+)
 
 // @Application
 // @management.Enable(expose=["health"])
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `,
 		"platform/platform.go": `// Package platform owns HTTP setup.
@@ -197,11 +201,15 @@ func Mux() *http.ServeMux {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bridge, err := os.ReadFile(filepath.Join(
+	mainUnit, err := os.ReadFile(filepath.Join(
 		root,
+		"internal",
+		"spicegen",
+		"shop",
+		"sources",
 		"cmd",
 		"shop",
-		"zz_spice_bridge_gen.go",
+		"main_spice_gen.go",
 	))
 	if err != nil {
 		t.Fatal(err)
@@ -220,8 +228,8 @@ func Mux() *http.ServeMux {
 	}
 	if !strings.Contains(string(content), "package spicegen") ||
 		!strings.Contains(
-			string(bridge),
-			"func spiceMain(arguments []string) int",
+			string(mainUnit),
+			` = "shop"`,
 		) ||
 		!strings.Contains(string(sourceUnit), "platform.Mux()") {
 		t.Fatalf("generated package-main source:\n%s", content)
@@ -449,8 +457,8 @@ func TestWithAnalysisBuildTagPreservesCallerTags(t *testing.T) {
 	if !slices.Equal(result.BuildFlags, want) {
 		t.Fatalf("BuildFlags = %v, want %v", result.BuildFlags, want)
 	}
-	if !result.AllowGeneratedMainBridge {
-		t.Fatal("withAnalysisBuildTag() disabled the generated main bridge")
+	if !result.PrepareGeneratedApplicationEntrypoints {
+		t.Fatal("withAnalysisBuildTag() disabled generated entrypoint preparation")
 	}
 	if got := goFlags([]string{"OTHER=value"}); got != "" {
 		t.Fatalf("goFlags(no GOFLAGS) = %q", got)

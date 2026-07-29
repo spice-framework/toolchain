@@ -52,7 +52,10 @@ func TestApplyCreatesChecksAndPreservesUnchangedFiles(t *testing.T) {
 	}
 	if !result.Changed() ||
 		!result.ManifestUpdated ||
-		!slices.Equal(result.Written, []string{"internal/spicegen/application/zz_spice_gen.go"}) ||
+		!slices.Equal(result.Written, []string{
+			"internal/spicegen/application/sources/app/application_spice_gen.go",
+			"internal/spicegen/application/zz_spice_gen.go",
+		}) ||
 		len(result.Removed) != 0 {
 		t.Fatalf("Apply() = %#v", result)
 	}
@@ -109,11 +112,11 @@ func TestApplyApplicationPackagePreservesHandwrittenSource(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := generationModule(t)
-			source := []byte(`package main
-
-// @Application
-func main() {}
-`)
+			targetID := path.Base(path.Dir(test.sourcePath))
+			if path.Dir(test.sourcePath) == "." {
+				targetID = "genfs"
+			}
+			source := mainApplicationSource(targetID)
 			plan := renderMainPlan(
 				t,
 				root,
@@ -156,7 +159,7 @@ func TestApplicationPackageUnexpectedMarkerScanIsPackageLocal(t *testing.T) {
 		root,
 		"cmd/shop/main.go",
 		"./...",
-		[]byte("package main\n\n// @Application\nfunc main() {}\n"),
+		mainApplicationSource("shop"),
 	)
 	if _, err := Apply(plan); err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -205,7 +208,7 @@ func TestApplyMigratesUnchangedLegacyGeneratedPackageOwnership(t *testing.T) {
 		root,
 		"cmd/application/main.go",
 		"./...",
-		[]byte("package main\n\n// @Application\nfunc main() {}\n"),
+		mainApplicationSource("application"),
 	)
 	status, err := Check(plan)
 	if err != nil ||
@@ -216,11 +219,17 @@ func TestApplyMigratesUnchangedLegacyGeneratedPackageOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply(legacy migration) error = %v", err)
 	}
-	if len(result.Removed) != 0 ||
+	if !slices.Equal(
+		result.Removed,
+		[]string{
+			"internal/spicegen/application/sources/app/application_spice_gen.go",
+		},
+	) ||
 		!slices.Equal(
 			result.Written,
 			[]string{
-				"cmd/application/zz_spice_bridge_gen.go",
+				"internal/spicegen/application/sources/cmd/application/main_spice_gen.go",
+				"internal/spicegen/application/zz_spice_gen.go",
 			},
 		) ||
 		!result.ManifestUpdated {
@@ -262,7 +271,7 @@ func TestApplyRefusesModifiedLegacyGeneratedPackageMigration(t *testing.T) {
 		root,
 		"cmd/application/main.go",
 		"./...",
-		[]byte("package main\n\n// @Application\nfunc main() {}\n"),
+		mainApplicationSource("application"),
 	)
 	_, err := Apply(plan)
 	var conflict *ConflictError
@@ -930,6 +939,21 @@ func generationModule(t *testing.T) string {
 	return root
 }
 
+func mainApplicationSource(targetID string) []byte {
+	return []byte(
+		"package main\n\n" +
+			"import (\n" +
+			"\t\"os\"\n\n" +
+			"\tspiceapp \"example.com/genfs/internal/spicegen/" +
+			targetID + "\"\n" +
+			")\n\n" +
+			"// @Application\n" +
+			"func main() {\n" +
+			"\tos.Exit(spiceapp.Main(os.Args[1:]))\n" +
+			"}\n",
+	)
+}
+
 func renderPlan(t *testing.T, root, source string) generate.Plan {
 	t.Helper()
 	writeFile(t, filepath.Join(root, "app", "application.go"), []byte(source))
@@ -978,9 +1002,9 @@ func renderMainPlan(
 		source,
 	)
 	program, err := load.Load(context.Background(), load.Options{
-		Dir:                      root,
-		BuildFlags:               []string{"-tags=" + generate.AnalysisBuildTag},
-		AllowGeneratedMainBridge: true,
+		Dir:                                    root,
+		BuildFlags:                             []string{"-tags=" + generate.AnalysisBuildTag},
+		PrepareGeneratedApplicationEntrypoints: true,
 	}, pattern)
 	if err != nil {
 		t.Fatalf("load.Load() error = %v", err)

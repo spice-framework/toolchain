@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"go/format"
 	"go/token"
@@ -34,6 +33,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
+	"github.com/StevenBuglione/spice/compiler/targetid"
 	compilertransaction "github.com/StevenBuglione/spice/compiler/transaction"
 	runtimeconfig "github.com/StevenBuglione/spice/config"
 )
@@ -51,6 +51,8 @@ const (
 	AnalysisBuildTag = "spice_generate"
 
 	generatedFilename = "zz_spice_gen.go"
+	// bridgeFilename is retained for ownership migration tests. New plans never
+	// emit a same-package bridge.
 	bridgeFilename    = "zz_spice_bridge_gen.go"
 	asyncPath         = "github.com/StevenBuglione/spice/async"
 	beanPath          = "github.com/StevenBuglione/spice/bean"
@@ -79,9 +81,9 @@ const (
 	// LayoutGeneratedPackage is the legacy importable
 	// internal/spicegen/<target> package layout.
 	LayoutGeneratedPackage Layout = "generated-package"
-	// LayoutApplicationPackage emits the command bridge beside an annotated
-	// package-main func main while the complete generated application remains
-	// in an importable target-scoped package.
+	// LayoutApplicationPackage emits the complete generated application in an
+	// importable target-scoped package. The physical package-main source imports
+	// that package explicitly; generation never writes beside handwritten code.
 	LayoutApplicationPackage Layout = "application-package"
 )
 
@@ -117,7 +119,8 @@ const (
 	// FileRoleTargetOrchestrator is target-wide application coordination that
 	// cannot truthfully belong to one source file.
 	FileRoleTargetOrchestrator FileRole = "target-orchestrator"
-	// FileRoleCommandBridge is the intentionally tiny same-package command API.
+	// FileRoleCommandBridge is retained only to migrate previously owned
+	// same-package bridges. New plans never emit this role.
 	FileRoleCommandBridge FileRole = "command-bridge"
 	// FileRoleSourceUnit is annotation-derived code owned by exactly one
 	// handwritten source file in the mirrored generated tree.
@@ -308,8 +311,9 @@ func (d Diagnostic) Error() string {
 }
 
 // DefaultTarget derives the standard module-scoped output for one application
-// marker. Preferred package-main markers write beside main.go; legacy markers
-// write below internal/spicegen. Both use .spice/<target>.manifest.json.
+// marker. All generated output lives below internal/spicegen; BridgeDir is
+// retained as schema compatibility metadata for the handwritten entrypoint
+// package. Every target uses .spice/<target>.manifest.json.
 func DefaultTarget(program *load.Program, applicationTarget application.Target) (Target, []Diagnostic) {
 	if program == nil {
 		return Target{}, []Diagnostic{{
@@ -370,24 +374,7 @@ func DefaultTarget(program *load.Program, applicationTarget application.Target) 
 }
 
 func defaultTargetID(name string) string {
-	lower := strings.ToLower(name)
-	var result strings.Builder
-	for _, character := range []byte(lower) {
-		validLetter := character >= 'a' && character <= 'z'
-		validDigit := character >= '0' && character <= '9'
-		switch {
-		case validLetter || (validDigit && result.Len() != 0):
-			result.WriteByte(character)
-		case result.Len() != 0 &&
-			result.String()[result.Len()-1] != '_':
-			result.WriteByte('_')
-		}
-	}
-	id := strings.TrimSuffix(result.String(), "_")
-	if id == "" {
-		return "application"
-	}
-	return id
+	return targetid.Default(name)
 }
 
 // Render creates canonical generated Go and ownership manifest bytes entirely
@@ -454,8 +441,9 @@ func Render(
 		Sources:        applicationOrigins,
 		content:        source,
 	}}
-	sourceUnits, sourceUnitErr := renderProviderSourceUnits(
+	sourceUnits, sourceUnitErr := renderSourceUnits(
 		program,
+		applicationTarget,
 		model.Providers(),
 		model.Configurations(),
 		target,
@@ -468,29 +456,6 @@ func Render(
 		)}
 	}
 	files = append(files, sourceUnits...)
-	if target.Layout == LayoutApplicationPackage {
-		entrypointOrigins := applicationSourceOrigins(
-			program,
-			applicationTarget,
-		)
-		bridge, bridgeErr := renderCommandBridge(model, applicationTarget, target)
-		if bridgeErr != nil {
-			return Plan{}, []Diagnostic{targetDiagnostic(
-				applicationTarget,
-				"render-bridge",
-				fmt.Sprintf("render generated command bridge: %v", bridgeErr),
-			)}
-		}
-		files = append(files, File{
-			Path:          path.Join(target.BridgeDir, bridgeFilename),
-			Mode:          0o644,
-			SHA256:        contentHash(bridge),
-			Role:          FileRoleCommandBridge,
-			PrimarySource: firstSourceOrigin(entrypointOrigins),
-			Sources:       entrypointOrigins,
-			content:       bridge,
-		})
-	}
 	if len(model.Controllers()) != 0 {
 		openAPIContent, openAPIErr := renderOpenAPI(model, applicationTarget)
 		if openAPIErr != nil {
@@ -593,6 +558,14 @@ func renderSource(
 	if adapterErr != nil {
 		return nil, adapterErr
 	}
+	applicationAdapter, adapterErr := buildApplicationSourceAdapter(
+		applicationTarget,
+		target,
+		aliases,
+	)
+	if adapterErr != nil {
+		return nil, adapterErr
+	}
 	providerModules := providerModuleIDs(model, providers)
 	dependencies, err := dependencyVariables(
 		model,
@@ -614,7 +587,10 @@ func renderSource(
 	packageName := "spicegen"
 	fmt.Fprintf(&source, "package %s\n\n", packageName)
 	writeImports(&source, aliases)
-	writeGeneratedConstants(&source, target.ID)
+	writeGeneratedConstants(
+		&source,
+		applicationAdapter.alias+"."+applicationAdapter.identifier,
+	)
 	writeComponentsType(&source, componentFields, aliases)
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
@@ -734,7 +710,7 @@ func renderSource(
 	if features.hasMux {
 		writeHandlerMethod(&source)
 	}
-	writeCommandAPI(&source, features, LayoutGeneratedPackage)
+	writeCommandAPI(&source, features)
 
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {
@@ -747,7 +723,18 @@ type providerSourceUnit struct {
 	path        string
 	packageName string
 	origins     []SourceOrigin
+	application *sourceUnitApplication
 	providers   []provider.Provider
+}
+
+type sourceUnitApplication struct {
+	target   application.Target
+	targetID string
+}
+
+type applicationSourceAdapter struct {
+	alias      string
+	identifier string
 }
 
 type providerSourceAdapter struct {
@@ -808,14 +795,51 @@ func providerSourceAdapters(
 	return result, nil
 }
 
-func renderProviderSourceUnits(
+func buildApplicationSourceAdapter(
+	applicationTarget application.Target,
+	target Target,
+	aliases map[string]string,
+) (applicationSourceAdapter, error) {
+	unitPath, _, _, err := applicationSourceUnitLocation(
+		applicationTarget,
+		target,
+	)
+	if err != nil {
+		return applicationSourceAdapter{}, err
+	}
+	importPath := path.Join(target.ModulePath, path.Dir(unitPath))
+	return applicationSourceAdapter{
+		alias: ensureSourceUnitImportAlias(
+			aliases,
+			importPath,
+			"spiceentrypoint",
+		),
+		identifier: generatedApplicationTargetName(applicationTarget),
+	}, nil
+}
+
+func renderSourceUnits(
 	program *load.Program,
+	applicationTarget application.Target,
 	providers []provider.Provider,
 	configTypes []configuration.Type,
 	target Target,
 ) ([]File, error) {
 	configByProvider := configurationProviderIndex(configTypes)
 	units := make(map[string]providerSourceUnit)
+	applicationPath, applicationPackage, applicationOrigin, err := applicationSourceUnitLocation(applicationTarget, target)
+	if err != nil {
+		return nil, err
+	}
+	units[applicationPath] = providerSourceUnit{
+		path:        applicationPath,
+		packageName: applicationPackage,
+		origins:     []SourceOrigin{applicationOrigin},
+		application: &sourceUnitApplication{
+			target:   applicationTarget,
+			targetID: target.ID,
+		},
+	}
 	for _, item := range providers {
 		if !sourceUnitProvider(item) {
 			continue
@@ -912,10 +936,46 @@ func sourceUnitLocation(
 	if sourceFile == "" {
 		sourceFile = item.Position.Filename
 	}
+	return sourceUnitLocationAt(
+		sourceFile,
+		item.PackagePath,
+		item.SymbolID,
+		item.PhysicalPosition,
+		item.Position,
+		target,
+	)
+}
+
+func applicationSourceUnitLocation(
+	item application.Target,
+	target Target,
+) (string, string, SourceOrigin, error) {
+	sourceFile := item.PhysicalPosition.Filename
+	if sourceFile == "" {
+		sourceFile = item.Position.Filename
+	}
+	return sourceUnitLocationAt(
+		sourceFile,
+		item.PackagePath,
+		item.SymbolID,
+		item.PhysicalPosition,
+		item.Position,
+		target,
+	)
+}
+
+func sourceUnitLocationAt(
+	sourceFile string,
+	packagePath string,
+	symbolID string,
+	physicalPosition token.Position,
+	position token.Position,
+	target Target,
+) (string, string, SourceOrigin, error) {
 	if sourceFile == "" {
 		return "", "", SourceOrigin{}, fmt.Errorf(
-			"provider %s has no physical source file",
-			item.SymbolID,
+			"contribution %s has no physical source file",
+			symbolID,
 		)
 	}
 	relative, err := filepath.Rel(target.ModuleRoot, sourceFile)
@@ -935,14 +995,14 @@ func sourceUnitLocation(
 			sourceDirectory,
 		)
 	} else {
-		digest := sha256.Sum256([]byte(item.PackagePath))
+		digest := sha256.Sum256([]byte(packagePath))
 		shardDir = path.Join(
 			target.OutputDir,
 			"sources",
 			"_external",
 			hex.EncodeToString(digest[:6]),
 		)
-		sourcePath = item.PackagePath + "/" + filepath.Base(sourceFile)
+		sourcePath = packagePath + "/" + filepath.Base(sourceFile)
 	}
 	base := strings.TrimSuffix(
 		filepath.Base(sourceFile),
@@ -950,21 +1010,21 @@ func sourceUnitLocation(
 	)
 	if base == "" {
 		return "", "", SourceOrigin{}, fmt.Errorf(
-			"provider %s source file has no base name",
-			item.SymbolID,
+			"contribution %s source file has no base name",
+			symbolID,
 		)
 	}
 	origin := SourceOrigin{
 		Path:   sourcePath,
-		Line:   item.PhysicalPosition.Line,
-		Column: item.PhysicalPosition.Column,
-		Symbol: item.SymbolID,
+		Line:   physicalPosition.Line,
+		Column: physicalPosition.Column,
+		Symbol: symbolID,
 	}
 	if origin.Line == 0 {
-		origin.Line = item.Position.Line
+		origin.Line = position.Line
 	}
 	if origin.Column == 0 {
-		origin.Column = item.Position.Column
+		origin.Column = position.Column
 	}
 	return path.Join(
 		shardDir,
@@ -996,6 +1056,9 @@ func renderProviderSourceUnit(
 	source.WriteString("\n")
 	fmt.Fprintf(&source, "package %s\n\n", unit.packageName)
 	writeImports(&source, aliases)
+	if unit.application != nil {
+		writeSourceUnitApplication(&source, *unit.application)
+	}
 	if err := writeProviderSourceUnitDeclarations(
 		&source,
 		unit,
@@ -1167,6 +1230,30 @@ func writeProviderSourceUnitDeclarations(
 	return nil
 }
 
+func writeSourceUnitApplication(
+	source *bytes.Buffer,
+	item sourceUnitApplication,
+) {
+	name := generatedApplicationTargetName(item.target)
+	fmt.Fprintf(
+		source,
+		"// %s identifies the generated target selected by %s.\n",
+		name,
+		item.target.SymbolID,
+	)
+	fmt.Fprintf(
+		source,
+		"const %s = %s\n\n",
+		name,
+		strconv.Quote(item.targetID),
+	)
+}
+
+func generatedApplicationTargetName(item application.Target) string {
+	digest := sha256.Sum256([]byte(item.SymbolID))
+	return "ApplicationTarget" + hex.EncodeToString(digest[:6])
+}
+
 func writeSourceUnitInterfaceAssertions(
 	source *bytes.Buffer,
 	item provider.Provider,
@@ -1194,6 +1281,32 @@ func providerSourceUnitMappings(
 	formatted []byte,
 ) ([]SourceMapping, error) {
 	mappings := make([]SourceMapping, 0)
+	if unit.application != nil {
+		origin, found := sourceOriginForSymbol(
+			unit.origins,
+			unit.application.target.SymbolID,
+		)
+		if !found {
+			return nil, fmt.Errorf(
+				"application source unit %s has no source origin",
+				unit.application.target.SymbolID,
+			)
+		}
+		name := generatedApplicationTargetName(unit.application.target)
+		line, column, found := generatedIdentifierPosition(formatted, name)
+		if !found {
+			return nil, fmt.Errorf(
+				"application target %s has no generated position",
+				name,
+			)
+		}
+		mappings = append(mappings, SourceMapping{
+			Kind:         "application-target",
+			Contribution: unit.application.target.SymbolID,
+			Source:       origin,
+			Generated:    generatedIdentifierRange(line, column, name),
+		})
+	}
 	for _, item := range unit.providers {
 		origin, found := sourceOriginForSymbol(unit.origins, item.SymbolID)
 		if !found {
@@ -1496,60 +1609,6 @@ func renderedTypeInPackage(
 		}
 		return pkg.Name()
 	})
-}
-
-func renderCommandBridge(
-	_ application.Model,
-	applicationTarget application.Target,
-	target Target,
-) ([]byte, error) {
-	if target.Layout != LayoutApplicationPackage {
-		return nil, errors.New("command bridge requires an application-package target")
-	}
-	if target.BridgeDir == "" {
-		return nil, errors.New("command bridge directory is required")
-	}
-	var source bytes.Buffer
-	source.WriteString("//go:build !" + AnalysisBuildTag + "\n\n")
-	source.WriteString("// Code generated by Spice. DO NOT EDIT.\n")
-	source.WriteString("// This bridge intentionally contains no application wiring.\n\n")
-	source.WriteString("package main\n\n")
-	fmt.Fprintf(
-		&source,
-		"import spicegen %s\n\n",
-		strconv.Quote(target.PackagePath),
-	)
-	source.WriteString("const (\n")
-	source.WriteString("\tTargetID = spicegen.TargetID\n")
-	source.WriteString("\tExitSuccess = spicegen.ExitSuccess\n")
-	source.WriteString("\tExitFailure = spicegen.ExitFailure\n")
-	source.WriteString("\tExitUsage = spicegen.ExitUsage\n")
-	source.WriteString(")\n\n")
-	source.WriteString("type (\n")
-	source.WriteString("\tApplication = spicegen.Application\n")
-	source.WriteString("\tApplicationOptions = spicegen.ApplicationOptions\n")
-	source.WriteString("\tComponents = spicegen.Components\n")
-	source.WriteString("\tCommandOptions = spicegen.CommandOptions\n")
-	source.WriteString("\tShutdownContextFactory = spicegen.ShutdownContextFactory\n")
-	source.WriteString(")\n\n")
-	source.WriteString("var (\n")
-	source.WriteString("\tConfigurationSchema = spicegen.ConfigurationSchema\n")
-	source.WriteString("\tNewApplication = spicegen.NewApplication\n")
-	source.WriteString("\tNewApplicationWithOptions = spicegen.NewApplicationWithOptions\n")
-	source.WriteString("\tRunCommand = spicegen.RunCommand\n")
-	source.WriteString(")\n\n")
-	source.WriteString("func spiceMain(arguments []string) int {\n")
-	source.WriteString("\treturn spicegen.Main(arguments)\n")
-	source.WriteString("}\n")
-	formatted, err := format.Source(source.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf(
-			"format command bridge for %s: %w",
-			applicationTarget.SymbolID,
-			err,
-		)
-	}
-	return formatted, nil
 }
 
 func applicationSourceOrigins(
@@ -4525,7 +4584,7 @@ func validateTargetLayout(
 		if target.BridgeDir == "" {
 			diagnostics = append(diagnostics, add(
 				"bridge-dir",
-				"application-package command bridge directory is required",
+				"application-package entrypoint directory is required",
 			))
 		}
 		if target.EntrypointPackagePath == "" {
@@ -4540,7 +4599,7 @@ func validateTargetLayout(
 		if target.BridgeDir != "" {
 			diagnostics = append(diagnostics, add(
 				"bridge-dir",
-				"generated-package target must not declare a command bridge directory",
+				"generated-package target must not declare an entrypoint directory",
 			))
 		}
 		if target.EntrypointPackagePath != "" {
@@ -4577,15 +4636,6 @@ func validateRenderable(
 			target,
 		)...,
 	)
-	if target.Layout == LayoutApplicationPackage {
-		diagnostics = append(
-			diagnostics,
-			generatedPackageCollisionDiagnostics(
-				program,
-				applicationTarget,
-			)...,
-		)
-	}
 	diagnostics = append(
 		diagnostics,
 		providerVisibilityDiagnostics(
@@ -4749,49 +4799,6 @@ func scheduledMethodDiagnostics(
 			Message: fmt.Sprintf(
 				"scheduled method %s is unexported; target-scoped generated packages require exported scheduled methods",
 				job.MethodID,
-			),
-		})
-	}
-	return diagnostics
-}
-
-func generatedPackageCollisionDiagnostics(
-	program *load.Program,
-	applicationTarget application.Target,
-) []Diagnostic {
-	reserved := map[string]struct{}{
-		"Application":               {},
-		"ApplicationOptions":        {},
-		"CommandOptions":            {},
-		"ConfigurationSchema":       {},
-		"ExitFailure":               {},
-		"ExitSuccess":               {},
-		"ExitUsage":                 {},
-		"NewApplication":            {},
-		"NewApplicationWithOptions": {},
-		"RunCommand":                {},
-		"ShutdownContextFactory":    {},
-		"TargetID":                  {},
-		"spiceMain":                 {},
-	}
-	var diagnostics []Diagnostic
-	for _, symbol := range program.PrimarySymbols() {
-		if symbol.PackagePath != applicationTarget.PackagePath ||
-			symbol.Receiver != "" {
-			continue
-		}
-		if _, collision := reserved[symbol.Name]; !collision {
-			continue
-		}
-		diagnostics = append(diagnostics, Diagnostic{
-			Position:         symbol.Position,
-			PhysicalPosition: symbol.PhysicalPosition,
-			TargetID:         applicationTarget.SymbolID,
-			Kind:             "generated-name-collision",
-			Message: fmt.Sprintf(
-				"package-main declaration %s collides with Spice generated application API name %q",
-				symbol.ID,
-				symbol.Name,
 			),
 		})
 	}

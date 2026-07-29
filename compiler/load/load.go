@@ -1,15 +1,11 @@
 package load
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"go/ast"
-	goparser "go/parser"
 	"go/token"
 	"go/types"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -28,10 +24,10 @@ type Options struct {
 	BuildFlags        []string
 	Overlay           map[string][]byte
 	AuxiliaryPackages []string
-	// AllowGeneratedMainBridge permits only the unresolved spiceMain call in
-	// an annotated package-main func main while generated files are excluded
-	// for safe regeneration. All other package errors remain fatal.
-	AllowGeneratedMainBridge bool
+	// PrepareGeneratedApplicationEntrypoints supplies a bounded in-memory
+	// generated-package stub while the spice_generate build tag excludes stale
+	// committed output. The physical application source remains unchanged.
+	PrepareGeneratedApplicationEntrypoints bool
 	// Tests is reserved for a future test-package model. The bootstrap loader
 	// rejects true because go/packages test variants can duplicate logical
 	// package and symbol identities.
@@ -54,11 +50,21 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 	}
 
 	overlay := cloneOverlay(options.Overlay)
-	allowGeneratedMainBridgeFallback := options.AllowGeneratedMainBridge
-	if options.AllowGeneratedMainBridge {
-		var manualBridgeConflict bool
-		overlay, manualBridgeConflict = addGeneratedMainBridgeOverlays(overlay)
-		allowGeneratedMainBridgeFallback = !manualBridgeConflict
+	if options.PrepareGeneratedApplicationEntrypoints {
+		var preparationDiagnostics []Diagnostic
+		var preparationErr error
+		overlay, preparationDiagnostics, preparationErr = addGeneratedApplicationEntrypointOverlays(options.Dir, overlay)
+		if preparationErr != nil {
+			program := &Program{diagnostics: []Diagnostic{{
+				Kind:    "generated-entrypoint",
+				Message: preparationErr.Error(),
+			}}}
+			return program, &LoadError{Diagnostics: program.Diagnostics()}
+		}
+		if len(preparationDiagnostics) != 0 {
+			program := &Program{diagnostics: preparationDiagnostics}
+			return program, &LoadError{Diagnostics: program.Diagnostics()}
+		}
 	}
 	config := &packages.Config{
 		Context:    ctx,
@@ -76,78 +82,15 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if allowGeneratedMainBridgeFallback &&
-		generatedMainBridgeLoadErrorOnly(roots, loadErr, overlay) {
-		loadErr = nil
-	}
-
 	program := programFromRoots(
 		roots,
 		loadErr,
 		auxiliary,
-		allowGeneratedMainBridgeFallback,
 	)
 	if len(program.diagnostics) > 0 || loadErr != nil {
 		return program, &LoadError{Diagnostics: program.Diagnostics()}
 	}
 	return program, nil
-}
-
-func generatedMainBridgeLoadErrorOnly(
-	roots []*packages.Package,
-	loadErr error,
-	overlay map[string][]byte,
-) bool {
-	if loadErr == nil ||
-		!onlyGeneratedMainBridgeMessage(loadErr.Error()) {
-		return false
-	}
-	found := false
-	for _, root := range roots {
-		if root == nil || len(root.Errors) == 0 {
-			continue
-		}
-		found = true
-		if len(filterGeneratedMainBridgeErrors(root, root.Errors)) != 0 {
-			return false
-		}
-	}
-	return found || overlayContainsGeneratedMainBridge(overlay)
-}
-
-func onlyGeneratedMainBridgeMessage(message string) bool {
-	found := false
-	for line := range strings.SplitSeq(message, "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case line == "", strings.HasPrefix(line, "# "),
-			strings.HasPrefix(line, "exit status "):
-			continue
-		case strings.Contains(line, "undefined: spiceMain"):
-			found = true
-		default:
-			return false
-		}
-	}
-	return found
-}
-
-func overlayContainsGeneratedMainBridge(overlay map[string][]byte) bool {
-	for filePath, content := range overlay {
-		file, err := goparser.ParseFile(
-			token.NewFileSet(),
-			filePath,
-			content,
-			goparser.ParseComments,
-		)
-		if err == nil &&
-			len(annotatedMainFunctions(file)) != 0 &&
-			containsGeneratedMainCall(file) &&
-			!declaresFunction(file, "spiceMain") {
-			return true
-		}
-	}
-	return false
 }
 
 func requestDiagnostics(options Options, patterns []string) []Diagnostic {
@@ -206,7 +149,6 @@ func programFromRoots(
 	roots []*packages.Package,
 	loadErr error,
 	auxiliaryPackages []string,
-	allowGeneratedMainBridge bool,
 ) *Program {
 	program := &Program{}
 	if loadErr != nil {
@@ -228,7 +170,6 @@ func programFromRoots(
 			program,
 			root,
 			auxiliary,
-			allowGeneratedMainBridge,
 		)
 	}
 
@@ -265,42 +206,18 @@ func appendLoadedRoot(
 	program *Program,
 	root *packages.Package,
 	auxiliary map[string]struct{},
-	allowGeneratedMainBridge bool,
 ) {
 	packageErrors := root.Errors
-	if allowGeneratedMainBridge {
-		packageErrors = filterGeneratedMainBridgeErrors(root, packageErrors)
-	}
 	illTyped := root.IllTyped || len(packageErrors) != 0
-	if allowGeneratedMainBridge &&
-		root.IllTyped &&
-		len(root.Errors) != 0 &&
-		len(packageErrors) == 0 {
-		illTyped = false
-	}
 	record := packageRecord(root, illTyped)
 	_, record.Auxiliary = auxiliary[record.Path]
 	program.packages = append(program.packages, record)
 	symbols := packageSymbols(root)
-	if allowGeneratedMainBridge {
-		symbols = filterGeneratedMainBridgeSymbols(symbols)
-	}
 	program.symbols = append(program.symbols, symbols...)
 	program.diagnostics = append(
 		program.diagnostics,
 		packageDiagnostics(packageErrors, root.PkgPath)...,
 	)
-}
-
-func filterGeneratedMainBridgeSymbols(symbols []Symbol) []Symbol {
-	result := make([]Symbol, 0, len(symbols))
-	for _, symbol := range symbols {
-		if symbol.Name == "spiceMain" {
-			continue
-		}
-		result = append(result, symbol)
-	}
-	return result
 }
 
 func cloneOverlay(overlay map[string][]byte) map[string][]byte {
@@ -312,89 +229,6 @@ func cloneOverlay(overlay map[string][]byte) map[string][]byte {
 		result[path] = append([]byte(nil), content...)
 	}
 	return result
-}
-
-func addGeneratedMainBridgeOverlays(
-	overlay map[string][]byte,
-) (map[string][]byte, bool) {
-	manualBridgeConflict := false
-	for filePath, content := range overlay {
-		file, err := goparser.ParseFile(
-			token.NewFileSet(),
-			filePath,
-			content,
-			goparser.ParseComments,
-		)
-		if err != nil || len(annotatedMainFunctions(file)) == 0 {
-			continue
-		}
-		if !containsGeneratedMainCall(file) {
-			continue
-		}
-		if declaresFunction(file, "spiceMain") {
-			manualBridgeConflict = true
-			continue
-		}
-		if !generatedMainBridgeOwned(filepath.Dir(filePath)) {
-			manualBridgeConflict = true
-			continue
-		}
-		overlay[filePath] = append(
-			append([]byte(nil), content...),
-			[]byte(
-				"\n\n// Code generated by Spice analysis. DO NOT EDIT.\n"+
-					"func spiceMain([]string) int { return 0 }\n",
-			)...,
-		)
-	}
-	return overlay, manualBridgeConflict
-}
-
-func generatedMainBridgeOwned(directory string) bool {
-	root, err := os.OpenRoot(directory)
-	if err != nil {
-		return false
-	}
-	content, readErr := root.ReadFile("zz_spice_bridge_gen.go")
-	closeErr := root.Close()
-	if errors.Is(readErr, os.ErrNotExist) {
-		return true
-	}
-	if readErr != nil || closeErr != nil {
-		return false
-	}
-	return bytes.Contains(
-		content,
-		[]byte("// Code generated by Spice. DO NOT EDIT."),
-	)
-}
-
-func declaresFunction(file *ast.File, name string) bool {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Recv == nil && function.Name.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func containsGeneratedMainCall(file *ast.File) bool {
-	for _, function := range annotatedMainFunctions(file) {
-		found := false
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			identifier, ok := node.(*ast.Ident)
-			if ok && identifier.Name == "spiceMain" {
-				found = true
-				return false
-			}
-			return !found
-		})
-		if found {
-			return true
-		}
-	}
-	return false
 }
 
 func cleanSortedFiles(files []string) []string {
@@ -542,37 +376,6 @@ func packageDiagnostics(
 	return diagnostics
 }
 
-func filterGeneratedMainBridgeErrors(
-	root *packages.Package,
-	packageErrors []packages.Error,
-) []packages.Error {
-	positions := generatedMainBridgePositions(root)
-	if len(positions) == 0 {
-		return packageErrors
-	}
-	result := make([]packages.Error, 0, len(packageErrors))
-	for _, packageError := range packageErrors {
-		if generatedMainBridgeError(packageError, positions) {
-			continue
-		}
-		result = append(result, packageError)
-	}
-	return result
-}
-
-func generatedMainBridgePositions(root *packages.Package) map[string]struct{} {
-	result := make(map[string]struct{})
-	if root == nil || root.Name != "main" || root.Fset == nil {
-		return result
-	}
-	for _, file := range root.Syntax {
-		for _, function := range annotatedMainFunctions(file) {
-			addGeneratedMainBridgePositions(result, root, function)
-		}
-	}
-	return result
-}
-
 func annotatedMainFunctions(file *ast.File) []*ast.FuncDecl {
 	if file == nil || file.Name == nil || file.Name.Name != "main" {
 		return nil
@@ -591,60 +394,6 @@ func annotatedMainFunctions(file *ast.File) []*ast.FuncDecl {
 		result = append(result, function)
 	}
 	return result
-}
-
-func addGeneratedMainBridgePositions(
-	positions map[string]struct{},
-	root *packages.Package,
-	function *ast.FuncDecl,
-) {
-	ast.Inspect(function.Body, func(node ast.Node) bool {
-		identifier, ok := node.(*ast.Ident)
-		if !ok || identifier.Name != "spiceMain" {
-			return true
-		}
-		for _, adjusted := range []bool{true, false} {
-			position := root.Fset.PositionFor(identifier.Pos(), adjusted)
-			addDiagnosticPosition(positions, position, root)
-		}
-		return true
-	})
-}
-
-func addDiagnosticPosition(
-	positions map[string]struct{},
-	position token.Position,
-	root *packages.Package,
-) {
-	positions[diagnosticPositionKey(
-		position.Filename,
-		position.Line,
-		position.Column,
-	)] = struct{}{}
-	for _, directory := range []string{
-		root.Dir,
-		moduleDirectory(root),
-	} {
-		if directory == "" {
-			continue
-		}
-		relative, err := filepath.Rel(directory, position.Filename)
-		if err != nil || !filepath.IsLocal(relative) {
-			continue
-		}
-		positions[diagnosticPositionKey(
-			relative,
-			position.Line,
-			position.Column,
-		)] = struct{}{}
-	}
-}
-
-func moduleDirectory(root *packages.Package) string {
-	if root == nil || root.Module == nil {
-		return ""
-	}
-	return root.Module.Dir
 }
 
 func hasApplicationMarker(
@@ -698,53 +447,6 @@ func applicationMarkerSpellings(file *ast.File) map[string]struct{} {
 		}
 	}
 	return result
-}
-
-func generatedMainBridgeError(
-	packageError packages.Error,
-	positions map[string]struct{},
-) bool {
-	position := packageError.Pos
-	message := strings.TrimSpace(packageError.Msg)
-	switch packageError.Kind {
-	case packages.TypeError:
-		if message != "undefined: spiceMain" {
-			return false
-		}
-	case packages.ListError:
-		lines := strings.Split(message, "\n")
-		if len(lines) != 2 ||
-			!strings.HasPrefix(strings.TrimSpace(lines[0]), "# ") {
-			return false
-		}
-		const suffix = ": undefined: spiceMain"
-		line := strings.TrimSpace(lines[1])
-		if !strings.HasSuffix(line, suffix) {
-			return false
-		}
-		position = strings.TrimSuffix(line, suffix)
-	case packages.UnknownError, packages.ParseError:
-		return false
-	}
-	_, filename, line, column := normalizeDiagnosticPosition(position)
-	if _, ok := positions[diagnosticPositionKey(filename, line, column)]; ok {
-		return true
-	}
-	// go/packages may materialize an overlay through a temporary gocommand
-	// filename in a ListError while retaining the exact source coordinates.
-	// The message has already been restricted to undefined: spiceMain and the
-	// accepted coordinates come only from an annotated package-main body.
-	coordinate := ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
-	for candidate := range positions {
-		if strings.HasSuffix(candidate, coordinate) {
-			return true
-		}
-	}
-	return false
-}
-
-func diagnosticPositionKey(filename string, line, column int) string {
-	return filepath.Clean(filename) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 func normalizeDiagnosticPosition(raw string) (position, filename string, line, column int) {

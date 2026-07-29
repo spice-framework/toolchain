@@ -98,6 +98,8 @@ func runWithExecutors(
 		)
 	case "modules":
 		return modulesCommand(arguments[1:], stdout, stderr, options, loader)
+	case "generated":
+		return generatedCommand(arguments[1:], stdout, stderr, options)
 	case "test":
 		return moduleTestCommand(arguments[1:], stdout, stderr, options, loader, tester)
 	case "generate":
@@ -1117,7 +1119,7 @@ func resolvePatternsContext(
 
 func withAnalysisBuildTag(options load.Options) load.Options {
 	result := options
-	result.AllowGeneratedMainBridge = true
+	result.PrepareGeneratedApplicationEntrypoints = true
 	result.BuildFlags = nil
 	tags := map[string]struct{}{codegen.AnalysisBuildTag: {}}
 	addTagsFromFlags(tags, goFlags(options.Env))
@@ -1284,6 +1286,7 @@ Usage:
   spice annotations list [package-pattern ...]
   spice annotations doctor [package-pattern ...]
   spice modules [--format json|mermaid|plantuml] [--focus module] [package-pattern ...]
+  spice generated (--source path | --generated path) [--line n] [--target name] [--format text|json]
   spice test --module module [--race] [--count n] [--run regexp] [--timeout duration] [package-pattern ...]
   spice generate [--target name] [--check] [--diff] [package-pattern ...]
   spice build [--target name] [package-pattern ...]
@@ -1296,6 +1299,7 @@ Commands:
   verify       Load, resolve, and validate Spice annotations for Go packages.
   annotations  List occurrences, inspect descriptors, or verify annotation tools.
   modules      Validate and render application-module documentation.
+  generated    Locate generated code from source, or source from generated code.
   test         Validate and run one focused application-module test graph.
   generate     Render and safely apply or check generated application code.
   build        Generate an application and run the standard trimpath build.

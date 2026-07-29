@@ -253,7 +253,7 @@ type ProcessBoundary struct{}
 	if !result.Diagnostics().Empty() ||
 		result.GenerationReady() ||
 		result.TargetName() != "" ||
-		result.Files() != 3 {
+		result.Files() != 4 {
 		t.Fatalf(
 			"validation result diagnostics=%+v generation=%t target=%q files=%d",
 			result.Diagnostics().Items(),
@@ -290,13 +290,17 @@ func TestServiceLoadsAndDecodesExplicitAnnotationImports(t *testing.T) {
 	root := writeServiceModule(t)
 	writeServiceFixtureFile(t, root, "main.go", `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
+)
 
 // @import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `)
 	compiler, err := New(Config{})
@@ -320,13 +324,17 @@ func main() {
 				Version: 1,
 				Content: []byte(`package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
+)
 
 // @import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `),
 			},
@@ -393,13 +401,17 @@ func TestServiceExplicitAnnotationFailsClosedWithoutToolAuthorization(
 	root := writeServiceModule(t)
 	writeServiceFixtureFile(t, root, "main.go", `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
+)
 
 // @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Application
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `)
 	modPath := filepath.Join(root, "go.mod")
@@ -446,13 +458,17 @@ func TestServiceBuildsIRFromMultipleToolContributions(t *testing.T) {
 	root := writeServiceModule(t)
 	writeServiceFixtureFile(t, root, "main.go", `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
+)
 
 // @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Application
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `)
 	writeServiceFixtureFile(t, root, "orders/doc.go", `// Package orders owns order configuration.
@@ -606,13 +622,17 @@ func TestServiceOffersVersionedLegacyImportReplacement(t *testing.T) {
 	mainPath := filepath.Join(root, "main.go")
 	content := []byte(`package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
+)
 
 // @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Application
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `)
 	service, err := New(Config{})
@@ -1405,14 +1425,24 @@ func writeServiceModule(tb testingTB) string {
 			filepath.ToSlash(repository) + "\n",
 		"main.go": `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
+)
 
 // @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @Application
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
+`,
+		"internal/spicegen/servicefixture/zz_spice_gen.go": `//go:build !spice_generate
+
+package spicegen
+
+func Main([]string) int { return 0 }
 `,
 		"orders/doc.go": `// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
 

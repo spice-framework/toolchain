@@ -78,9 +78,10 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		},
 	})
 	first := client.waitForDiagnostics(mainURI, 1)
+	invalidLine, invalidCharacter := sourcePosition(invalid, "@Enab")
 	if len(first.Diagnostics) == 0 ||
 		first.Diagnostics[0].Code != "spice.resolution.annotation-import" ||
-		first.Diagnostics[0].Range.Start.Line != 5 {
+		first.Diagnostics[0].Range.Start.Line != invalidLine {
 		t.Fatalf("version 1 diagnostics = %+v", first.Diagnostics)
 	}
 	client.send(map[string]any{
@@ -109,7 +110,10 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 		"method":  "textDocument/completion",
 		"params": map[string]any{
 			"textDocument": map[string]any{"uri": mainURI},
-			"position":     map[string]any{"line": 5, "character": 8},
+			"position": map[string]any{
+				"line":      invalidLine,
+				"character": invalidCharacter + len("@Enab"),
+			},
 		},
 	})
 	completion := client.waitForID("2")
@@ -470,48 +474,6 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	client.closeInput()
 	if err := client.wait(); err != nil {
 		t.Fatalf("Run() error = %v", err)
-	}
-}
-
-func TestGeneratedMainBridgeEditorDiagnosticIsNarrow(t *testing.T) {
-	t.Parallel()
-	documents := map[string]*document{
-		"file:///main.go": {
-			content: []byte(
-				"package main\n\n" +
-					"// @Application\n" +
-					"func main() { _ = spiceMain(nil) }\n",
-			),
-		},
-	}
-	if !generatedMainBridgeEditorDiagnostic(
-		"# example.com/app\n"+
-			"D:/Temp/gocommand-123/1-main.go:4:19: undefined: spiceMain",
-		documents,
-	) {
-		t.Fatal("exact editor bridge transient was rejected")
-	}
-	if !generatedMainBridgeEditorDiagnostic(
-		"undefined: spiceMain",
-		documents,
-	) {
-		t.Fatal("source-positioned editor bridge diagnostic was rejected")
-	}
-	for _, message := range []string{
-		"# example.com/app\nD:/main.go:4:19: undefined: spiceMain",
-		"# example.com/app\nD:/Temp/gocommand-1/1-main.go:4:19: undefined: missing",
-		"# example.com/app\nD:/Temp/gocommand-1/1-main.go:4:19: undefined: spiceMain\nother error",
-	} {
-		if generatedMainBridgeEditorDiagnostic(message, documents) {
-			t.Fatalf("unrelated editor message %q was accepted", message)
-		}
-	}
-	if generatedMainBridgeEditorDiagnostic(
-		"# example.com/app\n"+
-			"D:/Temp/gocommand-1/1-main.go:4:19: undefined: spiceMain",
-		map[string]*document{},
-	) {
-		t.Fatal("bridge transient without an annotated open document was accepted")
 	}
 }
 
@@ -1119,11 +1081,15 @@ func writeLSPModule(t *testing.T) (string, string, string) {
 	}
 	original := `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/lspfixture/internal/spicegen/lspfixture"
+)
 
 // @Application
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 
 // @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
@@ -1135,6 +1101,12 @@ func main() {
 			"replace github.com/StevenBuglione/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": original,
+		"internal/spicegen/lspfixture/zz_spice_gen.go": `//go:build !spice_generate
+
+package spicegen
+
+func Main([]string) int { return 0 }
+`,
 		"orders/doc.go": `// Package orders owns order configuration.
 // @Module
 package orders
@@ -1172,13 +1144,17 @@ func writeImportedLSPModule(t *testing.T) (string, string, string) {
 	}
 	source := `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/importedlsp/internal/spicegen/importedlsp"
+)
 
 // @import { Application as App } from "github.com/StevenBuglione/spice/annotation/core"
 
 // @App
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `
 	mod := "module example.com/importedlsp\n\ngo 1.26.0\n\n" +
@@ -1189,8 +1165,17 @@ func main() {
 	for relative, content := range map[string]string{
 		"go.mod":  mod,
 		"main.go": source,
+		"internal/spicegen/importedlsp/zz_spice_gen.go": `//go:build !spice_generate
+
+package spicegen
+
+func Main([]string) int { return 0 }
+`,
 	} {
 		path := filepath.Join(root, relative)
+		if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o750); mkdirErr != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", relative, mkdirErr)
+		}
 		if writeErr := os.WriteFile(
 			path,
 			[]byte(content),

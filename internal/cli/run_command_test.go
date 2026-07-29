@@ -30,7 +30,7 @@ func TestRunCommandBuildsAndExecutesPreferredApplication(t *testing.T) {
 		)
 	}
 	for _, relative := range []string{
-		"zz_spice_bridge_gen.go",
+		"internal/spicegen/runfixture/sources/_root/main_spice_gen.go",
 		"internal/spicegen/runfixture/zz_spice_gen.go",
 		".spice/runfixture.manifest.json",
 	} {
@@ -364,11 +364,15 @@ func packageMainRunModule(t *testing.T) string {
 			filepath.ToSlash(repository) + "\n",
 		"main.go": `package main
 
-import "os"
+import (
+	"os"
+
+	spiceapp "example.com/runfixture/internal/spicegen/runfixture"
+)
 
 // @Application
 func main() {
-	os.Exit(spiceMain(os.Args[1:]))
+	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 `,
 	})

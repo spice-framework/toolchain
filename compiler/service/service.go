@@ -800,8 +800,8 @@ func (service *Service) analysisLoadOptions(
 		options.AuxiliaryPackages,
 		service.config.starterCatalog.EntryPointPackages()...,
 	)
-	options.AllowGeneratedMainBridge = true
 	if request.mode == AnalysisGenerate {
+		options.PrepareGeneratedApplicationEntrypoints = true
 		options = withAnalysisBuildTag(options)
 	}
 	return withOfflineModuleResolution(options, request.root)

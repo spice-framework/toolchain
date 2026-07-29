@@ -28,6 +28,7 @@ import (
 	payments "github.com/StevenBuglione/spice/examples/commerce/payments"
 	platform "github.com/StevenBuglione/spice/examples/commerce/platform"
 	storage "github.com/StevenBuglione/spice/examples/commerce/storage"
+	spiceentrypoint "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce"
 	spicesource0 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/inventory"
 	spicesource1 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/notifications"
 	spicesource2 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/orders"
@@ -42,7 +43,7 @@ import (
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
-const TargetID = "commerce"
+const TargetID = spiceentrypoint.ApplicationTarget9d5bf5974642
 
 const (
 	ExitSuccess = 0

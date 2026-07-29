@@ -407,7 +407,7 @@ func inspectUnexpectedGenerated(root *os.Root, plan generate.Plan, state *inspec
 			state,
 		); err != nil {
 			return fmt.Errorf(
-				"inspect generated command bridge directory %q: %w",
+				"inspect generated entrypoint directory %q: %w",
 				bridgeDir,
 				err,
 			)
@@ -753,11 +753,11 @@ func validatePlanTargetLayout(target generate.Target) error {
 	case generate.LayoutApplicationPackage:
 		if target.BridgeDir != "." {
 			if err := validateRelativePath(target.BridgeDir); err != nil {
-				return fmt.Errorf("generation command bridge directory: %w", err)
+				return fmt.Errorf("generation entrypoint directory: %w", err)
 			}
 		}
 		if target.BridgeDir == "" {
-			return errors.New("generation command bridge directory is required")
+			return errors.New("generation entrypoint directory is required")
 		}
 		if target.EntrypointPackagePath == "" {
 			return errors.New(
@@ -769,7 +769,7 @@ func validatePlanTargetLayout(target generate.Target) error {
 		switch {
 		case target.BridgeDir != "":
 			return errors.New(
-				"generated-package target must not declare a command bridge directory",
+				"generated-package target must not declare an entrypoint directory",
 			)
 		case target.EntrypointPackagePath != "":
 			return errors.New(

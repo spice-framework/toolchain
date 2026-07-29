@@ -968,7 +968,6 @@ func fuzz(ctx context.Context, root string) error {
 		target string
 	}{
 		{"./compiler/diagnostic", "FuzzDiagnosticReportJSON"},
-		{"./compiler/load", "FuzzGeneratedMainBridgeError"},
 		{"./compiler/parser", "FuzzParseComment"},
 		{"./compiler/service", "FuzzNormalizeOverlay"},
 		{"./compiler/validate", "FuzzOccurrences"},
