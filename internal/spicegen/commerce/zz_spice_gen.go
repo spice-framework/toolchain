@@ -869,6 +869,9 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /catalog observation: %w", routeObservationErr0))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /catalog", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		writeRouteError := func(routeError error) error {
+			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
+		}
 		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
 			problem := spiceweb.Problem{
 				Type:   "about:blank",
@@ -888,7 +891,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			}
 		}
 		if routeErr != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
+			_ = writeRouteError(routeErr)
 			return
 		}
 		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
@@ -900,6 +903,9 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /orders/{id} observation: %w", routeObservationErr1))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /orders/{id}", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		writeRouteError := func(routeError error) error {
+			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
+		}
 		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
 			problem := spiceweb.Problem{
 				Type:   "about:blank",
@@ -913,7 +919,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		requestValue := orders.GetOrderRequest{}
 		raw0, present0, bindErr0 := spiceweb.Parameter(spiceweb.LocationPath, "id", []string{httpRequest.PathValue("id")}, true)
 		if bindErr0 != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper)
+			_ = writeRouteError(bindErr0)
 			return
 		}
 		if present0 {
@@ -921,7 +927,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		}
 		responseValue, routeErr := provider22.Get(httpRequest.Context(), requestValue)
 		if routeErr != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
+			_ = writeRouteError(routeErr)
 			return
 		}
 		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
@@ -933,6 +939,9 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /orders observation: %w", routeObservationErr2))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /orders", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		writeRouteError := func(routeError error) error {
+			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
+		}
 		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
 			problem := spiceweb.Problem{
 				Type:   "about:blank",
@@ -945,11 +954,11 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		}
 		requestValue := orders.PlaceOrderRequest{}
 		if bindErr := spiceweb.DecodeJSON(httpRequest, &requestValue.Body, options.MaxRequestBodyBytes); bindErr != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, bindErr, options.ErrorMapper)
+			_ = writeRouteError(bindErr)
 			return
 		}
 		if validationErr := spiceweb.Validate(httpRequest.Context(), requestValue.Validate); validationErr != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, validationErr, options.ErrorMapper)
+			_ = writeRouteError(validationErr)
 			return
 		}
 		var responseValue orders.OrderResponse
@@ -963,7 +972,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 			return transactionErr
 		})
 		if routeErr != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
+			_ = writeRouteError(routeErr)
 			return
 		}
 		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)
@@ -975,6 +984,9 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /orders/{id}/receipt observation: %w", routeObservationErr3))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /orders/{id}/receipt", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
+		writeRouteError := func(routeError error) error {
+			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
+		}
 		if !spiceweb.AcceptsJSON(httpRequest.Header.Get("Accept")) {
 			problem := spiceweb.Problem{
 				Type:   "about:blank",
@@ -988,7 +1000,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		requestValue := orders.ReceiptRequest{}
 		raw0, present0, bindErr0 := spiceweb.Parameter(spiceweb.LocationPath, "id", []string{httpRequest.PathValue("id")}, true)
 		if bindErr0 != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, bindErr0, options.ErrorMapper)
+			_ = writeRouteError(bindErr0)
 			return
 		}
 		if present0 {
@@ -996,7 +1008,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		}
 		responseValue, routeErr := provider22.SendReceipt(httpRequest.Context(), requestValue)
 		if routeErr != nil {
-			_ = spiceweb.WriteError(writer, httpRequest, routeErr, options.ErrorMapper)
+			_ = writeRouteError(routeErr)
 			return
 		}
 		_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)

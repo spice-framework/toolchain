@@ -1862,6 +1862,17 @@ func writeTypedRoute(
 		"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {\n",
 		strconv.Quote(pattern),
 	)
+	if route.View {
+		fmt.Fprintf(
+			source,
+			"\t\twriteRouteError := func(routeError error) error { return %s.WriteError(writer, httpRequest, routeError, options.ErrorMapper) }\n",
+			providerVariables[route.ViewRendererID],
+		)
+	} else {
+		source.WriteString(
+			"\t\twriteRouteError := func(routeError error) error { return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper) }\n",
+		)
+	}
 	writeRouteNegotiation(source, route)
 	fmt.Fprintf(source, "\t\trequestValue := %s{}\n", renderedType(route.Request, aliases))
 	if route.BindingResult {
@@ -2261,7 +2272,7 @@ func writeGeneratedError(source *bytes.Buffer, variable string, tabs int) {
 	indent := strings.Repeat("\t", tabs)
 	fmt.Fprintf(
 		source,
-		"%s_ = spiceweb.WriteError(writer, httpRequest, %s, options.ErrorMapper)\n",
+		"%s_ = writeRouteError(%s)\n",
 		indent,
 		variable,
 	)
@@ -3365,6 +3376,7 @@ func addProviderImportNames(
 	providers []provider.Provider,
 ) {
 	for _, item := range providers {
+		addTypeImportName(names, aliases, item.Output)
 		if _, fixed := aliases[item.PackagePath]; !fixed {
 			name := "provider"
 			if item.Symbol.Object != nil &&
