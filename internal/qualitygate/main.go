@@ -901,6 +901,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./httpclient", "FuzzResolveReference"},
 		{"./mail", "FuzzNewMessage"},
 		{"./mail/mailtest", "FuzzSnapshotMIME"},
+		{"./messaging", "FuzzNewMessage"},
 		{"./session", "FuzzManagerLoad"},
 		{"./starter", "FuzzParseManifest"},
 		{"./view", "FuzzRendererEscaping"},
