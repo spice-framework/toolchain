@@ -18,40 +18,43 @@ import (
 	mail "github.com/StevenBuglione/spice/mail"
 )
 
-// Construct6232152b1386 performs the direct construction selected for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock.
-func Construct6232152b1386() (*notifications.SystemClock, spicelifecycle.Cleanup, error) {
+// ConstructSystemClock_6232152b performs the direct construction selected for bean "systemClock".
+// Spice source identity: spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock.
+func ConstructSystemClock_6232152b() (*notifications.SystemClock, spicelifecycle.Cleanup, error) {
 	value := notifications.NewSystemClock()
 	return value, nil, nil
 }
 
-// spiceImplements4fd59814b0aa verifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock.
-var spiceImplements4fd59814b0aa notifications.Clock = *new(*notifications.SystemClock)
+// spiceImplementsSystemClockAsClock_4fd59814 verifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock.
+var spiceImplementsSystemClockAsClock_4fd59814 notifications.Clock = *new(*notifications.SystemClock)
 
-// Construct899700544847 performs the direct construction selected for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
-func Construct899700544847(dependency0 notifications.Settings) (*notifications.Delivery, spicelifecycle.Cleanup, error) {
+// ConstructDelivery_89970054 performs the direct construction selected for bean "delivery".
+// Spice source identity: spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
+func ConstructDelivery_89970054(dependency0 notifications.Settings) (*notifications.Delivery, spicelifecycle.Cleanup, error) {
 	value, err := notifications.NewDelivery(dependency0)
 	if err != nil {
 		var zero *notifications.Delivery
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery (*github.com/StevenBuglione/spice/examples/commerce/notifications.Delivery): %w", err)
+		return zero, nil, fmt.Errorf("construct bean delivery (*github.com/StevenBuglione/spice/examples/commerce/notifications.Delivery, source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery): %w", err)
 	}
 	return value, nil, nil
 }
 
-// spiceImplements262d0dc416a4 verifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
-var spiceImplements262d0dc416a4 mail.Sender = *new(*notifications.Delivery)
+// spiceImplementsDeliveryAsSender_262d0dc4 verifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
+var spiceImplementsDeliveryAsSender_262d0dc4 mail.Sender = *new(*notifications.Delivery)
 
-// Constructf5f0b515785f performs the direct construction selected for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier.
-func Constructf5f0b515785f(dependency0 notifications.Settings, dependency1 mail.Sender, dependency2 *notifications.Delivery, dependency3 notifications.Clock) (*notifications.Notifier, spicelifecycle.Cleanup, error) {
+// ConstructNotifier_f5f0b515 performs the direct construction selected for bean "notifier".
+// Spice source identity: spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier.
+func ConstructNotifier_f5f0b515(dependency0 notifications.Settings, dependency1 mail.Sender, dependency2 *notifications.Delivery, dependency3 notifications.Clock) (*notifications.Notifier, spicelifecycle.Cleanup, error) {
 	value, err := notifications.NewNotifier(dependency0, dependency1, dependency2, dependency3)
 	if err != nil {
 		var zero *notifications.Notifier
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier (*github.com/StevenBuglione/spice/examples/commerce/notifications.Notifier): %w", err)
+		return zero, nil, fmt.Errorf("construct bean notifier (*github.com/StevenBuglione/spice/examples/commerce/notifications.Notifier, source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier): %w", err)
 	}
 	return value, nil, nil
 }
 
-// Bindd8b9beed1bf7 binds the validated configuration declared by spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Settings.
-func Bindd8b9beed1bf7(configurationSnapshot spiceconfig.Snapshot) (notifications.Settings, error) {
+// BindSettings_d8b9beed binds the validated configuration declared by spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Settings.
+func BindSettings_d8b9beed(configurationSnapshot spiceconfig.Snapshot) (notifications.Settings, error) {
 	value := notifications.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.mail.transport"); configured {
 		rawValue, valueErr := configurationSnapshot.RequiredString("commerce.mail.transport")

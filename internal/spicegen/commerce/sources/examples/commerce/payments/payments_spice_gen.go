@@ -15,29 +15,31 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Construct863e8c2de6c2 performs the direct construction selected for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor.
-func Construct863e8c2de6c2() (*payments.OfflineProcessor, spicelifecycle.Cleanup, error) {
+// ConstructOfflineProcessor_863e8c2d performs the direct construction selected for bean "offlineProcessor".
+// Spice source identity: spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor.
+func ConstructOfflineProcessor_863e8c2d() (*payments.OfflineProcessor, spicelifecycle.Cleanup, error) {
 	return new(payments.OfflineProcessor), nil, nil
 }
 
-// spiceImplements078acc783dcb verifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor.
-var spiceImplements078acc783dcb payments.Processor = *new(*payments.OfflineProcessor)
+// spiceImplementsOfflineProcessorAsProcessor_078acc78 verifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor.
+var spiceImplementsOfflineProcessorAsProcessor_078acc78 payments.Processor = *new(*payments.OfflineProcessor)
 
-// Constructc8223730798f performs the direct construction selected for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
-func Constructc8223730798f(dependency0 payments.Settings) (*payments.Service, spicelifecycle.Cleanup, error) {
+// ConstructStripeProcessor_c8223730 performs the direct construction selected for bean "stripeProcessor".
+// Spice source identity: spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
+func ConstructStripeProcessor_c8223730(dependency0 payments.Settings) (*payments.Service, spicelifecycle.Cleanup, error) {
 	value, err := payments.NewService(dependency0)
 	if err != nil {
 		var zero *payments.Service
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service (*github.com/StevenBuglione/spice/examples/commerce/payments.Service): %w", err)
+		return zero, nil, fmt.Errorf("construct bean stripeProcessor (*github.com/StevenBuglione/spice/examples/commerce/payments.Service, source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service): %w", err)
 	}
 	return value, nil, nil
 }
 
-// spiceImplementsbd2b3941a8d6 verifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
-var spiceImplementsbd2b3941a8d6 payments.Processor = *new(*payments.Service)
+// spiceImplementsStripeProcessorAsProcessor_bd2b3941 verifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
+var spiceImplementsStripeProcessorAsProcessor_bd2b3941 payments.Processor = *new(*payments.Service)
 
-// Binde69fa000b930 binds the validated configuration declared by spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|8:Settings.
-func Binde69fa000b930(configurationSnapshot spiceconfig.Snapshot) (payments.Settings, error) {
+// BindSettings_e69fa000 binds the validated configuration declared by spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|8:Settings.
+func BindSettings_e69fa000(configurationSnapshot spiceconfig.Snapshot) (payments.Settings, error) {
 	value := payments.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.payments.maximum-cents"); configured {
 		rawValue, valueErr := configurationSnapshot.Integer("commerce.payments.maximum-cents")

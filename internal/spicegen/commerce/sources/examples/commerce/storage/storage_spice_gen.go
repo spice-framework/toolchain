@@ -20,57 +20,62 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Constructcf56637a93ed performs the direct construction selected for spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase.
-func Constructcf56637a93ed(dependency0 storage.Settings) (*storage.Database, spicelifecycle.Cleanup, error) {
+// ConstructOpenDatabase_cf56637a performs the direct construction selected for bean "openDatabase".
+// Spice source identity: spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase.
+func ConstructOpenDatabase_cf56637a(dependency0 storage.Settings) (*storage.Database, spicelifecycle.Cleanup, error) {
 	value, cleanup, err := storage.OpenDatabase(dependency0)
 	if err != nil {
 		var zero *storage.Database
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase (*github.com/StevenBuglione/spice/examples/commerce/storage.Database): %w", err)
+		return zero, nil, fmt.Errorf("construct bean openDatabase (*github.com/StevenBuglione/spice/examples/commerce/storage.Database, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase): %w", err)
 	}
 	return value, cleanup, nil
 }
 
-// Construct942a3a825f3b performs the direct construction selected for spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor.
-func Construct942a3a825f3b(dependency0 *sql.DB) (data.Executor, spicelifecycle.Cleanup, error) {
+// ConstructReadExecutor_942a3a82 performs the direct construction selected for bean "readExecutor".
+// Spice source identity: spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor.
+func ConstructReadExecutor_942a3a82(dependency0 *sql.DB) (data.Executor, spicelifecycle.Cleanup, error) {
 	value := storage.ReadExecutor(dependency0)
 	return value, nil, nil
 }
 
-// Construct18761080e301 performs the direct construction selected for spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions.
-func Construct18761080e301(dependency0 *sql.DB) (*data.Manager, spicelifecycle.Cleanup, error) {
+// ConstructTransactions_18761080 performs the direct construction selected for bean "transactions".
+// Spice source identity: spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions.
+func ConstructTransactions_18761080(dependency0 *sql.DB) (*data.Manager, spicelifecycle.Cleanup, error) {
 	value, err := storage.Transactions(dependency0)
 	if err != nil {
 		var zero *data.Manager
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions (*github.com/StevenBuglione/spice/data.Manager): %w", err)
+		return zero, nil, fmt.Errorf("construct bean transactions (*github.com/StevenBuglione/spice/data.Manager, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions): %w", err)
 	}
 	return value, nil, nil
 }
 
-// Constructb4ba2b27b86f performs the direct construction selected for spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native.
-func Constructb4ba2b27b86f(dependency0 *storage.Database) (*sql.DB, spicelifecycle.Cleanup, error) {
+// ConstructNative_b4ba2b27 performs the direct construction selected for bean "native".
+// Spice source identity: spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native.
+func ConstructNative_b4ba2b27(dependency0 *storage.Database) (*sql.DB, spicelifecycle.Cleanup, error) {
 	value, err := storage.Native(dependency0)
 	if err != nil {
 		var zero *sql.DB
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native (*database/sql.DB): %w", err)
+		return zero, nil, fmt.Errorf("construct bean native (*database/sql.DB, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native): %w", err)
 	}
 	return value, nil, nil
 }
 
-// Constructabe0e37daefd performs the direct construction selected for spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository.
-func Constructabe0e37daefd() (*storage.OrderRepository, spicelifecycle.Cleanup, error) {
+// ConstructOrderRepository_abe0e37d performs the direct construction selected for bean "orderRepository".
+// Spice source identity: spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository.
+func ConstructOrderRepository_abe0e37d() (*storage.OrderRepository, spicelifecycle.Cleanup, error) {
 	value, err := storage.NewOrderRepository()
 	if err != nil {
 		var zero *storage.OrderRepository
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository (*github.com/StevenBuglione/spice/examples/commerce/storage.OrderRepository): %w", err)
+		return zero, nil, fmt.Errorf("construct bean orderRepository (*github.com/StevenBuglione/spice/examples/commerce/storage.OrderRepository, source spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository): %w", err)
 	}
 	return value, nil, nil
 }
 
-// spiceImplementsfe640233700d verifies the explicit @Implements binding for spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository.
-var spiceImplementsfe640233700d storage.Orders = *new(*storage.OrderRepository)
+// spiceImplementsOrderRepositoryAsOrders_fe640233 verifies the explicit @Implements binding for spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository.
+var spiceImplementsOrderRepositoryAsOrders_fe640233 storage.Orders = *new(*storage.OrderRepository)
 
-// Bindee0cda8a4a6f binds the validated configuration declared by spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|8:Settings.
-func Bindee0cda8a4a6f(configurationSnapshot spiceconfig.Snapshot) (storage.Settings, error) {
+// BindSettings_ee0cda8a binds the validated configuration declared by spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|8:Settings.
+func BindSettings_ee0cda8a(configurationSnapshot spiceconfig.Snapshot) (storage.Settings, error) {
 	value := storage.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.database.url"); configured {
 		rawValue, valueErr := configurationSnapshot.RequiredString("commerce.database.url")

@@ -53,7 +53,7 @@ func configureGeneratedAsync(
 				Module: "github.com/StevenBuglione/spice/examples/commerce/inventory",
 			},
 			func(taskContext context.Context) error {
-				return dependencies.provider16.VerifySKU(taskContext, argument1)
+				return dependencies.inventoryService.VerifySKU(taskContext, argument1)
 			},
 		)
 	}
@@ -83,7 +83,7 @@ func configureGeneratedLifecycle(
 				},
 				InitialDelay: 30000000000,
 				Delay:        300000000000,
-				Run:          dependencies.provider16.Audit,
+				Run:          dependencies.inventoryService.Audit,
 			},
 		},
 		options.ScheduleWaiter,
@@ -96,13 +96,13 @@ func configureGeneratedLifecycle(
 		{
 			ID:     "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase",
 			Module: "github.com/StevenBuglione/spice/examples/commerce/storage",
-			Start:  dependencies.provider6.Migrate,
+			Start:  dependencies.openDatabase.Migrate,
 		},
 		{
 			ID:     "spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer",
 			Module: "github.com/StevenBuglione/spice/examples/commerce/platform",
-			Start:  dependencies.provider14.Start,
-			Stop:   dependencies.provider14.Stop,
+			Start:  dependencies.server.Start,
+			Stop:   dependencies.server.Stop,
 		},
 		{
 			ID:     "spice.schedule",

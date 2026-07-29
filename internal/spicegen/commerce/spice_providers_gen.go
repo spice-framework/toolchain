@@ -19,38 +19,38 @@ import (
 	payments "github.com/StevenBuglione/spice/examples/commerce/payments"
 	platform "github.com/StevenBuglione/spice/examples/commerce/platform"
 	storage "github.com/StevenBuglione/spice/examples/commerce/storage"
-	spicesource0 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/inventory"
-	spicesource1 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/notifications"
-	spicesource2 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/orders"
-	spicesource3 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/payments"
-	spicesource4 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/platform"
-	spicesource5 "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/storage"
+	spiceInventory "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/inventory"
+	spiceNotifications "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/notifications"
+	spiceOrders "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/orders"
+	spicePayments "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/payments"
+	spicePlatform "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/platform"
+	spiceStorage "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce/storage"
 )
 
 type applicationDependencies struct {
-	provider0  *orders.ViewAudit
-	provider1  spiceevent.Publisher[orders.OrderViewed]
-	provider2  *http.ServeMux
-	provider3  orders.Settings
-	provider4  *storage.OrderRepository
-	provider5  storage.Settings
-	provider6  *storage.Database
-	provider7  *sql.DB
-	provider8  spicedata.Executor
-	provider9  *spicedata.Manager
-	provider10 *payments.OfflineProcessor
-	provider11 payments.Settings
-	provider12 *payments.Service
-	provider13 platform.Settings
-	provider14 *platform.Server
-	provider15 inventory.Settings
-	provider16 *inventory.Service
-	provider17 *orders.Service
-	provider18 *notifications.SystemClock
-	provider19 notifications.Settings
-	provider20 *notifications.Delivery
-	provider21 *notifications.Notifier
-	provider22 *orders.Controller
+	viewAudit             *orders.ViewAudit
+	orderEvents           spiceevent.Publisher[orders.OrderViewed]
+	mux                   *http.ServeMux
+	ordersSettings        orders.Settings
+	orderRepository       *storage.OrderRepository
+	storageSettings       storage.Settings
+	openDatabase          *storage.Database
+	native                *sql.DB
+	readExecutor          spicedata.Executor
+	transactions          *spicedata.Manager
+	offlineProcessor      *payments.OfflineProcessor
+	paymentsSettings      payments.Settings
+	stripeProcessor       *payments.Service
+	platformSettings      platform.Settings
+	server                *platform.Server
+	inventorySettings     inventory.Settings
+	inventoryService      *inventory.Service
+	ordersService         *orders.Service
+	systemClock           *notifications.SystemClock
+	notificationsSettings notifications.Settings
+	delivery              *notifications.Delivery
+	notifier              *notifications.Notifier
+	controller            *orders.Controller
 }
 
 func constructApplicationDependencies(
@@ -63,17 +63,17 @@ func constructApplicationDependencies(
 	_ = application
 	_ = options
 	_ = configurationSnapshot
-	provider0, cleanup0, err := spicesource2.Constructab6c60ed179d()
+	viewAudit, viewAuditCleanup, err := spiceOrders.ConstructViewAudit_ab6c60ed()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit (*github.com/StevenBuglione/spice/examples/commerce/orders.ViewAudit): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean newViewAudit (*github.com/StevenBuglione/spice/examples/commerce/orders.ViewAudit, source spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit): %w", err))
 	}
-	if cleanup0 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/orders", "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit", cleanup0); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit: %w", err))
+	if viewAuditCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/orders", "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit", viewAuditCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean newViewAudit (source spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit): %w", err))
 		}
 	}
-	_ = provider0
-	generatedEventTopic1, err := spiceevent.NewTopic(
+	_ = viewAudit
+	orderEventsTopic, err := spiceevent.NewTopic(
 		spiceevent.Definition{
 			ID:     "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|11:OrderEvents",
 			Module: "github.com/StevenBuglione/spice/examples/commerce/orders",
@@ -83,7 +83,7 @@ func constructApplicationDependencies(
 				ID:     "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|9:ViewAudit|6:Record",
 				Module: "github.com/StevenBuglione/spice/examples/commerce/orders",
 				Order:  10,
-				Handle: provider0.Record,
+				Handle: viewAudit.Record,
 			},
 		},
 		options.EventObservers...,
@@ -91,211 +91,211 @@ func constructApplicationDependencies(
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct event topic spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|11:OrderEvents (github.com/StevenBuglione/spice/event.Publisher[github.com/StevenBuglione/spice/examples/commerce/orders.OrderViewed]): %w", err))
 	}
-	var provider1 spiceevent.Publisher[orders.OrderViewed] = generatedEventTopic1
-	_ = provider1
-	provider2, cleanup2, err := spicesource4.Construct4f4cdf491aa5()
+	var orderEvents spiceevent.Publisher[orders.OrderViewed] = orderEventsTopic
+	_ = orderEvents
+	mux, muxCleanup, err := spicePlatform.ConstructMux_4f4cdf49()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux (*net/http.ServeMux): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean mux (*net/http.ServeMux, source spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux): %w", err))
 	}
-	if cleanup2 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/platform", "spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux", cleanup2); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux: %w", err))
+	if muxCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/platform", "spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux", muxCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean mux (source spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux): %w", err))
 		}
 	}
-	_ = provider2
-	provider3, err := spicesource2.Bind59ba7b6b0c50(configurationSnapshot)
+	_ = mux
+	ordersSettings, err := spiceOrders.BindSettings_59ba7b6b(configurationSnapshot)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/orders.Settings for provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|8:Settings: %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/orders.Settings for bean Settings (source spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|8:Settings): %w", err))
 	}
-	_ = provider3
-	provider4, cleanup4, err := spicesource5.Constructabe0e37daefd()
+	_ = ordersSettings
+	orderRepository, orderRepositoryCleanup, err := spiceStorage.ConstructOrderRepository_abe0e37d()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository (*github.com/StevenBuglione/spice/examples/commerce/storage.OrderRepository): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean orderRepository (*github.com/StevenBuglione/spice/examples/commerce/storage.OrderRepository, source spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository): %w", err))
 	}
-	if cleanup4 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository", cleanup4); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository: %w", err))
+	if orderRepositoryCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository", orderRepositoryCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean orderRepository (source spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository): %w", err))
 		}
 	}
-	_ = provider4
-	provider5, err := spicesource5.Bindee0cda8a4a6f(configurationSnapshot)
+	_ = orderRepository
+	storageSettings, err := spiceStorage.BindSettings_ee0cda8a(configurationSnapshot)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/storage.Settings for provider spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|8:Settings: %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/storage.Settings for bean Settings (source spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|8:Settings): %w", err))
 	}
-	_ = provider5
-	provider6, cleanup6, err := spicesource5.Constructcf56637a93ed(provider5)
+	_ = storageSettings
+	openDatabase, openDatabaseCleanup, err := spiceStorage.ConstructOpenDatabase_cf56637a(storageSettings)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase (*github.com/StevenBuglione/spice/examples/commerce/storage.Database): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean openDatabase (*github.com/StevenBuglione/spice/examples/commerce/storage.Database, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase): %w", err))
 	}
-	if cleanup6 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase", cleanup6); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase: %w", err))
+	if openDatabaseCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase", openDatabaseCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean openDatabase (source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:OpenDatabase): %w", err))
 		}
 	}
-	_ = provider6
-	provider7, cleanup7, err := spicesource5.Constructb4ba2b27b86f(provider6)
+	_ = openDatabase
+	native, nativeCleanup, err := spiceStorage.ConstructNative_b4ba2b27(openDatabase)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native (*database/sql.DB): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean native (*database/sql.DB, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native): %w", err))
 	}
-	if cleanup7 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native", cleanup7); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native: %w", err))
+	if nativeCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native", nativeCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean native (source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|6:Native): %w", err))
 		}
 	}
-	_ = provider7
-	provider8, cleanup8, err := spicesource5.Construct942a3a825f3b(provider7)
+	_ = native
+	readExecutor, readExecutorCleanup, err := spiceStorage.ConstructReadExecutor_942a3a82(native)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor (github.com/StevenBuglione/spice/data.Executor): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean readExecutor (github.com/StevenBuglione/spice/data.Executor, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor): %w", err))
 	}
-	if cleanup8 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor", cleanup8); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor: %w", err))
+	if readExecutorCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor", readExecutorCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean readExecutor (source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:ReadExecutor): %w", err))
 		}
 	}
-	_ = provider8
-	provider9, cleanup9, err := spicesource5.Construct18761080e301(provider7)
+	_ = readExecutor
+	transactions, transactionsCleanup, err := spiceStorage.ConstructTransactions_18761080(native)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions (*github.com/StevenBuglione/spice/data.Manager): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean transactions (*github.com/StevenBuglione/spice/data.Manager, source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions): %w", err))
 	}
-	if cleanup9 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions", cleanup9); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions: %w", err))
+	if transactionsCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/storage", "spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions", transactionsCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean transactions (source spice:symbol:v1|function|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|12:Transactions): %w", err))
 		}
 	}
-	_ = provider9
-	provider10, cleanup10, err := spicesource3.Construct863e8c2de6c2()
+	_ = transactions
+	offlineProcessor, offlineProcessorCleanup, err := spicePayments.ConstructOfflineProcessor_863e8c2d()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor (*github.com/StevenBuglione/spice/examples/commerce/payments.OfflineProcessor): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean offlineProcessor (*github.com/StevenBuglione/spice/examples/commerce/payments.OfflineProcessor, source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor): %w", err))
 	}
-	if cleanup10 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/payments", "spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor", cleanup10); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor: %w", err))
+	if offlineProcessorCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/payments", "spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor", offlineProcessorCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean offlineProcessor (source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor): %w", err))
 		}
 	}
-	_ = provider10
-	provider11, err := spicesource3.Binde69fa000b930(configurationSnapshot)
+	_ = offlineProcessor
+	paymentsSettings, err := spicePayments.BindSettings_e69fa000(configurationSnapshot)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/payments.Settings for provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|8:Settings: %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/payments.Settings for bean Settings (source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|8:Settings): %w", err))
 	}
-	_ = provider11
-	provider12, cleanup12, err := spicesource3.Constructc8223730798f(provider11)
+	_ = paymentsSettings
+	stripeProcessor, stripeProcessorCleanup, err := spicePayments.ConstructStripeProcessor_c8223730(paymentsSettings)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service (*github.com/StevenBuglione/spice/examples/commerce/payments.Service): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean stripeProcessor (*github.com/StevenBuglione/spice/examples/commerce/payments.Service, source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service): %w", err))
 	}
-	if cleanup12 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/payments", "spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service", cleanup12); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service: %w", err))
+	if stripeProcessorCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/payments", "spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service", stripeProcessorCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean stripeProcessor (source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service): %w", err))
 		}
 	}
-	_ = provider12
-	provider13, err := spicesource4.Bindbd78ddfa9f62(configurationSnapshot)
+	_ = stripeProcessor
+	platformSettings, err := spicePlatform.BindSettings_bd78ddfa(configurationSnapshot)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/platform.Settings for provider spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|8:Settings: %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/platform.Settings for bean Settings (source spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|8:Settings): %w", err))
 	}
-	_ = provider13
-	provider14, cleanup14, err := spicesource4.Construct593d6230c9aa(provider13, provider2, provider6)
+	_ = platformSettings
+	server, serverCleanup, err := spicePlatform.ConstructServer_593d6230(platformSettings, mux, openDatabase)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer (*github.com/StevenBuglione/spice/examples/commerce/platform.Server): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean newServer (*github.com/StevenBuglione/spice/examples/commerce/platform.Server, source spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer): %w", err))
 	}
-	if cleanup14 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/platform", "spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer", cleanup14); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer: %w", err))
+	if serverCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/platform", "spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer", serverCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean newServer (source spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer): %w", err))
 		}
 	}
-	_ = provider14
-	provider15, err := spicesource0.Bind8a49b112910c(configurationSnapshot)
+	_ = server
+	inventorySettings, err := spiceInventory.BindSettings_8a49b112(configurationSnapshot)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/inventory.Settings for provider spice:symbol:v1|type|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|8:Settings: %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/inventory.Settings for bean Settings (source spice:symbol:v1|type|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|8:Settings): %w", err))
 	}
-	_ = provider15
-	provider16, cleanup16, err := spicesource0.Construct538781be5a86(provider15)
+	_ = inventorySettings
+	inventoryService, inventoryServiceCleanup, err := spiceInventory.ConstructService_538781be(inventorySettings)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService (*github.com/StevenBuglione/spice/examples/commerce/inventory.Service): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean newService (*github.com/StevenBuglione/spice/examples/commerce/inventory.Service, source spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService): %w", err))
 	}
-	if cleanup16 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/inventory", "spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService", cleanup16); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService: %w", err))
+	if inventoryServiceCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/inventory", "spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService", inventoryServiceCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean newService (source spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService): %w", err))
 		}
 	}
-	_ = provider16
-	provider17, cleanup17, err := spicesource2.Constructce92b74aa676(provider3, provider16, provider12, provider1, provider4, provider8)
+	_ = inventoryService
+	ordersService, ordersServiceCleanup, err := spiceOrders.ConstructService_ce92b74a(ordersSettings, inventoryService, stripeProcessor, orderEvents, orderRepository, readExecutor)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService (*github.com/StevenBuglione/spice/examples/commerce/orders.Service): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean newService (*github.com/StevenBuglione/spice/examples/commerce/orders.Service, source spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService): %w", err))
 	}
-	if cleanup17 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/orders", "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService", cleanup17); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService: %w", err))
+	if ordersServiceCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/orders", "spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService", ordersServiceCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean newService (source spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService): %w", err))
 		}
 	}
-	_ = provider17
-	provider18, cleanup18, err := spicesource1.Construct6232152b1386()
+	_ = ordersService
+	systemClock, systemClockCleanup, err := spiceNotifications.ConstructSystemClock_6232152b()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock (*github.com/StevenBuglione/spice/examples/commerce/notifications.SystemClock): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean systemClock (*github.com/StevenBuglione/spice/examples/commerce/notifications.SystemClock, source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock): %w", err))
 	}
-	if cleanup18 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/notifications", "spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock", cleanup18); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock: %w", err))
+	if systemClockCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/notifications", "spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock", systemClockCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean systemClock (source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock): %w", err))
 		}
 	}
-	_ = provider18
-	provider19, err := spicesource1.Bindd8b9beed1bf7(configurationSnapshot)
+	_ = systemClock
+	notificationsSettings, err := spiceNotifications.BindSettings_d8b9beed(configurationSnapshot)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/notifications.Settings for provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Settings: %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("bind configuration github.com/StevenBuglione/spice/examples/commerce/notifications.Settings for bean Settings (source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Settings): %w", err))
 	}
-	_ = provider19
-	provider20, cleanup20, err := spicesource1.Construct899700544847(provider19)
+	_ = notificationsSettings
+	delivery, deliveryCleanup, err := spiceNotifications.ConstructDelivery_89970054(notificationsSettings)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery (*github.com/StevenBuglione/spice/examples/commerce/notifications.Delivery): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean delivery (*github.com/StevenBuglione/spice/examples/commerce/notifications.Delivery, source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery): %w", err))
 	}
-	if cleanup20 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/notifications", "spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery", cleanup20); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery: %w", err))
+	if deliveryCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/notifications", "spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery", deliveryCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean delivery (source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery): %w", err))
 		}
 	}
-	_ = provider20
-	provider21, cleanup21, err := spicesource1.Constructf5f0b515785f(provider19, provider20, provider20, provider18)
+	_ = delivery
+	notifier, notifierCleanup, err := spiceNotifications.ConstructNotifier_f5f0b515(notificationsSettings, delivery, delivery, systemClock)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier (*github.com/StevenBuglione/spice/examples/commerce/notifications.Notifier): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean notifier (*github.com/StevenBuglione/spice/examples/commerce/notifications.Notifier, source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier): %w", err))
 	}
-	if cleanup21 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/notifications", "spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier", cleanup21); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier: %w", err))
+	if notifierCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/notifications", "spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier", notifierCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean notifier (source spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier): %w", err))
 		}
 	}
-	_ = provider21
-	provider22, cleanup22, err := spicesource2.Constructc33744cea0df(provider17, provider21)
+	_ = notifier
+	controller, controllerCleanup, err := spiceOrders.ConstructController_c33744ce(ordersService, notifier)
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller (*github.com/StevenBuglione/spice/examples/commerce/orders.Controller): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean controller (*github.com/StevenBuglione/spice/examples/commerce/orders.Controller, source spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller): %w", err))
 	}
-	if cleanup22 != nil {
-		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/orders", "spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller", cleanup22); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller: %w", err))
+	if controllerCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("github.com/StevenBuglione/spice/examples/commerce/orders", "spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller", controllerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean controller (source spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller): %w", err))
 		}
 	}
-	_ = provider22
+	_ = controller
 	return &applicationDependencies{
-		provider0:  provider0,
-		provider1:  provider1,
-		provider2:  provider2,
-		provider3:  provider3,
-		provider4:  provider4,
-		provider5:  provider5,
-		provider6:  provider6,
-		provider7:  provider7,
-		provider8:  provider8,
-		provider9:  provider9,
-		provider10: provider10,
-		provider11: provider11,
-		provider12: provider12,
-		provider13: provider13,
-		provider14: provider14,
-		provider15: provider15,
-		provider16: provider16,
-		provider17: provider17,
-		provider18: provider18,
-		provider19: provider19,
-		provider20: provider20,
-		provider21: provider21,
-		provider22: provider22,
+		viewAudit:             viewAudit,
+		orderEvents:           orderEvents,
+		mux:                   mux,
+		ordersSettings:        ordersSettings,
+		orderRepository:       orderRepository,
+		storageSettings:       storageSettings,
+		openDatabase:          openDatabase,
+		native:                native,
+		readExecutor:          readExecutor,
+		transactions:          transactions,
+		offlineProcessor:      offlineProcessor,
+		paymentsSettings:      paymentsSettings,
+		stripeProcessor:       stripeProcessor,
+		platformSettings:      platformSettings,
+		server:                server,
+		inventorySettings:     inventorySettings,
+		inventoryService:      inventoryService,
+		ordersService:         ordersService,
+		systemClock:           systemClock,
+		notificationsSettings: notificationsSettings,
+		delivery:              delivery,
+		notifier:              notifier,
+		controller:            controller,
 	}, nil
 }

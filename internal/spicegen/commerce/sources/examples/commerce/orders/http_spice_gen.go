@@ -13,12 +13,13 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Constructc33744cea0df performs the direct construction selected for spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller.
-func Constructc33744cea0df(dependency0 *orders.Service, dependency1 *notifications.Notifier) (*orders.Controller, spicelifecycle.Cleanup, error) {
+// ConstructController_c33744ce performs the direct construction selected for bean "controller".
+// Spice source identity: spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller.
+func ConstructController_c33744ce(dependency0 *orders.Service, dependency1 *notifications.Notifier) (*orders.Controller, spicelifecycle.Cleanup, error) {
 	value, err := orders.NewController(dependency0, dependency1)
 	if err != nil {
 		var zero *orders.Controller
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller (*github.com/StevenBuglione/spice/examples/commerce/orders.Controller): %w", err)
+		return zero, nil, fmt.Errorf("construct bean controller (*github.com/StevenBuglione/spice/examples/commerce/orders.Controller, source spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:Controller): %w", err)
 	}
 	return value, nil, nil
 }

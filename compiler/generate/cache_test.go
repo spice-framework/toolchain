@@ -64,7 +64,7 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		"options.CacheClock",
 		"options.CacheObservers...",
 		"generatedCache0.Get(httpRequest.Context(), requestValue)",
-		"provider0.Product(httpRequest.Context(), requestValue)",
+		"api.Product(httpRequest.Context(), requestValue)",
 		"generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)",
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
@@ -86,7 +86,7 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		firstPlan,
 		"internal/spicegen/cachegenerated/"+assemblyFilename,
 	))
-	if !bytes.Contains([]byte(providerWiring), []byte("spicesource0.Construct")) {
+	if !bytes.Contains([]byte(providerWiring), []byte("spiceApi.Construct")) {
 		t.Fatalf("generated provider wiring omitted direct construction:\n%s", providerWiring)
 	}
 	assertOrdered(
@@ -94,7 +94,7 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		httpWiring,
 		"spicecache.NewMemory[api.Request, api.Response](",
 		"generatedCache0.Get(httpRequest.Context(), requestValue)",
-		"provider0.Product(httpRequest.Context(), requestValue)",
+		"api.Product(httpRequest.Context(), requestValue)",
 		"generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)",
 	)
 	assertOrdered(

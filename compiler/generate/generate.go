@@ -22,6 +22,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/StevenBuglione/spice/annotation/sdk"
 	"github.com/StevenBuglione/spice/compiler/application"
@@ -844,9 +846,10 @@ func targetProviderVariables(
 ) (map[string]string, map[string]string) {
 	local := make(map[string]string, len(providers))
 	dependencies := make(map[string]string, len(providers))
+	names := providerVariableNames(providers)
 	for index, item := range providers {
-		local[item.SymbolID] = providerVariable(index)
-		dependencies[item.SymbolID] = "dependencies." + providerVariable(index)
+		local[item.SymbolID] = names[index]
+		dependencies[item.SymbolID] = "dependencies." + names[index]
 	}
 	return local, dependencies
 }
@@ -862,7 +865,12 @@ func renderProvidersTargetSource(
 	adapters map[string]providerSourceAdapter,
 ) ([]byte, error) {
 	var source bytes.Buffer
-	writeApplicationDependenciesType(&source, providers, aliases)
+	writeApplicationDependenciesType(
+		&source,
+		providers,
+		aliases,
+		providerVariables,
+	)
 	source.WriteString("func constructApplicationDependencies(\n")
 	source.WriteString("\tctx context.Context,\n")
 	source.WriteString("\tapplication *Application,\n")
@@ -886,7 +894,11 @@ func renderProvidersTargetSource(
 	); err != nil {
 		return nil, err
 	}
-	writeApplicationDependenciesReturn(&source, providers)
+	writeApplicationDependenciesReturn(
+		&source,
+		providers,
+		providerVariables,
+	)
 	source.WriteString("}\n")
 	return source.Bytes(), nil
 }
@@ -1226,9 +1238,10 @@ func writeApplicationDependenciesType(
 	source *bytes.Buffer,
 	providers []provider.Provider,
 	aliases map[string]string,
+	providerVariables map[string]string,
 ) {
 	source.WriteString("type applicationDependencies struct {\n")
-	for index, item := range providers {
+	for _, item := range providers {
 		output := renderedType(item.Output, aliases)
 		if item.Scope != sdk.BeanScopeSingleton {
 			output = "spicebean.Provider[" + output + "]"
@@ -1236,7 +1249,7 @@ func writeApplicationDependenciesType(
 		fmt.Fprintf(
 			source,
 			"\t%s %s\n",
-			providerVariable(index),
+			providerVariables[item.SymbolID],
 			output,
 		)
 	}
@@ -1246,10 +1259,11 @@ func writeApplicationDependenciesType(
 func writeApplicationDependenciesReturn(
 	source *bytes.Buffer,
 	providers []provider.Provider,
+	providerVariables map[string]string,
 ) {
 	source.WriteString("\treturn &applicationDependencies{\n")
-	for index := range providers {
-		variable := providerVariable(index)
+	for _, item := range providers {
+		variable := providerVariables[item.SymbolID]
 		fmt.Fprintf(source, "\t\t%s: %s,\n", variable, variable)
 	}
 	source.WriteString("\t}, nil\n")
@@ -1389,6 +1403,7 @@ func renderRouteSpecifications(
 func generatedRouteIdentity(route controller.Route) (string, string) {
 	digest := sha256.Sum256([]byte(route.SymbolID))
 	suffix := hex.EncodeToString(digest[:6])
+	functionSuffix := hex.EncodeToString(digest[:4])
 	label := targetid.Default(
 		path.Base(route.Symbol.PackagePath) + "_" +
 			route.Symbol.Receiver + "_" +
@@ -1401,7 +1416,14 @@ func generatedRouteIdentity(route controller.Route) (string, string) {
 			"_",
 		)
 	}
-	return "registerGeneratedRoute" + suffix,
+	functionLabel := exportedGeneratedIdentifier(
+		path.Base(route.Symbol.PackagePath),
+		"Route",
+	) + exportedGeneratedIdentifier(
+		route.Symbol.Receiver,
+		"Controller",
+	) + exportedGeneratedIdentifier(route.Name, "Handler")
+	return "registerGeneratedRoute" + functionLabel + "_" + functionSuffix,
 		"spice_http_route_" + label + "_" + suffix + "_gen.go"
 }
 
@@ -1608,10 +1630,14 @@ func providerSourceAdapters(
 	sort.Strings(importPaths)
 	importAliases := make(map[string]string, len(importPaths))
 	for index, importPath := range importPaths {
+		preferred := "spice" + exportedGeneratedIdentifier(
+			path.Base(importPath),
+			"Source"+strconv.Itoa(index),
+		)
 		importAliases[importPath] = ensureSourceUnitImportAlias(
 			aliases,
 			importPath,
-			"spicesource"+strconv.Itoa(index),
+			preferred,
 		)
 	}
 	result := make(map[string]providerSourceAdapter, len(providerPaths))
@@ -2084,7 +2110,8 @@ func writeSourceUnitApplication(
 
 func generatedApplicationTargetName(item application.Target) string {
 	digest := sha256.Sum256([]byte(item.SymbolID))
-	return "ApplicationTarget" + hex.EncodeToString(digest[:6])
+	name := exportedGeneratedIdentifier(item.Name, "Application")
+	return "ApplicationTarget" + name + "_" + hex.EncodeToString(digest[:4])
 }
 
 func writeSourceUnitInterfaceAssertions(
@@ -2295,7 +2322,11 @@ func generatedProviderFunction(item provider.Provider) string {
 	if item.Source == provider.SourceConfiguration {
 		prefix = "Bind"
 	}
-	return prefix + hex.EncodeToString(digest[:6])
+	name := exportedGeneratedIdentifier(
+		semanticProviderName(item),
+		"Provider",
+	)
+	return prefix + name + "_" + hex.EncodeToString(digest[:4])
 }
 
 func writeSourceUnitProvider(
@@ -2308,10 +2339,11 @@ func writeSourceUnitProvider(
 	functionName := generatedProviderFunction(item)
 	fmt.Fprintf(
 		source,
-		"// %s performs the direct construction selected for %s.\n",
+		"// %s performs the direct construction selected for bean %q.\n",
 		functionName,
-		item.SymbolID,
+		item.Name,
 	)
+	fmt.Fprintf(source, "// Spice source identity: %s.\n", item.SymbolID)
 	fmt.Fprintf(source, "func %s(", functionName)
 	for index, dependency := range item.Dependencies {
 		if index != 0 {
@@ -2372,8 +2404,9 @@ func writeSourceUnitProvider(
 			"\t\treturn zero, nil, %s.Errorf(%s, err)\n",
 			fmtAlias,
 			strconv.Quote(
-				"construct provider "+item.SymbolID+
-					" ("+item.OutputTypeID+"): %w",
+				"construct bean "+item.Name+
+					" ("+item.OutputTypeID+
+					", source "+item.SymbolID+"): %w",
 			),
 		)
 		source.WriteString("\t}\n")
@@ -2393,7 +2426,16 @@ func generatedAssertionName(
 	digest := sha256.Sum256(
 		[]byte(item.SymbolID + "\x00" + binding.TypeID),
 	)
-	return "spiceImplements" + hex.EncodeToString(digest[:6])
+	concrete := exportedGeneratedIdentifier(
+		semanticProviderName(item),
+		"Provider",
+	)
+	contract := exportedGeneratedIdentifier(
+		generatedTypeName(binding.Type),
+		"Interface",
+	)
+	return "spiceImplements" + concrete + "As" + contract +
+		"_" + hex.EncodeToString(digest[:4])
 }
 
 func aliasesForTypes(
@@ -2843,7 +2885,7 @@ func generatedComponentFields(
 }
 
 func componentFieldBase(item provider.Provider, index int) string {
-	base := exportedComponentFieldName(item.Name, index)
+	base := exportedComponentFieldName(semanticProviderName(item), index)
 	if item.ExplicitName ||
 		!strings.HasPrefix(base, "New") ||
 		len(base) == len("New") {
@@ -2986,7 +3028,8 @@ func writeProviders(
 ) error {
 	configByProvider := configurationProviderIndex(configTypes)
 	eventByProvider := eventProviderIndex(events)
-	for index, item := range providers {
+	for _, item := range providers {
+		variable := providerVariables[item.SymbolID]
 		if item.Scope != sdk.BeanScopeSingleton {
 			adapter, found := adapters[item.SymbolID]
 			if !found {
@@ -2998,7 +3041,7 @@ func writeProviders(
 			writeScopedProviderAdapter(
 				source,
 				item,
-				index,
+				variable,
 				aliases,
 				dependencies[item.SymbolID],
 				adapter,
@@ -3017,7 +3060,7 @@ func writeProviders(
 			writeProviderAdapterCall(
 				source,
 				item,
-				index,
+				variable,
 				dependencies[item.SymbolID],
 				providerModules[item.SymbolID],
 				adapter,
@@ -3033,7 +3076,7 @@ func writeProviders(
 			writeProviderAdapterCall(
 				source,
 				item,
-				index,
+				variable,
 				dependencies[item.SymbolID],
 				providerModules[item.SymbolID],
 				adapter,
@@ -3054,7 +3097,7 @@ func writeProviders(
 				source,
 				item,
 				configType,
-				index,
+				variable,
 				adapter,
 			)
 		case provider.SourceEvent:
@@ -3068,7 +3111,7 @@ func writeProviders(
 			if err := writeEventProvider(
 				source,
 				topic,
-				index,
+				variable,
 				aliases,
 				providerVariables,
 			); err != nil {
@@ -3084,13 +3127,12 @@ func writeProviders(
 func writeScopedProviderAdapter(
 	source *bytes.Buffer,
 	item provider.Provider,
-	index int,
+	variable string,
 	aliases map[string]string,
 	dependencies []string,
 	adapter providerSourceAdapter,
 ) {
-	variable := providerVariable(index)
-	factory := "providerFactory" + strconv.Itoa(index)
+	factory := variable + "Factory"
 	outputType := renderedType(item.Output, aliases)
 	fmt.Fprintf(
 		source,
@@ -3123,17 +3165,17 @@ func writeScopedProviderAdapter(
 		}
 		fmt.Fprintf(
 			source,
-			"\tscoped%d := spicebean.NewScoped[%s](%s, %s)\n",
-			index,
+			"\t%sScope := spicebean.NewScoped[%s](%s, %s)\n",
+			variable,
 			outputType,
 			scopeKind,
 			factory,
 		)
 		fmt.Fprintf(
 			source,
-			"\t%s := scoped%d.Provider()\n",
+			"\t%s := %sScope.Provider()\n",
 			variable,
-			index,
+			variable,
 		)
 	}
 	fmt.Fprintf(source, "\t_ = %s\n", variable)
@@ -3142,13 +3184,12 @@ func writeScopedProviderAdapter(
 func writeProviderAdapterCall(
 	source *bytes.Buffer,
 	item provider.Provider,
-	index int,
+	variable string,
 	dependencies []string,
 	moduleID string,
 	adapter providerSourceAdapter,
 ) {
-	variable := providerVariable(index)
-	cleanup := fmt.Sprintf("cleanup%d", index)
+	cleanup := variable + "Cleanup"
 	fmt.Fprintf(
 		source,
 		"\t%s, %s, err := %s.%s(%s)\n",
@@ -3163,8 +3204,9 @@ func writeProviderAdapterCall(
 		source,
 		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
 		strconv.Quote(
-			"construct provider "+item.SymbolID+
-				" ("+item.OutputTypeID+"): %w",
+			"construct bean "+item.Name+
+				" ("+item.OutputTypeID+
+				", source "+item.SymbolID+"): %w",
 		),
 	)
 	source.WriteString("\t}\n")
@@ -3179,7 +3221,10 @@ func writeProviderAdapterCall(
 	fmt.Fprintf(
 		source,
 		"\t\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
-		strconv.Quote("register cleanup for provider "+item.SymbolID+": %w"),
+		strconv.Quote(
+			"register cleanup for bean "+item.Name+
+				" (source "+item.SymbolID+"): %w",
+		),
 	)
 	source.WriteString("\t\t}\n")
 	source.WriteString("\t}\n")
@@ -3190,10 +3235,9 @@ func writeConfigurationAdapterCall(
 	source *bytes.Buffer,
 	item provider.Provider,
 	configType configuration.Type,
-	index int,
+	variable string,
 	adapter providerSourceAdapter,
 ) {
-	variable := providerVariable(index)
 	fmt.Fprintf(
 		source,
 		"\t%s, err := %s.%s(configurationSnapshot)\n",
@@ -3207,7 +3251,8 @@ func writeConfigurationAdapterCall(
 		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, err))\n",
 		strconv.Quote(
 			"bind configuration "+configType.TypeID+
-				" for provider "+item.SymbolID+": %w",
+				" for bean "+item.Name+
+				" (source "+item.SymbolID+"): %w",
 		),
 	)
 	source.WriteString("\t}\n")
@@ -3225,12 +3270,12 @@ func eventProviderIndex(events []compilerevent.Topic) map[string]compilerevent.T
 func writeEventProvider(
 	source *bytes.Buffer,
 	topic compilerevent.Topic,
-	index int,
+	variable string,
 	aliases map[string]string,
 	providerVariables map[string]string,
 ) error {
 	payload := renderedType(topic.Payload, aliases)
-	topicVariable := "generatedEventTopic" + strconv.Itoa(index)
+	topicVariable := variable + "Topic"
 	fmt.Fprintf(source, "\t%s, err := spiceevent.NewTopic(\n", topicVariable)
 	source.WriteString("\t\tspiceevent.Definition{\n")
 	fmt.Fprintf(source, "\t\t\tID: %s,\n", strconv.Quote(topic.MarkerID))
@@ -3276,11 +3321,11 @@ func writeEventProvider(
 	fmt.Fprintf(
 		source,
 		"\tvar %s spiceevent.Publisher[%s] = %s\n",
-		providerVariable(index),
+		variable,
 		payload,
 		topicVariable,
 	)
-	fmt.Fprintf(source, "\t_ = %s\n", providerVariable(index))
+	fmt.Fprintf(source, "\t_ = %s\n", variable)
 	return nil
 }
 
@@ -4466,7 +4511,8 @@ func writeSourceUnitConfigurationBinder(
 
 func generatedConfigurationFunction(configType configuration.Type) string {
 	digest := sha256.Sum256([]byte(configType.SymbolID))
-	return "Bind" + hex.EncodeToString(digest[:6])
+	name := exportedGeneratedIdentifier(configType.Name, "Configuration")
+	return "Bind" + name + "_" + hex.EncodeToString(digest[:4])
 }
 
 func configurationAccessor(kind runtimeconfig.Kind) string {
@@ -5193,10 +5239,7 @@ func dependencyVariables(
 			kind:       edge.DependencyKind,
 		})
 	}
-	variables := make(map[string]string, len(providers))
-	for index, item := range providers {
-		variables[item.SymbolID] = providerVariable(index)
-	}
+	variables, _ := targetProviderVariables(providers)
 	result := make(map[string][]string, len(providers))
 	for _, item := range providers {
 		inputs := make([]string, len(item.Dependencies))
@@ -6248,8 +6291,176 @@ func containsTarget(targets []application.Target, symbolID string) bool {
 	return false
 }
 
-func providerVariable(index int) string {
-	return "provider" + strconv.Itoa(index)
+func providerVariableNames(providers []provider.Provider) []string {
+	result := make([]string, len(providers))
+	baseCounts := make(map[string]int, len(providers))
+	for index, item := range providers {
+		baseCounts[providerVariableBase(item, index)]++
+	}
+	used := make(map[string]int, len(providers))
+	for index, item := range providers {
+		base := providerVariableBase(item, index)
+		if baseCounts[base] > 1 {
+			packageName := localGeneratedIdentifier(
+				path.Base(item.PackagePath),
+				"pkg",
+			)
+			base = packageName + exportedGeneratedIdentifier(base, "Bean")
+		}
+		used[base]++
+		result[index] = base
+		if used[base] > 1 {
+			result[index] += strconv.Itoa(used[base])
+		}
+	}
+	return result
+}
+
+func providerVariableBase(item provider.Provider, index int) string {
+	return localGeneratedIdentifier(
+		semanticProviderName(item),
+		"provider"+strconv.Itoa(index),
+	)
+}
+
+func semanticProviderName(item provider.Provider) string {
+	name := item.Name
+	if name == "" {
+		name = item.Symbol.Name
+	}
+	if !item.ExplicitName && (name == "New" || name == "new") {
+		if outputName := generatedTypeName(item.Output); outputName != "Interface" {
+			return outputName
+		}
+	}
+	if !item.ExplicitName &&
+		(strings.HasPrefix(name, "New") ||
+			strings.HasPrefix(name, "new")) &&
+		len(name) > len("New") {
+		trimmed := name[len("New"):]
+		if token.IsIdentifier(trimmed) {
+			name = trimmed
+		}
+	}
+	return name
+}
+
+func localGeneratedIdentifier(name, fallback string) string {
+	name = normalizeGeneratedIdentifier(name, fallback)
+	name = lowerGeneratedInitialism(name)
+	if !token.IsIdentifier(name) {
+		return fallback
+	}
+	if generatedLocalReserved(name) {
+		return name + "Bean"
+	}
+	return name
+}
+
+func lowerGeneratedInitialism(name string) string {
+	runes := []rune(name)
+	if len(runes) == 0 {
+		return name
+	}
+	end := 1
+	for end < len(runes) && unicode.IsUpper(runes[end]) {
+		if end+1 < len(runes) && unicode.IsLower(runes[end+1]) {
+			break
+		}
+		end++
+	}
+	for index := range end {
+		runes[index] = unicode.ToLower(runes[index])
+	}
+	return string(runes)
+}
+
+func exportedGeneratedIdentifier(name, fallback string) string {
+	name = normalizeGeneratedIdentifier(name, fallback)
+	first, size := utf8.DecodeRuneInString(name)
+	name = string(unicode.ToUpper(first)) + name[size:]
+	if !token.IsIdentifier(name) || !token.IsExported(name) {
+		return fallback
+	}
+	return name
+}
+
+func normalizeGeneratedIdentifier(name, fallback string) string {
+	if token.IsIdentifier(name) {
+		return name
+	}
+	var builder strings.Builder
+	upperNext := false
+	for _, character := range name {
+		if unicode.IsLetter(character) ||
+			character == '_' ||
+			builder.Len() != 0 && unicode.IsDigit(character) {
+			if upperNext {
+				character = unicode.ToUpper(character)
+				upperNext = false
+			}
+			builder.WriteRune(character)
+			continue
+		}
+		upperNext = builder.Len() != 0
+	}
+	if normalized := builder.String(); token.IsIdentifier(normalized) {
+		return normalized
+	}
+	return fallback
+}
+
+func generatedLocalReserved(name string) bool {
+	switch name {
+	case "application",
+		"append",
+		"authorizer",
+		"cap",
+		"clear",
+		"close",
+		"complex",
+		"configurationSchema",
+		"configurationSnapshot",
+		"copy",
+		"ctx",
+		"delete",
+		"dependencies",
+		"error",
+		"err",
+		"false",
+		"httpObservers",
+		"imag",
+		"len",
+		"logger",
+		"make",
+		"managementMetrics",
+		"max",
+		"min",
+		"new",
+		"nil",
+		"observers",
+		"options",
+		"panic",
+		"print",
+		"println",
+		"real",
+		"recover",
+		"true":
+		return true
+	}
+	return false
+}
+
+func generatedTypeName(value types.Type) string {
+	switch typed := types.Unalias(value).(type) {
+	case *types.Named:
+		if typed.Obj() != nil {
+			return typed.Obj().Name()
+		}
+	case *types.Pointer:
+		return generatedTypeName(typed.Elem())
+	}
+	return "Interface"
 }
 
 func dependencyKey(providerID string, parameter int) string {

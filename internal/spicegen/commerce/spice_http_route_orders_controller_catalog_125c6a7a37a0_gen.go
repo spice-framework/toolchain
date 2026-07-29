@@ -16,7 +16,7 @@ import (
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
-func registerGeneratedRoute125c6a7a37a0(
+func registerGeneratedRouteOrdersControllerCatalog_125c6a7a(
 	ctx context.Context,
 	application *Application,
 	options ApplicationOptions,
@@ -77,7 +77,7 @@ func registerGeneratedRoute125c6a7a37a0(
 		requestValue := orders.CatalogRequest{}
 		responseValue, cacheHit, routeErr := generatedCache0.Get(httpRequest.Context(), requestValue)
 		if routeErr == nil && !cacheHit {
-			responseValue, routeErr = dependencies.provider22.Catalog(httpRequest.Context(), requestValue)
+			responseValue, routeErr = dependencies.controller.Catalog(httpRequest.Context(), requestValue)
 			if routeErr == nil {
 				routeErr = generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)
 			}

@@ -76,12 +76,12 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"const TargetID = spiceentrypoint.ApplicationTarget",
 		"type Components struct",
 		"func (application *Application) Components() Components",
-		`spicesource0 "example.com/shop/internal/spicegen/shop/sources/components"`,
-		"spicesource0.Construct",
+		`spiceComponents "example.com/shop/internal/spicegen/shop/sources/components"`,
+		"spiceComponents.Construct",
 		`components "example.com/shop/components"`,
 		"RegisterModuleCleanup(",
-		"provider2.Start",
-		"provider2.Stop",
+		"serverProvider.Start",
+		"serverProvider.Stop",
 		`Module: "example.com/shop/components"`,
 		"observers ...spicelifecycle.Observer",
 		"func (application *Application) RegisterObserver(",
@@ -132,11 +132,19 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 			firstSource,
 		)
 	}
-	assertOrdered(t, string(firstSource), "provider0,", "provider1,", "provider2,")
+	assertOrdered(
+		t,
+		string(firstSource),
+		"configProvider,",
+		"storeProvider,",
+		"serverProvider,",
+	)
 	for _, forbidden := range []string{
 		root,
 		filepath.ToSlash(root),
 		time.Now().Format("2006-01-02"),
+		"provider0",
+		"Constructce92b74aa676",
 		"spicemanagement",
 		"spiceobservability",
 	} {
@@ -268,7 +276,7 @@ func Mux() *http.ServeMux {
 	for _, expected := range []string{
 		"package spicegen",
 		"func Main(arguments []string) int",
-		"spicesource0.Construct",
+		"spicePlatform.Construct",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("generated application source missing %q:\n%s", expected, source)
@@ -744,7 +752,7 @@ func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
 		"Delay:",
 		"2000000000,",
 		"ContinueOnError: true",
-		"provider0.Refresh",
+		"worker.Refresh",
 		`"spice.schedule"`,
 		"generatedScheduler.Start",
 		"generatedScheduler.Shutdown",
@@ -760,7 +768,7 @@ func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
 	assertOrdered(
 		t,
 		source,
-		"provider0,",
+		"worker,",
 		"spiceschedule.New(",
 		"application.hooks = []spicelifecycle.Hook{",
 	)
@@ -836,7 +844,7 @@ func TestRenderGeneratesBoundedTypedAsyncSubmission(t *testing.T) {
 		"return application.coordinator.Run(ctx, application.hooks, shutdown)",
 		"func (application *Application) Components() Components",
 		"func (application *Application) SubmitWorkerDeliver(",
-		"provider0.Deliver(taskContext, argument1, argument2)",
+		"worker.Deliver(taskContext, argument1, argument2)",
 		"func (application *Application) AsyncSnapshot() spiceasync.Snapshot",
 		`Module: "example.com/asynchronous/tasks"`,
 	} {
@@ -851,7 +859,7 @@ func TestRenderGeneratesBoundedTypedAsyncSubmission(t *testing.T) {
 	assertOrdered(
 		t,
 		source,
-		"provider0,",
+		"worker,",
 		"spiceasync.NewExecutor(",
 		`"spice.async"`,
 	)
@@ -1018,8 +1026,8 @@ func Collision(shareda.AlphaValue, sharedb.BetaValue) {}
 	for _, expected := range []string{
 		`shared "example.com/collision/a"`,
 		`shared2 "example.com/collision/b"`,
-		"spicesource0.Construct",
-		"spicesource1.Construct",
+		"spiceA.Construct",
+		"spiceB.Construct",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("source missing %q:\n%s", expected, source)
@@ -1107,14 +1115,19 @@ func Configured(*components.Server) {}
 		"func NewApplicationWithOptions(",
 		`Key:         "server.port"`,
 		`Environment: "SERVER_PORT"`,
-		"spicesource0.Bind",
-		"spicesource0.Construct",
+		"spiceComponents.Bind",
+		"spiceComponents.Construct",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("generated source missing %q:\n%s", expected, source)
 		}
 	}
-	assertOrdered(t, source, "spicesource0.Bind", "spicesource0.Construct")
+	assertOrdered(
+		t,
+		source,
+		"spiceComponents.Bind",
+		"spiceComponents.Construct",
+	)
 	componentSource := generatedSourceUnitContent(
 		t,
 		plan,
@@ -1522,7 +1535,7 @@ func Forms(*api.Owners) {}
 		"spiceweb.RejectUnknownForm(",
 		"bindingResult.RejectBinding(",
 		".Save(httpRequest.Context(), requestValue, bindingResult)",
-		"_ = dependencies.provider0.Respond(httpRequest.Context(), writer, responseValue)",
+		"_ = dependencies.renderer.Respond(httpRequest.Context(), writer, responseValue)",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(

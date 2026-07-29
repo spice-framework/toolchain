@@ -46,15 +46,15 @@ func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {
 	}
 	source := generatedGoContent(t, firstPlan)
 	for _, expected := range []string{
-		"spicesource0.Construct",
-		"spicesource1.Construct",
+		"spiceApp.Construct",
+		"spiceSearch.Construct",
 		`search "example.com/starterfixture/search"`,
 	} {
 		if !bytes.Contains(source, []byte(expected)) {
 			t.Fatalf("generated source missing %q:\n%s", expected, source)
 		}
 	}
-	assertOrdered(t, string(source), "provider0,", "provider1,", "provider2,")
+	assertOrdered(t, string(source), "optionsBean,", "client,", "server,")
 	appSource := generatedSourceUnitContent(
 		t,
 		firstPlan,
@@ -160,8 +160,8 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 	}
 	source := string(generatedGoContent(t, first))
 	for _, expected := range []string{
-		"spicesource",
-		"httpObservers = append(httpObservers, dependencies.provider",
+		"spiceTelemetry.ConstructObserver",
+		"httpObservers = append(httpObservers, dependencies.observer)",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(
@@ -178,7 +178,7 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 			first,
 			"internal/spicegen/application/"+providersFilename,
 		)),
-		"provider4,",
+		"observer,",
 	)
 	assertOrdered(
 		t,
@@ -187,7 +187,7 @@ func TestRenderComposesAnnotationActivatedHTTPObserver(t *testing.T) {
 			first,
 			"internal/spicegen/application/"+httpFilename,
 		)),
-		"httpObservers = append(httpObservers, dependencies.provider",
+		"httpObservers = append(httpObservers, dependencies.observer)",
 		"registerGeneratedRoute",
 	)
 	if !bytes.Contains(

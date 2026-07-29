@@ -29,10 +29,10 @@ func configureGeneratedHTTP(
 	_ = configurationSnapshot
 	_ = dependencies
 	_ = httpObservers
-	routeMux := dependencies.provider2
+	routeMux := dependencies.mux
 	application.mux = routeMux
 	application.handler = routeMux
-	if _, err := registerGeneratedRoute125c6a7a37a0(
+	if _, err := registerGeneratedRouteOrdersControllerCatalog_125c6a7a(
 		ctx,
 		application,
 		options,
@@ -44,7 +44,7 @@ func configureGeneratedHTTP(
 	); err != nil {
 		return nil, err
 	}
-	if _, err := registerGeneratedRoute8c548c3f0ad4(
+	if _, err := registerGeneratedRouteOrdersControllerGet_8c548c3f(
 		ctx,
 		application,
 		options,
@@ -56,7 +56,7 @@ func configureGeneratedHTTP(
 	); err != nil {
 		return nil, err
 	}
-	if _, err := registerGeneratedRoutefbc15ec550e7(
+	if _, err := registerGeneratedRouteOrdersControllerPlace_fbc15ec5(
 		ctx,
 		application,
 		options,
@@ -68,7 +68,7 @@ func configureGeneratedHTTP(
 	); err != nil {
 		return nil, err
 	}
-	if _, err := registerGeneratedRoute04b28d782ae7(
+	if _, err := registerGeneratedRouteOrdersControllerSendReceipt_04b28d78(
 		ctx,
 		application,
 		options,

@@ -57,12 +57,12 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 		"[]spiceevent.Subscriber[events.OrderPlaced]",
 		`ID:     "spice:symbol:v1|method|33:example.com/eventgenerated/events|9:Inventory|7:Reserve"`,
 		"Order:  -10",
-		"Handle: provider0.Reserve",
+		"Handle: inventory.Reserve",
 		`ID:     "spice:symbol:v1|method|33:example.com/eventgenerated/events|5:Audit|6:Record"`,
 		"Order:  20",
-		"Handle: provider1.Record",
+		"Handle: audit.Record",
 		"options.EventObservers...",
-		"var provider2 spiceevent.Publisher[events.OrderPlaced]",
+		"var orderEvents spiceevent.Publisher[events.OrderPlaced]",
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
 			t.Fatalf("generated event source missing %q:\n%s", required, firstSource)
@@ -75,10 +75,10 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 			firstPlan,
 			"internal/spicegen/eventgenerated/"+providersFilename,
 		)),
-		"provider0,",
-		"provider1,",
+		"inventory,",
+		"audit,",
 		"spiceevent.NewTopic(",
-		"provider3,",
+		"service,",
 	)
 	eventSource := generatedSourceUnitContent(t, firstPlan, "events/events.go")
 	for _, directCall := range [][]byte{

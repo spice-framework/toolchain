@@ -15,7 +15,7 @@ import (
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
-func registerGeneratedRoute8c548c3f0ad4(
+func registerGeneratedRouteOrdersControllerGet_8c548c3f(
 	ctx context.Context,
 	application *Application,
 	options ApplicationOptions,
@@ -71,7 +71,7 @@ func registerGeneratedRoute8c548c3f0ad4(
 		if present0 {
 			requestValue.ID = string(raw0)
 		}
-		responseValue, routeErr := dependencies.provider22.Get(httpRequest.Context(), requestValue)
+		responseValue, routeErr := dependencies.controller.Get(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = writeRouteError(routeErr)
 			return

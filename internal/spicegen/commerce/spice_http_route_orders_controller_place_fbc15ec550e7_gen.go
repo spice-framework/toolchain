@@ -17,7 +17,7 @@ import (
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
-func registerGeneratedRoutefbc15ec550e7(
+func registerGeneratedRouteOrdersControllerPlace_fbc15ec5(
 	ctx context.Context,
 	application *Application,
 	options ApplicationOptions,
@@ -74,13 +74,13 @@ func registerGeneratedRoutefbc15ec550e7(
 			return
 		}
 		var responseValue orders.OrderResponse
-		routeErr := dependencies.provider9.Within(httpRequest.Context(), spicedata.Definition{
+		routeErr := dependencies.transactions.Within(httpRequest.Context(), spicedata.Definition{
 			ID:        "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|5:Place",
 			Module:    "github.com/StevenBuglione/spice/examples/commerce/orders",
 			Isolation: sql.LevelSerializable,
 		}, func(transactionContext context.Context, executor spicedata.Executor) error {
 			var transactionErr error
-			responseValue, transactionErr = dependencies.provider22.Place(transactionContext, executor, requestValue)
+			responseValue, transactionErr = dependencies.controller.Place(transactionContext, executor, requestValue)
 			return transactionErr
 		})
 		if routeErr != nil {

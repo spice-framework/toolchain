@@ -18,24 +18,26 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Construct4f4cdf491aa5 performs the direct construction selected for spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux.
-func Construct4f4cdf491aa5() (*http.ServeMux, spicelifecycle.Cleanup, error) {
+// ConstructMux_4f4cdf49 performs the direct construction selected for bean "mux".
+// Spice source identity: spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|3:Mux.
+func ConstructMux_4f4cdf49() (*http.ServeMux, spicelifecycle.Cleanup, error) {
 	value := platform.Mux()
 	return value, nil, nil
 }
 
-// Construct593d6230c9aa performs the direct construction selected for spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer.
-func Construct593d6230c9aa(dependency0 platform.Settings, dependency1 *http.ServeMux, dependency2 *storage.Database) (*platform.Server, spicelifecycle.Cleanup, error) {
+// ConstructServer_593d6230 performs the direct construction selected for bean "newServer".
+// Spice source identity: spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer.
+func ConstructServer_593d6230(dependency0 platform.Settings, dependency1 *http.ServeMux, dependency2 *storage.Database) (*platform.Server, spicelifecycle.Cleanup, error) {
 	value, err := platform.NewServer(dependency0, dependency1, dependency2)
 	if err != nil {
 		var zero *platform.Server
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer (*github.com/StevenBuglione/spice/examples/commerce/platform.Server): %w", err)
+		return zero, nil, fmt.Errorf("construct bean newServer (*github.com/StevenBuglione/spice/examples/commerce/platform.Server, source spice:symbol:v1|function|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|9:NewServer): %w", err)
 	}
 	return value, nil, nil
 }
 
-// Bindbd78ddfa9f62 binds the validated configuration declared by spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|8:Settings.
-func Bindbd78ddfa9f62(configurationSnapshot spiceconfig.Snapshot) (platform.Settings, error) {
+// BindSettings_bd78ddfa binds the validated configuration declared by spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/platform|0:|8:Settings.
+func BindSettings_bd78ddfa(configurationSnapshot spiceconfig.Snapshot) (platform.Settings, error) {
 	value := platform.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.server.address"); configured {
 		rawValue, valueErr := configurationSnapshot.RequiredString("commerce.server.address")

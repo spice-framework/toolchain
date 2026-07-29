@@ -213,10 +213,10 @@ func Beans(*components.Consumer) {}
 		`"stripe":`,
 		`spicebean.None[*components.Missing]()`,
 		`spicebean.NewLazy(func(context.Context) (components.Processor, error)`,
-		`spicebean.NewProvider(providerFactory`,
+		`spicebean.NewProvider(workFactory`,
 		`spicebean.NewScoped[*components.RequestValue](spicebean.ScopeRequest`,
 		`spicebean.NewScoped[*components.SessionValue](spicebean.ScopeSession`,
-		`spicesource0.Construct`,
+		`spiceComponents.Construct`,
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(

@@ -19,18 +19,19 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Constructce92b74aa676 performs the direct construction selected for spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService.
-func Constructce92b74aa676(dependency0 orders.Settings, dependency1 *inventory.Service, dependency2 payments.Processor, dependency3 event.Publisher[orders.OrderViewed], dependency4 storage.Orders, dependency5 data.Executor) (*orders.Service, spicelifecycle.Cleanup, error) {
+// ConstructService_ce92b74a performs the direct construction selected for bean "newService".
+// Spice source identity: spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService.
+func ConstructService_ce92b74a(dependency0 orders.Settings, dependency1 *inventory.Service, dependency2 payments.Processor, dependency3 event.Publisher[orders.OrderViewed], dependency4 storage.Orders, dependency5 data.Executor) (*orders.Service, spicelifecycle.Cleanup, error) {
 	value, err := orders.NewService(dependency0, dependency1, dependency2, dependency3, dependency4, dependency5)
 	if err != nil {
 		var zero *orders.Service
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService (*github.com/StevenBuglione/spice/examples/commerce/orders.Service): %w", err)
+		return zero, nil, fmt.Errorf("construct bean newService (*github.com/StevenBuglione/spice/examples/commerce/orders.Service, source spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|10:NewService): %w", err)
 	}
 	return value, nil, nil
 }
 
-// Bind59ba7b6b0c50 binds the validated configuration declared by spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|8:Settings.
-func Bind59ba7b6b0c50(configurationSnapshot spiceconfig.Snapshot) (orders.Settings, error) {
+// BindSettings_59ba7b6b binds the validated configuration declared by spice:symbol:v1|type|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|8:Settings.
+func BindSettings_59ba7b6b(configurationSnapshot spiceconfig.Snapshot) (orders.Settings, error) {
 	value := orders.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.orders.sku"); configured {
 		rawValue, valueErr := configurationSnapshot.RequiredString("commerce.orders.sku")

@@ -14,18 +14,19 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Construct538781be5a86 performs the direct construction selected for spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService.
-func Construct538781be5a86(dependency0 inventory.Settings) (*inventory.Service, spicelifecycle.Cleanup, error) {
+// ConstructService_538781be performs the direct construction selected for bean "newService".
+// Spice source identity: spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService.
+func ConstructService_538781be(dependency0 inventory.Settings) (*inventory.Service, spicelifecycle.Cleanup, error) {
 	value, err := inventory.NewService(dependency0)
 	if err != nil {
 		var zero *inventory.Service
-		return zero, nil, fmt.Errorf("construct provider spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService (*github.com/StevenBuglione/spice/examples/commerce/inventory.Service): %w", err)
+		return zero, nil, fmt.Errorf("construct bean newService (*github.com/StevenBuglione/spice/examples/commerce/inventory.Service, source spice:symbol:v1|function|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|10:NewService): %w", err)
 	}
 	return value, nil, nil
 }
 
-// Bind8a49b112910c binds the validated configuration declared by spice:symbol:v1|type|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|8:Settings.
-func Bind8a49b112910c(configurationSnapshot spiceconfig.Snapshot) (inventory.Settings, error) {
+// BindSettings_8a49b112 binds the validated configuration declared by spice:symbol:v1|type|59:github.com/StevenBuglione/spice/examples/commerce/inventory|0:|8:Settings.
+func BindSettings_8a49b112(configurationSnapshot spiceconfig.Snapshot) (inventory.Settings, error) {
 	value := inventory.Settings{}
 	if _, configured := configurationSnapshot.Lookup("commerce.inventory.sku"); configured {
 		rawValue, valueErr := configurationSnapshot.RequiredString("commerce.inventory.sku")

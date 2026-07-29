@@ -29,7 +29,7 @@ import (
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
 
-const TargetID = spiceentrypoint.ApplicationTarget9d5bf5974642
+const TargetID = spiceentrypoint.ApplicationTargetCommerce_9d5bf597
 
 const (
 	ExitSuccess = 0

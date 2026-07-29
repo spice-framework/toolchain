@@ -10,8 +10,9 @@ import (
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 )
 
-// Constructab6c60ed179d performs the direct construction selected for spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit.
-func Constructab6c60ed179d() (*orders.ViewAudit, spicelifecycle.Cleanup, error) {
+// ConstructViewAudit_ab6c60ed performs the direct construction selected for bean "newViewAudit".
+// Spice source identity: spice:symbol:v1|function|56:github.com/StevenBuglione/spice/examples/commerce/orders|0:|12:NewViewAudit.
+func ConstructViewAudit_ab6c60ed() (*orders.ViewAudit, spicelifecycle.Cleanup, error) {
 	value := orders.NewViewAudit()
 	return value, nil, nil
 }
