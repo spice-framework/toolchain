@@ -33,6 +33,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		"examples/petclinic/vendor/modules.txt",
 		"# test Petclinic vendor tree\n",
 	)
+	writeBenchmarkFixture(t, root)
 
 	originalRun, originalCapture := runExternal, captureExternal
 	originalWrapperCheck := checkGoLandWrapper
@@ -78,6 +79,8 @@ func TestVerifyOrchestration(t *testing.T) {
 			return "rustc " + requiredRustVersion + " (test)\n", nil
 		case len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return "total:\t(statements)\t90.0%\n", nil
+		case slices.Contains(arguments, "-bench"):
+			return benchmarkFixtureOutput(arguments), nil
 		case slices.Contains(arguments, "-n"):
 			return "go\n", nil
 		default:
@@ -346,6 +349,8 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 			return "rustc " + requiredRustVersion + " (test)", nil
 		case len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return "total:\t(statements)\t90.0%\n", nil
+		case slices.Contains(arguments, "-bench"):
+			return benchmarkFixtureOutput(arguments), nil
 		case slices.Contains(arguments, "-n"):
 			return "go\n", nil
 		default:
@@ -357,7 +362,7 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"check", "coverage", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
+	for _, mode := range []string{"benchmark", "check", "coverage", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}
@@ -488,6 +493,42 @@ func writeTestFile(t *testing.T, root, path, content string) {
 	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeBenchmarkFixture(t *testing.T, root string) {
+	t.Helper()
+	writeTestFile(
+		t,
+		root,
+		"benchmarks/budgets.json",
+		`{
+  "schema": "spice.benchmarks/v1",
+  "benchmarks": [{
+    "name": "BenchmarkFixture",
+    "package": "./fixture",
+    "reference_ns_per_op": 10,
+    "maximum_ns_per_op": 100,
+    "maximum_bytes_per_op": 100,
+    "maximum_allocs_per_op": 10,
+    "rationale": "Quality-gate orchestration fixture."
+  }]
+}
+`,
+	)
+}
+
+func benchmarkFixtureOutput(arguments []string) string {
+	name := "BenchmarkFixture"
+	for index, argument := range arguments {
+		if argument == "-bench" && index+1 < len(arguments) {
+			name = strings.Trim(arguments[index+1], "^$")
+			break
+		}
+	}
+	return strings.Repeat(
+		name+"-1  100  20 ns/op  30 B/op  2 allocs/op\n",
+		5,
+	)
 }
 
 func copyTestTree(t *testing.T, source, target string) {

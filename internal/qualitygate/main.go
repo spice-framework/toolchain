@@ -45,7 +45,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: check, coverage, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	mode := flag.String("mode", "verify", "verification mode: benchmark, check, coverage, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -68,6 +68,7 @@ func run(ctx context.Context, mode string) error {
 	}
 
 	modes := map[string]func() error{
+		"benchmark":      func() error { return benchmark(ctx, root) },
 		"check":          func() error { return check(ctx, root) },
 		"coverage":       func() error { return coverage(ctx, root) },
 		"fmt":            func() error { return format(ctx, root, true) },
@@ -178,6 +179,14 @@ func verify(ctx context.Context, root string, release bool) error {
 		}
 	} else {
 		output.Println("==> GoLand plugin skipped: no editor/compiler/LSP inputs changed")
+	}
+	if release {
+		if err := runStep(verificationStep{
+			name: "benchmark budgets",
+			run:  func() error { return benchmark(ctx, root) },
+		}); err != nil {
+			return err
+		}
 	}
 	// These stages each perform broad Go compilation. Running them together
 	// oversubscribes compiler processes and makes the wall clock worse on

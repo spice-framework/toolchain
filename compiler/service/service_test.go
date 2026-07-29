@@ -1300,6 +1300,7 @@ func BenchmarkServiceCachedOverlayAnalysis(b *testing.B) {
 	if err != nil {
 		b.Fatalf("New() error = %v", err)
 	}
+	registerServiceCleanup(b, service)
 	mainPath := filepath.Join(root, "main.go")
 	content, err := os.ReadFile(mainPath)
 	if err != nil {
