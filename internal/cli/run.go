@@ -25,8 +25,9 @@ import (
 	"github.com/StevenBuglione/spice/internal/genfs"
 )
 
-// Version is the development version reported by the Spice CLI.
-const Version = "0.1.0-dev"
+// Version is the version reported by the Spice CLI. Release builds replace the
+// development value through Go's link-time string-variable mechanism.
+var Version = "0.1.0-dev"
 
 const (
 	starterSelectionPath    = ".spice/starters.json"
