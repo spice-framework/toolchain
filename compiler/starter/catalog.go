@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package starter adapts explicitly supplied public starter manifests into
 // compiler annotation and application-bootstrap metadata.
+//
+// @NamedInterface("starter")
 package starter
 
 import (

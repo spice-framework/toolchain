@@ -1,4 +1,8 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package parser parses Spice annotations embedded in valid Go comments.
+//
+// @NamedInterface("parser")
 package parser
 
 import (

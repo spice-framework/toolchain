@@ -25,6 +25,34 @@ const (
 // Components is a typed snapshot of constructed singleton beans.
 // It performs no reflection or string-based lookup.
 type Components struct {
+	// Runtime is bean "runtime".
+	Runtime *cli.Runtime
+	// DevHandler is bean "devHandler".
+	DevHandler cli.Handler
+	// LspHandler is bean "lspHandler".
+	LspHandler cli.Handler
+	// RunHandler is bean "runHandler".
+	RunHandler cli.Handler
+	// HelpHandler is bean "helpHandler".
+	HelpHandler cli.Handler
+	// TestHandler is bean "testHandler".
+	TestHandler cli.Handler
+	// BeansHandler is bean "beansHandler".
+	BeansHandler cli.Handler
+	// BuildHandler is bean "buildHandler".
+	BuildHandler cli.Handler
+	// VerifyHandler is bean "verifyHandler".
+	VerifyHandler cli.Handler
+	// ModulesHandler is bean "modulesHandler".
+	ModulesHandler cli.Handler
+	// VersionHandler is bean "versionHandler".
+	VersionHandler cli.Handler
+	// GenerateHandler is bean "generateHandler".
+	GenerateHandler cli.Handler
+	// GeneratedHandler is bean "generatedHandler".
+	GeneratedHandler cli.Handler
+	// AnnotationsHandler is bean "annotationsHandler".
+	AnnotationsHandler cli.Handler
 	// Command is bean "command".
 	Command *cli.Command
 }
@@ -32,6 +60,34 @@ type Components struct {
 // BeanOverrides provides compile-time-typed singleton replacements.
 // Replacements use the normal generated cleanup and rollback path.
 type BeanOverrides struct {
+	// Runtime replaces bean "runtime".
+	Runtime spicebean.Override[*cli.Runtime]
+	// DevHandler replaces bean "devHandler".
+	DevHandler spicebean.Override[cli.Handler]
+	// LspHandler replaces bean "lspHandler".
+	LspHandler spicebean.Override[cli.Handler]
+	// RunHandler replaces bean "runHandler".
+	RunHandler spicebean.Override[cli.Handler]
+	// HelpHandler replaces bean "helpHandler".
+	HelpHandler spicebean.Override[cli.Handler]
+	// TestHandler replaces bean "testHandler".
+	TestHandler spicebean.Override[cli.Handler]
+	// BeansHandler replaces bean "beansHandler".
+	BeansHandler spicebean.Override[cli.Handler]
+	// BuildHandler replaces bean "buildHandler".
+	BuildHandler spicebean.Override[cli.Handler]
+	// VerifyHandler replaces bean "verifyHandler".
+	VerifyHandler spicebean.Override[cli.Handler]
+	// ModulesHandler replaces bean "modulesHandler".
+	ModulesHandler spicebean.Override[cli.Handler]
+	// VersionHandler replaces bean "versionHandler".
+	VersionHandler spicebean.Override[cli.Handler]
+	// GenerateHandler replaces bean "generateHandler".
+	GenerateHandler spicebean.Override[cli.Handler]
+	// GeneratedHandler replaces bean "generatedHandler".
+	GeneratedHandler spicebean.Override[cli.Handler]
+	// AnnotationsHandler replaces bean "annotationsHandler".
+	AnnotationsHandler spicebean.Override[cli.Handler]
 	// Command replaces bean "command".
 	Command spicebean.Override[*cli.Command]
 }

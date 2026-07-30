@@ -25,6 +25,23 @@ type verifyArguments struct {
 	patterns  []string
 }
 
+// NewVerifyHandler constructs the annotation verification command handler.
+func NewVerifyHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"verify"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return verifyCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+			)
+		},
+	)
+}
+
 func verifyCommand(
 	arguments []string,
 	stdout io.Writer,

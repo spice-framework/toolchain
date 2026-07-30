@@ -681,6 +681,69 @@ func DistinctProvider() Distinct { panic("provider body must not execute") }
 	}
 }
 
+func TestCatalogAllowsSelectableEntrypointDuplicateOutputs(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range []Source{
+		SourceStarter,
+		SourceAutoConfiguration,
+	} {
+		t.Run(string(source), func(t *testing.T) {
+			t.Parallel()
+
+			catalog := Add(
+				Catalog{},
+				Provider{
+					Source:       source,
+					SymbolID:     "first",
+					Name:         "first",
+					ExplicitName: true,
+					Output:       types.Typ[types.String],
+					OutputTypeID: "string",
+				},
+				Provider{
+					Source:       source,
+					SymbolID:     "second",
+					Name:         "second",
+					ExplicitName: true,
+					Output:       types.Typ[types.String],
+					OutputTypeID: "string",
+				},
+			)
+			if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+				t.Fatalf("Add() diagnostics = %#v", diagnostics)
+			}
+		})
+	}
+}
+
+func TestCatalogRejectsNonSelectableGeneratedDuplicateOutputs(t *testing.T) {
+	t.Parallel()
+
+	catalog := Add(
+		Catalog{},
+		Provider{
+			Source:       SourceConfiguration,
+			SymbolID:     "first",
+			Name:         "first",
+			Output:       types.Typ[types.String],
+			OutputTypeID: "string",
+		},
+		Provider{
+			Source:       SourceEvent,
+			SymbolID:     "second",
+			Name:         "second",
+			Output:       types.Typ[types.String],
+			OutputTypeID: "string",
+		},
+	)
+	diagnostics := catalog.Diagnostics()
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "duplicate-output" {
+		t.Fatalf("Add() diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestAddExtendsCatalogDefensivelyAndRechecksExactOutputs(t *testing.T) {
 	base := Catalog{providers: []Provider{{
 		Source:       SourceBean,

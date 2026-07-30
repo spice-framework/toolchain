@@ -22,6 +22,24 @@ type moduleTestArguments struct {
 	patterns []string
 }
 
+// NewTestHandler constructs the focused module-test command handler.
+func NewTestHandler(runtime *Runtime) (Handler, error) {
+	return newTestCommandHandler(
+		runtime,
+		[]string{"test"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return moduleTestCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+				runtime.tester,
+			)
+		},
+	)
+}
+
 func moduleTestCommand(
 	arguments []string,
 	stdout io.Writer,

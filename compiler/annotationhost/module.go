@@ -1,4 +1,8 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package annotationhost authorizes and hosts Go-native annotation tools.
+//
+// @NamedInterface("annotationhost")
 package annotationhost
 
 import (

@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package descriptor statically decodes annotation SDK descriptor functions
 // from the compiler's single typed Go program.
+//
+// @NamedInterface("descriptor")
 package descriptor
 
 import (

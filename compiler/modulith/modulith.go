@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package modulith discovers and validates Spice application-module metadata
 // from the shared typed compiler program.
+//
+// @NamedInterface("modulith")
 package modulith
 
 import (

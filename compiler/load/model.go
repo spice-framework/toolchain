@@ -1,4 +1,8 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package load provides Spice's single type-aware Go package loading boundary.
+//
+// @NamedInterface("load")
 package load
 
 import (

@@ -17,6 +17,23 @@ import (
 	"github.com/StevenBuglione/spice/compiler/load"
 )
 
+// NewAnnotationsHandler constructs the annotation inspection command handler.
+func NewAnnotationsHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"annotations"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return annotationsCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+			)
+		},
+	)
+}
+
 func annotationsCommand(
 	arguments []string,
 	stdout io.Writer,

@@ -41,16 +41,18 @@ func SelectAutoConfiguration(
 	pending := defaults.Providers()
 	eligible := pending[:0]
 	for _, candidate := range pending {
-		if replacement, found := exactOutputProvider(
+		if replacement, found := autoConfigurationReplacement(
 			primary.providers,
-			candidate.Output,
+			pending,
+			candidate,
 		); found {
 			decisions = append(decisions, AutoConfigurationDecision{
 				Provider: candidate,
 				Status:   AutoConfigurationReplaced,
 				Reason: fmt.Sprintf(
-					"application bean %s provides exact type %s",
+					"application bean %s replaces default bean %s with exact type %s",
 					replacement.Name,
+					candidate.Name,
 					candidate.OutputTypeID,
 				),
 			})
@@ -110,6 +112,50 @@ func SelectAutoConfiguration(
 		return decisions[i].Provider.SymbolID < decisions[j].Provider.SymbolID
 	})
 	return selected, decisions
+}
+
+func autoConfigurationReplacement(
+	primary []Provider,
+	defaults []Provider,
+	candidate Provider,
+) (Provider, bool) {
+	if exactOutputCount(defaults, candidate.Output) == 1 {
+		return exactOutputProvider(primary, candidate.Output)
+	}
+	candidateNames := providerNames(candidate)
+	for _, item := range primary {
+		if !types.Identical(item.Output, candidate.Output) ||
+			!namesIntersect(candidateNames, providerNames(item)) {
+			continue
+		}
+		return item, true
+	}
+	return Provider{}, false
+}
+
+func exactOutputCount(providers []Provider, output types.Type) int {
+	count := 0
+	for _, item := range providers {
+		if types.Identical(item.Output, output) {
+			count++
+		}
+	}
+	return count
+}
+
+func providerNames(item Provider) []string {
+	return append([]string{item.Name}, item.Aliases...)
+}
+
+func namesIntersect(left, right []string) bool {
+	for _, leftName := range left {
+		for _, rightName := range right {
+			if leftName != "" && leftName == rightName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func exactOutputProvider(

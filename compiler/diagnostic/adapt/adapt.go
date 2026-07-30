@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package adapt converts existing compiler-stage diagnostics into the shared
 // Spice diagnostic contract without changing stage-local metadata models.
+//
+// @NamedInterface("diagnostic-adapt")
 package adapt
 
 import (

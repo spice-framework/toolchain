@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package generate renders deterministic generated application plans from one
 // validated Spice application model. It performs no filesystem writes.
+//
+// @NamedInterface("generate")
 package generate
 
 import (

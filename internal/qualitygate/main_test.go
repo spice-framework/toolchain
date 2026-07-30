@@ -143,7 +143,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		"cargo build --locked --release --target wasm32-wasip2",
 		gradleWrapper + " --no-daemon --console=plain",
 		"verifyPluginStructure verifyPlugin",
-		"verify ./...",
+		"generate --check --target Spice ./compiler/...",
 		"bootstrap recovery",
 	} {
 		if !containsCall(recordedCalls, expected) {
@@ -588,7 +588,7 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"benchmark", "check", "coverage", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
+	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}

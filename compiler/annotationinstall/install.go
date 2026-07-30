@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package annotationinstall plans and applies explicit Go annotation-tool
 // authorization through the target application's ordinary module files.
+//
+// @NamedInterface("annotationinstall")
 package annotationinstall
 
 import (

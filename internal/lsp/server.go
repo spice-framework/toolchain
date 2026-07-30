@@ -1,5 +1,9 @@
+// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package lsp implements Spice's editor-neutral Language Server Protocol
 // transport over standard JSON-RPC streams.
+//
+// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::annotationinstall", "github.com/StevenBuglione/spice/compiler::diagnostic", "github.com/StevenBuglione/spice/compiler::parser", "github.com/StevenBuglione/spice/compiler::service"])
 package lsp
 
 import (

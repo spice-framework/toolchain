@@ -31,7 +31,7 @@ func TestGeneratedCommandLocatesSourceAndGeneratedRanges(t *testing.T) {
 		&stdout,
 		&stderr,
 		load.Options{Dir: root},
-		nil,
+		load.Load,
 	)
 	if exitCode != 0 {
 		t.Fatalf(
@@ -74,7 +74,7 @@ func TestGeneratedCommandLocatesSourceAndGeneratedRanges(t *testing.T) {
 		&stdout,
 		&stderr,
 		load.Options{Dir: root},
-		nil,
+		load.Load,
 	)
 	if exitCode != 0 {
 		t.Fatalf(
@@ -176,7 +176,7 @@ func TestGeneratedCommandRejectsInvalidOrUnmappedQueries(t *testing.T) {
 				&stdout,
 				&stderr,
 				load.Options{Dir: root},
-				nil,
+				load.Load,
 			)
 			if exitCode != test.wantCode ||
 				!strings.Contains(stderr.String(), test.wantError) {
@@ -239,7 +239,7 @@ func TestGeneratedCommandRejectsOversizedAndStaleManifests(t *testing.T) {
 				&bytes.Buffer{},
 				&stderr,
 				load.Options{Dir: root},
-				nil,
+				load.Load,
 			)
 			if exitCode != 1 ||
 				!strings.Contains(stderr.String(), test.wantError) {

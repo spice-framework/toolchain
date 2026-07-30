@@ -18,6 +18,23 @@ type moduleArguments struct {
 	patterns  []string
 }
 
+// NewModulesHandler constructs the application-module command handler.
+func NewModulesHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"modules"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return modulesCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+			)
+		},
+	)
+}
+
 func modulesCommand(
 	arguments []string,
 	stdout io.Writer,

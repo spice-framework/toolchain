@@ -1,4 +1,8 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package annotationimport resolves explicit file-scoped annotation imports.
+//
+// @NamedInterface("annotationimport")
 package annotationimport
 
 import (

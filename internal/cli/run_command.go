@@ -43,23 +43,24 @@ type applicationRunExecutor func(
 	io.Writer,
 ) (int, error)
 
-func runCommand(
-	arguments []string,
-	stdout io.Writer,
-	stderr io.Writer,
-	options load.Options,
-	loader programLoader,
-) int {
-	return runCommandWithExecutors(
-		context.Background(),
-		arguments,
-		os.Stdin,
-		stdout,
-		stderr,
-		options,
-		loader,
-		executeApplicationBuild,
-		executeApplication,
+// NewRunHandler constructs the generated-application execution handler.
+func NewRunHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"run"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return runCommandWithExecutors(
+				context.Background(),
+				invocation.Arguments,
+				invocation.Stdin,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+				executeApplicationBuild,
+				executeApplication,
+			)
+		},
 	)
 }
 

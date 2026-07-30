@@ -87,6 +87,7 @@ func runWithApplication(
 
 	exitCode := application.Components().Command.Run(
 		arguments,
+		os.Stdin,
 		stdout,
 		stderr,
 	)

@@ -56,7 +56,21 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	}
 	_ = dependencies
 	application.components = Components{
-		Command: dependencies.command,
+		Runtime:            dependencies.runtime,
+		DevHandler:         dependencies.devHandler,
+		LspHandler:         dependencies.lspHandler,
+		RunHandler:         dependencies.runHandler,
+		HelpHandler:        dependencies.helpHandler,
+		TestHandler:        dependencies.testHandler,
+		BeansHandler:       dependencies.beansHandler,
+		BuildHandler:       dependencies.buildHandler,
+		VerifyHandler:      dependencies.verifyHandler,
+		ModulesHandler:     dependencies.modulesHandler,
+		VersionHandler:     dependencies.versionHandler,
+		GenerateHandler:    dependencies.generateHandler,
+		GeneratedHandler:   dependencies.generatedHandler,
+		AnnotationsHandler: dependencies.annotationsHandler,
+		Command:            dependencies.command,
 	}
 	return application, nil
 }

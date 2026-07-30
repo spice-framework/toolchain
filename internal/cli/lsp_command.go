@@ -10,22 +10,22 @@ import (
 	"github.com/StevenBuglione/spice/internal/lsp"
 )
 
-func lspCommand(
-	arguments []string,
-	input io.Reader,
-	stdout io.Writer,
-	stderr io.Writer,
-	options load.Options,
-	loader programLoader,
-) int {
-	return lspCommandContext(
-		context.Background(),
-		arguments,
-		input,
-		stdout,
-		stderr,
-		options,
-		loader,
+// NewLSPHandler constructs the editor-neutral language-server handler.
+func NewLSPHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"lsp"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return lspCommandContext(
+				context.Background(),
+				invocation.Arguments,
+				invocation.Stdin,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+			)
+		},
 	)
 }
 

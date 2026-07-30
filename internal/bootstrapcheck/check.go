@@ -176,13 +176,10 @@ func (p proof) proveProductionDogfood(ctx context.Context) error {
 		p.repositoryRoot,
 		p.environment,
 		p.spiceExecutable,
-		"generate",
-		"--check",
-		"--target",
-		"Spice",
-		"./internal/spiceapp",
-		"./internal/cli",
-		"./internal/autoconfigure",
+		append(
+			[]string{"generate", "--check", "--target", "Spice"},
+			productionPatterns()...,
+		)...,
 	)
 	if err != nil {
 		return commandError(
@@ -249,13 +246,10 @@ func (p proof) proveProductionDogfood(ctx context.Context) error {
 		p.repositoryRoot,
 		p.environment,
 		p.productionExecutable,
-		"generate",
-		"--check",
-		"--target",
-		"Spice",
-		"./internal/spiceapp",
-		"./internal/cli",
-		"./internal/autoconfigure",
+		append(
+			[]string{"generate", "--check", "--target", "Spice"},
+			productionPatterns()...,
+		)...,
 	)
 	if err != nil {
 		return commandError(
@@ -265,6 +259,18 @@ func (p proof) proveProductionDogfood(ctx context.Context) error {
 		)
 	}
 	return nil
+}
+
+func productionPatterns() []string {
+	return []string{
+		"./compiler/...",
+		"./internal/devloop",
+		"./internal/genfs",
+		"./internal/lsp",
+		"./internal/cli",
+		"./internal/spiceapp",
+		"./internal/autoconfigure",
+	}
 }
 
 func (p proof) generate(

@@ -2,7 +2,7 @@
 
 // Package cli implements the Spice command-line interface.
 //
-// @Module
+// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::annotationhost", "github.com/StevenBuglione/spice/compiler::annotationimport", "github.com/StevenBuglione/spice/compiler::application", "github.com/StevenBuglione/spice/compiler::descriptor", "github.com/StevenBuglione/spice/compiler::diagnostic", "github.com/StevenBuglione/spice/compiler::diagnostic-adapt", "github.com/StevenBuglione/spice/compiler::generate", "github.com/StevenBuglione/spice/compiler::load", "github.com/StevenBuglione/spice/compiler::modulith", "github.com/StevenBuglione/spice/compiler::resolve", "github.com/StevenBuglione/spice/compiler::service", "github.com/StevenBuglione/spice/compiler::starter", "github.com/StevenBuglione/spice/internal/devloop", "github.com/StevenBuglione/spice/internal/genfs", "github.com/StevenBuglione/spice/internal/lsp"])
 package cli
 
 import (
@@ -69,63 +69,41 @@ func runWithExecutors(
 	builder buildExecutor,
 	tester testExecutor,
 ) int {
-	if len(arguments) == 0 {
-		return helpCommand(stdout)
-	}
-
-	switch arguments[0] {
-	case "help", "-h", "--help":
-		return helpCommand(stdout)
-	case "version", "--version":
-		return versionCommand(stdout)
-	case "verify":
-		return verifyCommand(arguments[1:], stdout, stderr, options, loader)
-	case "annotations":
-		return annotationsCommand(
-			arguments[1:],
-			stdout,
+	runtime := newRuntime(options, loader, builder, tester)
+	command, err := newBootstrapCommand(runtime)
+	if err != nil {
+		if writeErr := writef(
 			stderr,
-			options,
-			loader,
-		)
-	case "modules", "beans":
-		return architectureCommand(
-			arguments,
-			stdout,
-			stderr,
-			options,
-			loader,
-		)
-	case "generated":
-		return generatedCommand(arguments[1:], stdout, stderr, options)
-	case "test":
-		return moduleTestCommand(arguments[1:], stdout, stderr, options, loader, tester)
-	case "generate":
-		return generateCommand(arguments[1:], stdout, stderr, options, loader)
-	case "build":
-		return buildCommand(arguments[1:], stdout, stderr, options, loader, builder)
-	case "run":
-		return runCommand(arguments[1:], stdout, stderr, options, loader)
-	case "dev":
-		return devCommand(arguments[1:], stdout, stderr, options, loader)
-	case "lsp":
-		return lspCommand(arguments[1:], os.Stdin, stdout, stderr, options, loader)
-	default:
-		return unknownCommand(arguments[0], stderr)
+			"Spice command construction failed: %v\n",
+			err,
+		); writeErr != nil {
+			return 1
+		}
+		return 1
 	}
+	return command.Run(arguments, os.Stdin, stdout, stderr)
 }
 
-func architectureCommand(
-	arguments []string,
-	stdout io.Writer,
-	stderr io.Writer,
-	options load.Options,
-	loader programLoader,
-) int {
-	if arguments[0] == "modules" {
-		return modulesCommand(arguments[1:], stdout, stderr, options, loader)
-	}
-	return beansCommand(arguments[1:], stdout, stderr, options, loader)
+// NewHelpHandler constructs the built-in help handler.
+func NewHelpHandler(runtime *Runtime) (Handler, error) {
+	return newCommandHandler(
+		runtime,
+		[]string{"help", "-h", "--help"},
+		func(_ *Runtime, invocation Invocation) int {
+			return helpCommand(invocation.Stdout)
+		},
+	)
+}
+
+// NewVersionHandler constructs the built-in version handler.
+func NewVersionHandler(runtime *Runtime) (Handler, error) {
+	return newCommandHandler(
+		runtime,
+		[]string{"version", "--version"},
+		func(_ *Runtime, invocation Invocation) int {
+			return versionCommand(invocation.Stdout)
+		},
+	)
 }
 
 func helpCommand(stdout io.Writer) int {

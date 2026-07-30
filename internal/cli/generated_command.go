@@ -54,6 +54,22 @@ type generatedQueryResult struct {
 	Matches   []generatedMatch  `json:"matches"`
 }
 
+// NewGeneratedHandler constructs the generated-source navigation handler.
+func NewGeneratedHandler(runtime *Runtime) (Handler, error) {
+	return newCommandHandler(
+		runtime,
+		[]string{"generated"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return generatedCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+			)
+		},
+	)
+}
+
 func generatedCommand(
 	arguments []string,
 	stdout io.Writer,

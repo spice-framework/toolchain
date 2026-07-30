@@ -94,6 +94,91 @@ func TestSelectAutoConfigurationBuildsDependencyClosure(t *testing.T) {
 	}
 }
 
+func TestSelectAutoConfigurationExtendsRepeatedOutputCollectionsByName(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	handlerType := testNamedType("Handler")
+	primary := Catalog{providers: []Provider{
+		{
+			Source:       SourceBean,
+			SymbolID:     "custom",
+			Name:         "customHandler",
+			Output:       handlerType,
+			OutputTypeID: "example.com/client.Handler",
+		},
+		{
+			Source:       SourceBean,
+			SymbolID:     "replace-version",
+			Name:         "versionHandler",
+			Output:       handlerType,
+			OutputTypeID: "example.com/client.Handler",
+		},
+	}}
+	defaults := Catalog{providers: []Provider{
+		{
+			Source:       SourceAutoConfiguration,
+			SymbolID:     "default-help",
+			Name:         "helpHandler",
+			Output:       handlerType,
+			OutputTypeID: "example.com/client.Handler",
+		},
+		{
+			Source:       SourceAutoConfiguration,
+			SymbolID:     "default-version",
+			Name:         "versionHandler",
+			Output:       handlerType,
+			OutputTypeID: "example.com/client.Handler",
+		},
+	}}
+
+	selected, decisions := SelectAutoConfiguration(primary, defaults)
+	providers := selected.Providers()
+	if len(providers) != 1 || providers[0].Name != "helpHandler" {
+		t.Fatalf("selected defaults = %#v, want only helpHandler", providers)
+	}
+	if len(decisions) != 2 ||
+		decisions[0].Provider.Name != "helpHandler" ||
+		decisions[0].Status != AutoConfigurationSelected ||
+		decisions[1].Provider.Name != "versionHandler" ||
+		decisions[1].Status != AutoConfigurationReplaced ||
+		!strings.Contains(decisions[1].Reason, "versionHandler") {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestSelectAutoConfigurationKeepsSingleOutputTypeBackoff(t *testing.T) {
+	t.Parallel()
+
+	output := testNamedType("Client")
+	selected, decisions := SelectAutoConfiguration(
+		Catalog{providers: []Provider{{
+			Source:       SourceBean,
+			SymbolID:     "application-client",
+			Name:         "custom",
+			Output:       output,
+			OutputTypeID: "example.com/client.Client",
+		}}},
+		Catalog{providers: []Provider{{
+			Source:       SourceAutoConfiguration,
+			SymbolID:     "default-client",
+			Name:         "defaultClient",
+			Output:       output,
+			OutputTypeID: "example.com/client.Client",
+		}}},
+	)
+	if len(selected.Providers()) != 0 ||
+		len(decisions) != 1 ||
+		decisions[0].Status != AutoConfigurationReplaced {
+		t.Fatalf(
+			"selected = %#v, decisions = %#v",
+			selected.Providers(),
+			decisions,
+		)
+	}
+}
+
 func TestSelectAutoConfigurationMatchesInterfacesAndPermissiveInputs(t *testing.T) {
 	interfaceType := types.NewNamed(
 		types.NewTypeName(

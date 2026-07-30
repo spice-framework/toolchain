@@ -35,6 +35,23 @@ type beanProviderDocument struct {
 	Fallback   bool     `json:"fallback,omitempty"`
 }
 
+// NewBeansHandler constructs the bean-selection explanation command handler.
+func NewBeansHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"beans"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return beansCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+			)
+		},
+	)
+}
+
 func beansCommand(
 	arguments []string,
 	stdout io.Writer,

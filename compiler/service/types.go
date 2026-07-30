@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package service exposes Spice's typed compiler pipeline as an isolated,
 // overlay-aware analysis service for commands and editor integrations.
+//
+// @NamedInterface("service")
 package service
 
 import (

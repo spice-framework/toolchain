@@ -50,7 +50,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -82,6 +82,7 @@ func run(ctx context.Context, mode string) error {
 		},
 		"check":          func() error { return check(ctx, root) },
 		"coverage":       func() error { return coverage(ctx, root) },
+		"dogfood":        func() error { return dogfood(ctx, root) },
 		"fmt":            func() error { return format(ctx, root, true) },
 		"fuzz":           func() error { return fuzz(ctx, root) },
 		"goland":         func() error { return goland(ctx, root) },
@@ -1292,25 +1293,13 @@ func offline(ctx context.Context, root string) error {
 }
 
 func smoke(ctx context.Context, root string) error {
+	if err := dogfoodRuntime(ctx, root); err != nil {
+		return err
+	}
 	commands := [][]string{
-		{"go", "run", "./cmd/spice", "verify", "./..."},
 		{
 			"go", "run", "./cmd/spice", "verify", "--format=json",
 			"./examples/commerce/...",
-		},
-		{"go", "run", "./cmd/spice", "version"},
-		{
-			"go", "run", "./cmd/spice", "generate", "--check", "--target", "Spice",
-			"./internal/spiceapp", "./internal/cli", "./internal/autoconfigure",
-		},
-		{
-			"go", "run", "./cmd/spice", "beans", "--explain", "--format=json",
-			"./internal/spiceapp", "./internal/cli", "./internal/autoconfigure",
-		},
-		{
-			"go", "run", "./cmd/spice", "generated",
-			"--source", "internal/autoconfigure/autoconfigure.go",
-			"--target", "spice", "--format", "json",
 		},
 		{"go", "run", "./cmd/spice", "modules", "--format=json", "./..."},
 		{
@@ -1337,6 +1326,158 @@ func smoke(ctx context.Context, root string) error {
 		return err
 	}
 	return thirdPartyAnnotationSmoke(ctx, root)
+}
+
+func dogfood(ctx context.Context, root string) error {
+	return runSequential([]verificationStep{
+		{
+			name: "dogfood generated boundaries",
+			run:  func() error { return checkGeneratedTargetBoundaries(root) },
+		},
+		{
+			name: "dogfood formatting",
+			run:  func() error { return format(ctx, root, false) },
+		},
+		{
+			name: "dogfood focused tests",
+			run: func() error {
+				return runExternal(
+					ctx,
+					root,
+					nil,
+					"go",
+					"test",
+					"-count=1",
+					"-run=^(TestCatalogAllowsSelectableEntrypointDuplicateOutputs|TestCatalogRejectsNonSelectableGeneratedDuplicateOutputs|TestCommandRunsVersionThroughProductionBoundary|TestCommandHandler.*|TestRuntime.*|TestDefaultCommand.*|TestDescriptorDocumentsFallbackProvenance|TestApplication.*|TestEnginePreservesLastKnownGoodAndRecovers|TestServerDeveloperWorkflowUsesVersionedCompilerResults)$",
+					"./compiler/provider",
+					"./internal/cli",
+					"./internal/autoconfigure",
+					"./internal/devloop",
+					"./internal/lsp",
+					"./internal/spicegen/spice",
+					"./cmd/spice",
+				)
+			},
+		},
+		{
+			name: "dogfood runtime",
+			run:  func() error { return dogfoodRuntime(ctx, root) },
+		},
+	})
+}
+
+func dogfoodRuntime(ctx context.Context, root string) error {
+	temp, err := os.MkdirTemp("", "spice-dogfood-*")
+	if err != nil {
+		return fmt.Errorf("create dogfood directory: %w", err)
+	}
+	defer removeTemporaryDirectory(temp)
+
+	executable := filepath.Join(temp, "spice")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	offline := map[string]string{"GOPROXY": "off"}
+	modulePatterns := []string{
+		"./compiler/...",
+		"./internal/devloop",
+		"./internal/genfs",
+		"./internal/lsp",
+		"./internal/cli",
+		"./internal/spiceapp",
+	}
+	applicationPatterns := append(
+		append([]string(nil), modulePatterns...),
+		"./internal/autoconfigure",
+	)
+
+	if err := runExternal(
+		ctx,
+		root,
+		offline,
+		"go",
+		"build",
+		"-mod=vendor",
+		"-trimpath",
+		"-o",
+		executable,
+		"./cmd/spice-bootstrap",
+	); err != nil {
+		return err
+	}
+	if err := runExternal(
+		ctx,
+		root,
+		offline,
+		executable,
+		append(
+			[]string{"generate", "--check", "--target", "Spice"},
+			applicationPatterns...,
+		)...,
+	); err != nil {
+		return err
+	}
+
+	if err := runExternal(
+		ctx,
+		root,
+		offline,
+		"go",
+		"build",
+		"-mod=vendor",
+		"-trimpath",
+		"-o",
+		executable,
+		"./cmd/spice",
+	); err != nil {
+		return err
+	}
+	commands := [][]string{
+		{"version"},
+		append(
+			[]string{"generate", "--check", "--target", "Spice"},
+			applicationPatterns...,
+		),
+		append(
+			[]string{"beans", "--explain", "--format=json"},
+			applicationPatterns...,
+		),
+		append(
+			[]string{"modules", "--format=json"},
+			modulePatterns...,
+		),
+		{
+			"generated",
+			"--source",
+			"internal/autoconfigure/version_handler.go",
+			"--target",
+			"spice",
+			"--format",
+			"json",
+		},
+		append(
+			[]string{
+				"test",
+				"--module",
+				modulePath + "/internal/cli",
+				"--count=1",
+				"--run=^TestCommandRunsVersionThroughProductionBoundary$",
+			},
+			modulePatterns...,
+		),
+	}
+	for _, arguments := range commands {
+		if err := runExternal(
+			ctx,
+			root,
+			offline,
+			executable,
+			arguments...,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func petclinicSmoke(ctx context.Context, root string) error {

@@ -113,7 +113,7 @@ func TestRunReportsLifecycleFailures(t *testing.T) {
 			name:      "stop after success",
 			arguments: []string{"version"},
 			application: &fakeApplication{
-				command: cli.NewCommand(),
+				command: testCommand(t),
 				stopErr: stopFailure,
 			},
 			wantCode:  1,
@@ -123,7 +123,7 @@ func TestRunReportsLifecycleFailures(t *testing.T) {
 			name:      "stop preserves usage failure",
 			arguments: []string{"unknown"},
 			application: &fakeApplication{
-				command:         cli.NewCommand(),
+				command:         testCommand(t),
 				stopErr:         stopFailure,
 				shutdownTimeout: -time.Second,
 			},
@@ -154,6 +154,24 @@ func TestRunReportsLifecycleFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testCommand(t *testing.T) *cli.Command {
+	t.Helper()
+	runtime := cli.NewRuntime()
+	help, err := cli.NewHelpHandler(runtime)
+	if err != nil {
+		t.Fatalf("NewHelpHandler() error = %v", err)
+	}
+	version, err := cli.NewVersionHandler(runtime)
+	if err != nil {
+		t.Fatalf("NewVersionHandler() error = %v", err)
+	}
+	command, err := cli.NewCommand([]cli.Handler{help, version})
+	if err != nil {
+		t.Fatalf("NewCommand() error = %v", err)
+	}
+	return command
 }
 
 func TestWriteFailureHandlesAbsentAndFailingWriters(t *testing.T) {

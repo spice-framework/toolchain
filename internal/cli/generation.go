@@ -25,6 +25,41 @@ type generationArguments struct {
 	patterns []string
 }
 
+// NewGenerateHandler constructs the guarded generation command handler.
+func NewGenerateHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"generate"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return generateCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+			)
+		},
+	)
+}
+
+// NewBuildHandler constructs the generated-application build command handler.
+func NewBuildHandler(runtime *Runtime) (Handler, error) {
+	return newBuildCommandHandler(
+		runtime,
+		[]string{"build"},
+		func(runtime *Runtime, invocation Invocation) int {
+			return buildCommand(
+				invocation.Arguments,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+				runtime.builder,
+			)
+		},
+	)
+}
+
 func generateCommand(
 	arguments []string,
 	stdout io.Writer,

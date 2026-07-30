@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package application assembles the immutable Spice application model from
 // one resolved, type-aware compiler program.
+//
+// @NamedInterface("application")
 package application
 
 import (

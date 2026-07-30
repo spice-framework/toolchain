@@ -35,27 +35,28 @@ type devArguments struct {
 	excludes    []string
 }
 
-func devCommand(
-	arguments []string,
-	stdout io.Writer,
-	stderr io.Writer,
-	options load.Options,
-	loader programLoader,
-) int {
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		applicationTerminationSignals()...,
-	)
-	defer stop()
-	return devCommandContext(
-		ctx,
-		arguments,
-		os.Stdin,
-		stdout,
-		stderr,
-		options,
-		loader,
-		executeApplicationBuild,
+// NewDevHandler constructs the last-known-good development-loop handler.
+func NewDevHandler(runtime *Runtime) (Handler, error) {
+	return newLoaderCommandHandler(
+		runtime,
+		[]string{"dev"},
+		func(runtime *Runtime, invocation Invocation) int {
+			ctx, stop := signal.NotifyContext(
+				context.Background(),
+				applicationTerminationSignals()...,
+			)
+			defer stop()
+			return devCommandContext(
+				ctx,
+				invocation.Arguments,
+				invocation.Stdin,
+				invocation.Stdout,
+				invocation.Stderr,
+				runtime.options,
+				runtime.loader,
+				executeApplicationBuild,
+			)
+		},
 	)
 }
 

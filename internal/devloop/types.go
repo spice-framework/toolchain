@@ -1,5 +1,9 @@
+// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package devloop coordinates deterministic application rebuilds and restarts
 // for development tools.
+//
+// @Module
 package devloop
 
 import (

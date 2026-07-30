@@ -2062,9 +2062,19 @@ func allSelectableProviders(
 	group []int,
 	providers []Provider,
 ) bool {
+	symbols := make(map[string]struct{}, len(group))
 	for _, index := range group {
+		symbolID := providers[index].SymbolID
+		if symbolID != "" {
+			if _, duplicate := symbols[symbolID]; duplicate {
+				return false
+			}
+			symbols[symbolID] = struct{}{}
+		}
 		if providers[index].Source != SourceBean &&
 			providers[index].Source != SourceStereotype &&
+			providers[index].Source != SourceStarter &&
+			providers[index].Source != SourceAutoConfiguration &&
 			providers[index].Source != "" {
 			return false
 		}
