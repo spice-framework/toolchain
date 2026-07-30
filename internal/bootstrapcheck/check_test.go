@@ -34,12 +34,34 @@ func TestRunExercisesDeterministicRecoveryWorkflow(t *testing.T) {
 			name+" "+strings.Join(arguments, " "),
 		)
 		if name == "go" && slices.Contains(arguments, "list") {
+			if slices.Contains(arguments, "./cmd/spice") {
+				return []byte(
+					spiceModule + "/internal/cli\n" +
+						spiceModule + "/internal/spicegen/spice\n" +
+						spiceModule + "/internal/spicegen/spice/sources/internal_/autoconfigure\n",
+				), nil
+			}
 			return []byte("github.com/StevenBuglione/spice/internal/cli\n"), nil
 		}
 		if name == "go" {
 			return nil, nil
 		}
+		executable := strings.TrimSuffix(
+			strings.ToLower(filepath.Base(name)),
+			".exe",
+		)
+		if executable == "spice-production" {
+			if len(arguments) == 1 && arguments[0] == "version" {
+				return []byte("spice 0.1.0-dev\n"), nil
+			}
+			if len(arguments) > 0 && arguments[0] == "generate" {
+				return []byte("Spice generation is current for target Spice.\n"), nil
+			}
+		}
 		if len(arguments) > 0 && arguments[0] == "generate" {
+			if directory == repositoryRoot {
+				return []byte("Spice generation is current for target Spice.\n"), nil
+			}
 			generated := filepath.Join(
 				directory,
 				"internal",
@@ -90,12 +112,14 @@ func TestRunExercisesDeterministicRecoveryWorkflow(t *testing.T) {
 	if err := run(t.Context(), repositoryRoot, runner); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	if len(operations) != 10 {
-		t.Fatalf("operations = %#v, want 10", operations)
+	if len(operations) != 15 {
+		t.Fatalf("operations = %#v, want 15", operations)
 	}
 	for _, expected := range []string{
-		"go build -mod=vendor -trimpath",
-		"go list -mod=vendor -deps",
+		"go build -mod=vendor -trimpath -o",
+		"./cmd/spice-bootstrap",
+		"./cmd/spice",
+		"generate --check --target Spice",
 		"generate . ./component",
 		"generate --check . ./component",
 	} {
@@ -127,6 +151,23 @@ func TestRunRejectsInvalidSetupAndCompilerDependency(t *testing.T) {
 	)); err != nil {
 		t.Fatalf("checkCompilerDependencies(valid) error = %v", err)
 	}
+	if err := checkProductionDependencies([]byte(
+		spiceModule + "/internal/spicegen/spice\n" +
+			spiceModule + "/internal/spicegen/spice/sources/internal_/spiceapp\n",
+	)); err != nil {
+		t.Fatalf("checkProductionDependencies(valid) error = %v", err)
+	}
+	if err := checkProductionDependencies([]byte(
+		spiceModule + "/internal/cli\n",
+	)); err == nil || !strings.Contains(err.Error(), "does not depend") {
+		t.Fatalf("checkProductionDependencies(missing) error = %v", err)
+	}
+	if err := checkProductionDependencies([]byte(
+		spiceModule + "/internal/spicegen/spice\n" +
+			spiceModule + "/internal/spicegen/commerce\n",
+	)); err == nil || !strings.Contains(err.Error(), "unexpected generated target") {
+		t.Fatalf("checkProductionDependencies(unexpected) error = %v", err)
+	}
 	if err := validateExecutable("go"); err != nil {
 		t.Fatalf("validateExecutable(go) error = %v", err)
 	}
@@ -142,6 +183,11 @@ func TestRunRejectsInvalidSetupAndCompilerDependency(t *testing.T) {
 		filepath.Join(t.TempDir(), "spice-bootstrap.exe"),
 	); err != nil {
 		t.Fatalf("validateExecutable(proof) error = %v", err)
+	}
+	if err := validateExecutable(
+		filepath.Join(t.TempDir(), "spice-production.exe"),
+	); err != nil {
+		t.Fatalf("validateExecutable(production) error = %v", err)
 	}
 }
 

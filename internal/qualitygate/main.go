@@ -1299,6 +1299,19 @@ func smoke(ctx context.Context, root string) error {
 			"./examples/commerce/...",
 		},
 		{"go", "run", "./cmd/spice", "version"},
+		{
+			"go", "run", "./cmd/spice", "generate", "--check", "--target", "Spice",
+			"./internal/spiceapp", "./internal/cli", "./internal/autoconfigure",
+		},
+		{
+			"go", "run", "./cmd/spice", "beans", "--explain", "--format=json",
+			"./internal/spiceapp", "./internal/cli", "./internal/autoconfigure",
+		},
+		{
+			"go", "run", "./cmd/spice", "generated",
+			"--source", "internal/autoconfigure/autoconfigure.go",
+			"--target", "spice", "--format", "json",
+		},
 		{"go", "run", "./cmd/spice", "modules", "--format=json", "./..."},
 		{
 			"go", "run", "./cmd/spice", "test",

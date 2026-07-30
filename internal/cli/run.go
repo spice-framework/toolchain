@@ -1,4 +1,8 @@
+// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package cli implements the Spice command-line interface.
+//
+// @Module
 package cli
 
 import (

@@ -299,7 +299,7 @@ func sourceUnitLocationAt(
 		shardDir = path.Join(
 			target.OutputDir,
 			"sources",
-			sourceDirectory,
+			generatedSourceDirectory(sourceDirectory),
 		)
 	} else {
 		digest := sha256.Sum256([]byte(packagePath))
@@ -337,6 +337,22 @@ func sourceUnitLocationAt(
 		shardDir,
 		base+"_spice_gen.go",
 	), packageName, origin, nil
+}
+
+// generatedSourceDirectory preserves the source tree while escaping directory
+// names that have special import semantics in Go. In particular, placing an
+// adapter below sources/internal would prevent the generated target package
+// from importing it because Go applies the internal-package rule at that
+// nested boundary. The Source metadata remains the exact original path.
+func generatedSourceDirectory(sourceDirectory string) string {
+	segments := strings.Split(sourceDirectory, "/")
+	for index, segment := range segments {
+		switch segment {
+		case "internal", "vendor":
+			segments[index] = segment + "_"
+		}
+	}
+	return path.Join(segments...)
 }
 
 func renderProviderSourceUnit(

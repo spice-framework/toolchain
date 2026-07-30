@@ -63,13 +63,14 @@ func run(
 }
 
 type proof struct {
-	repositoryRoot   string
-	temporaryRoot    string
-	fixtureRoot      string
-	spiceExecutable  string
-	executableSuffix string
-	environment      []string
-	runner           commandRunner
+	repositoryRoot       string
+	temporaryRoot        string
+	fixtureRoot          string
+	spiceExecutable      string
+	productionExecutable string
+	executableSuffix     string
+	environment          []string
+	runner               commandRunner
 }
 
 func newProof(repositoryRoot string, runner commandRunner) (proof, error) {
@@ -105,6 +106,10 @@ func newProof(repositoryRoot string, runner commandRunner) (proof, error) {
 			temporaryRoot,
 			"spice-bootstrap"+executableSuffix,
 		),
+		productionExecutable: filepath.Join(
+			temporaryRoot,
+			"spice-production"+executableSuffix,
+		),
 		executableSuffix: executableSuffix,
 		environment:      offlineEnvironment(os.Environ()),
 		runner:           runner,
@@ -113,6 +118,9 @@ func newProof(repositoryRoot string, runner commandRunner) (proof, error) {
 
 func (p proof) run(ctx context.Context) error {
 	if err := p.buildCompiler(ctx); err != nil {
+		return err
+	}
+	if err := p.proveProductionDogfood(ctx); err != nil {
 		return err
 	}
 	if err := writeFixture(p.fixtureRoot, p.repositoryRoot); err != nil {
@@ -139,7 +147,7 @@ func (p proof) buildCompiler(ctx context.Context) error {
 		"-trimpath",
 		"-o",
 		p.spiceExecutable,
-		"./cmd/spice",
+		"./cmd/spice-bootstrap",
 	)
 	if err != nil {
 		return commandError("build independent Spice compiler", output, err)
@@ -154,12 +162,109 @@ func (p proof) buildCompiler(ctx context.Context) error {
 		"-deps",
 		"-f",
 		"{{.ImportPath}}",
-		"./cmd/spice",
+		"./cmd/spice-bootstrap",
 	)
 	if err != nil {
 		return commandError("audit compiler dependencies", dependencies, err)
 	}
 	return checkCompilerDependencies(dependencies)
+}
+
+func (p proof) proveProductionDogfood(ctx context.Context) error {
+	output, err := p.runner(
+		ctx,
+		p.repositoryRoot,
+		p.environment,
+		p.spiceExecutable,
+		"generate",
+		"--check",
+		"--target",
+		"Spice",
+		"./internal/spiceapp",
+		"./internal/cli",
+		"./internal/autoconfigure",
+	)
+	if err != nil {
+		return commandError(
+			"verify production graph with bootstrap compiler",
+			output,
+			err,
+		)
+	}
+	output, err = p.runner(
+		ctx,
+		p.repositoryRoot,
+		p.environment,
+		"go",
+		"build",
+		"-mod=vendor",
+		"-trimpath",
+		"-o",
+		p.productionExecutable,
+		"./cmd/spice",
+	)
+	if err != nil {
+		return commandError("build Spice production application", output, err)
+	}
+	dependencies, err := p.runner(
+		ctx,
+		p.repositoryRoot,
+		p.environment,
+		"go",
+		"list",
+		"-mod=vendor",
+		"-deps",
+		"-f",
+		"{{.ImportPath}}",
+		"./cmd/spice",
+	)
+	if err != nil {
+		return commandError(
+			"audit Spice production dependencies",
+			dependencies,
+			err,
+		)
+	}
+	if dependencyErr := checkProductionDependencies(dependencies); dependencyErr != nil {
+		return dependencyErr
+	}
+	output, err = p.runner(
+		ctx,
+		p.repositoryRoot,
+		p.environment,
+		p.productionExecutable,
+		"version",
+	)
+	if err != nil {
+		return commandError("run Spice production application", output, err)
+	}
+	if !bytes.HasPrefix(output, []byte("spice ")) {
+		return fmt.Errorf(
+			"bootstrap check: production application omitted version output: %s",
+			strings.TrimSpace(string(output)),
+		)
+	}
+	output, err = p.runner(
+		ctx,
+		p.repositoryRoot,
+		p.environment,
+		p.productionExecutable,
+		"generate",
+		"--check",
+		"--target",
+		"Spice",
+		"./internal/spiceapp",
+		"./internal/cli",
+		"./internal/autoconfigure",
+	)
+	if err != nil {
+		return commandError(
+			"verify production graph with production application",
+			output,
+			err,
+		)
+	}
+	return nil
 }
 
 func (p proof) generate(
@@ -359,7 +464,7 @@ func execute(
 		return nil, err
 	}
 	// #nosec G204 -- validateExecutable restricts this internal seam to Go and
-	// the two absolute, temporary proof binaries created by this package.
+	// the absolute, temporary proof binaries created by this package.
 	command := exec.CommandContext(ctx, name, arguments...)
 	command.Dir = directory
 	command.Env = environment
@@ -380,7 +485,9 @@ func validateExecutable(name string) error {
 		strings.ToLower(filepath.Base(name)),
 		".exe",
 	)
-	if base != "spice-bootstrap" && base != "bootstrap-application" {
+	if base != "spice-bootstrap" &&
+		base != "spice-production" &&
+		base != "bootstrap-application" {
 		return fmt.Errorf(
 			"bootstrap check: executable is not part of the proof: %q",
 			name,
@@ -406,6 +513,32 @@ func checkCompilerDependencies(output []byte) error {
 				importPath,
 			)
 		}
+	}
+	return nil
+}
+
+func checkProductionDependencies(output []byte) error {
+	const productionPackage = spiceModule + "/internal/spicegen/spice"
+	foundProductionPackage := false
+	for line := range strings.Lines(string(output)) {
+		importPath := strings.TrimSpace(line)
+		if importPath == productionPackage {
+			foundProductionPackage = true
+		}
+		if strings.Contains(importPath, spiceModule+"/internal/spicegen/") &&
+			importPath != productionPackage &&
+			!strings.HasPrefix(importPath, productionPackage+"/") {
+			return fmt.Errorf(
+				"bootstrap check: production application depends on unexpected generated target %q",
+				importPath,
+			)
+		}
+	}
+	if !foundProductionPackage {
+		return fmt.Errorf(
+			"bootstrap check: production application does not depend on generated target %q",
+			productionPackage,
+		)
 	}
 	return nil
 }
