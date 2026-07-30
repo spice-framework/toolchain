@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/StevenBuglione/spice/internal/bootstrapcheck"
 )
 
 const (
@@ -40,6 +42,7 @@ var (
 	runExternal        = command
 	captureExternal    = capture
 	checkGoLandWrapper = validateGoLandWrapper
+	runBootstrapCheck  = bootstrapcheck.Run
 )
 
 func main() {
@@ -47,7 +50,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: benchmark, check, coverage, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -70,7 +73,13 @@ func run(ctx context.Context, mode string) error {
 	}
 
 	modes := map[string]func() error{
-		"benchmark":      func() error { return benchmark(ctx, root) },
+		"benchmark": func() error { return benchmark(ctx, root) },
+		"bootstrap": func() error {
+			return runStep(verificationStep{
+				name: "bootstrap and recovery",
+				run:  func() error { return runBootstrapCheck(ctx, root) },
+			})
+		},
 		"check":          func() error { return check(ctx, root) },
 		"coverage":       func() error { return coverage(ctx, root) },
 		"fmt":            func() error { return format(ctx, root, true) },
@@ -211,6 +220,9 @@ func verify(ctx context.Context, root string, release bool) error {
 		{"coverage", func() error { return coverage(ctx, root) }},
 		{"offline vendor tests", func() error { return offline(ctx, root) }},
 		{"executable smoke tests", func() error { return smoke(ctx, root) }},
+		{"bootstrap and recovery", func() error {
+			return runBootstrapCheck(ctx, root)
+		}},
 	}); err != nil {
 		return err
 	}

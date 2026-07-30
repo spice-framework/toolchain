@@ -45,6 +45,7 @@ func TestVerifyOrchestration(t *testing.T) {
 
 	originalRun, originalCapture := runExternal, captureExternal
 	originalWrapperCheck := checkGoLandWrapper
+	originalBootstrapCheck := runBootstrapCheck
 	var calls []string
 	var callsMu sync.Mutex
 	recordCall := func(value string) {
@@ -108,10 +109,15 @@ func TestVerifyOrchestration(t *testing.T) {
 		}
 	}
 	checkGoLandWrapper = func(string) error { return nil }
+	runBootstrapCheck = func(context.Context, string) error {
+		recordCall("bootstrap recovery")
+		return nil
+	}
 	t.Cleanup(func() {
 		runExternal = originalRun
 		captureExternal = originalCapture
 		checkGoLandWrapper = originalWrapperCheck
+		runBootstrapCheck = originalBootstrapCheck
 	})
 
 	if err := verify(context.Background(), root, true); err != nil {
@@ -138,6 +144,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		gradleWrapper + " --no-daemon --console=plain",
 		"verifyPluginStructure verifyPlugin",
 		"verify ./...",
+		"bootstrap recovery",
 	} {
 		if !containsCall(recordedCalls, expected) {
 			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(recordedCalls, "\n"))
