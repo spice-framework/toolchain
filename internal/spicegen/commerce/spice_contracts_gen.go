@@ -12,6 +12,7 @@ import (
 	time "time"
 
 	spiceasync "github.com/StevenBuglione/spice/async"
+	spicebean "github.com/StevenBuglione/spice/bean"
 	spicecache "github.com/StevenBuglione/spice/cache"
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	spicedata "github.com/StevenBuglione/spice/data"
@@ -88,6 +89,43 @@ type Components struct {
 	Controller *orders.Controller
 }
 
+// BeanOverrides provides compile-time-typed singleton replacements.
+// Replacements use the normal generated cleanup and rollback path.
+type BeanOverrides struct {
+	// ViewAudit replaces bean "newViewAudit".
+	ViewAudit spicebean.Override[*orders.ViewAudit]
+	// Mux replaces bean "mux".
+	Mux spicebean.Override[*http.ServeMux]
+	// OrderRepository replaces bean "orderRepository".
+	OrderRepository spicebean.Override[*storage.OrderRepository]
+	// OpenDatabase replaces bean "openDatabase".
+	OpenDatabase spicebean.Override[*storage.Database]
+	// Native replaces bean "native".
+	Native spicebean.Override[*sql.DB]
+	// ReadExecutor replaces bean "readExecutor".
+	ReadExecutor spicebean.Override[spicedata.Executor]
+	// Transactions replaces bean "transactions".
+	Transactions spicebean.Override[*spicedata.Manager]
+	// OfflineProcessor replaces bean "offlineProcessor".
+	OfflineProcessor spicebean.Override[*payments.OfflineProcessor]
+	// StripeProcessor replaces bean "stripeProcessor".
+	StripeProcessor spicebean.Override[*payments.Service]
+	// Server replaces bean "newServer".
+	Server spicebean.Override[*platform.Server]
+	// InventoryService replaces bean "newService".
+	InventoryService spicebean.Override[*inventory.Service]
+	// OrdersService replaces bean "newService".
+	OrdersService spicebean.Override[*orders.Service]
+	// SystemClock replaces bean "systemClock".
+	SystemClock spicebean.Override[*notifications.SystemClock]
+	// Delivery replaces bean "delivery".
+	Delivery spicebean.Override[*notifications.Delivery]
+	// Notifier replaces bean "notifier".
+	Notifier spicebean.Override[*notifications.Notifier]
+	// Controller replaces bean "controller".
+	Controller spicebean.Override[*orders.Controller]
+}
+
 type Application struct {
 	coordinator            *spicelifecycle.Coordinator
 	hooks                  []spicelifecycle.Hook
@@ -100,6 +138,7 @@ type Application struct {
 }
 
 type ApplicationOptions struct {
+	Overrides                 BeanOverrides
 	Profiles                  []string
 	Sources                   []spiceconfig.Source
 	AllowUnknownConfiguration bool

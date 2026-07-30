@@ -75,6 +75,12 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"//go:build !spice_generate",
 		"const TargetID = spiceentrypoint.ApplicationTarget",
 		"type Components struct",
+		"type BeanOverrides struct",
+		"type ApplicationOptions struct {\n\tOverrides",
+		"ConfigProvider spicebean.Override[components.Config]",
+		"StoreProvider spicebean.Override[*components.Store]",
+		"options.Overrides.ConfigProvider.Enabled()",
+		"options.Overrides.ConfigProvider.Acquire(ctx)",
 		"func (application *Application) Components() Components",
 		`spiceComponents "example.com/shop/internal/spicegen/shop/sources/components"`,
 		"spiceComponents.Construct",
@@ -1945,9 +1951,11 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"example.com/shop/components"
+	"github.com/StevenBuglione/spice/bean"
 	"github.com/StevenBuglione/spice/lifecycle"
 )
 
@@ -1996,6 +2004,49 @@ func TestGeneratedApplication(t *testing.T) {
 	want = []string{"construct config", "construct store", "construct server", "cleanup store"}
 	if got := components.Trace(); !slices.Equal(got, want) {
 		t.Fatalf("failure trace = %v, want %v", got, want)
+	}
+
+	components.Reset(false)
+	application, err = NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Overrides: BeanOverrides{
+			ConfigProvider: bean.Replace(components.Config{}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewApplicationWithOptions(override) error = %v", err)
+	}
+	if application.Components().ConfigProvider != (components.Config{}) {
+		t.Fatalf("Components().ConfigProvider = %#v", application.Components().ConfigProvider)
+	}
+	want = []string{"construct store", "construct server"}
+	if got := components.Trace(); !slices.Equal(got, want) {
+		t.Fatalf("override trace = %v, want %v", got, want)
+	}
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop(override) error = %v", err)
+	}
+
+	components.Reset(true)
+	var overrideCleaned atomic.Bool
+	failed, err = NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Overrides: BeanOverrides{
+			StoreProvider: bean.ReplaceFactory(func(context.Context) (*components.Store, lifecycle.Cleanup, error) {
+				return &components.Store{}, func(context.Context) error {
+					overrideCleaned.Store(true)
+					return nil
+				}, nil
+			}),
+		},
+	})
+	if failed != nil || !errors.Is(err, components.ErrServer) {
+		t.Fatalf("NewApplicationWithOptions(rollback override) = %#v, %v", failed, err)
+	}
+	if !overrideCleaned.Load() {
+		t.Fatal("override cleanup was not rolled back")
+	}
+	want = []string{"construct config", "construct server"}
+	if got := components.Trace(); !slices.Equal(got, want) {
+		t.Fatalf("override rollback trace = %v, want %v", got, want)
 	}
 }
 `

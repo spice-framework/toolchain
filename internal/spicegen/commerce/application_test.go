@@ -11,6 +11,7 @@ import (
 	"time"
 
 	spiceasync "github.com/StevenBuglione/spice/async"
+	"github.com/StevenBuglione/spice/bean"
 	"github.com/StevenBuglione/spice/config"
 	"github.com/StevenBuglione/spice/examples/commerce/orders"
 	"github.com/StevenBuglione/spice/lifecycle"
@@ -45,6 +46,32 @@ func TestGeneratedApplicationConstructsTypedComponentsAndStops(t *testing.T) {
 	}
 	if application.State() != lifecycle.StateStopped {
 		t.Fatalf("State() = %s, want stopped", application.State())
+	}
+}
+
+func TestGeneratedApplicationUsesTypedBeanOverride(t *testing.T) {
+	t.Parallel()
+
+	replacement := orders.NewViewAudit()
+	application, err := NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Overrides: BeanOverrides{
+				ViewAudit: bean.Replace(replacement),
+			},
+			Logger: generatedTestLogger(),
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewApplicationWithOptions() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if stopErr := application.Stop(context.Background()); stopErr != nil {
+			t.Errorf("Stop() error = %v", stopErr)
+		}
+	})
+	if got := application.Components().ViewAudit; got != replacement {
+		t.Fatalf("Components().ViewAudit = %p, want %p", got, replacement)
 	}
 }
 

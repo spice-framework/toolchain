@@ -602,6 +602,9 @@ func renderTargetFiles(
 		return nil, err
 	}
 	componentFields := generatedComponentFields(providers)
+	if hasOverridableProviders(componentFields) {
+		aliases[beanPath] = "spicebean"
+	}
 	applicationOrigins := sourceOriginsForSymbolFamilies(
 		modelOrigins,
 		applicationTarget.SymbolID,
@@ -645,6 +648,7 @@ func renderTargetFiles(
 	localProviderVariables, dependencyProviderVariables := targetProviderVariables(providers)
 	providerSource, providerErr := renderProvidersTargetSource(
 		providers,
+		componentFields,
 		configTypes,
 		aliases,
 		dependencies,
@@ -856,6 +860,7 @@ func targetProviderVariables(
 
 func renderProvidersTargetSource(
 	providers []provider.Provider,
+	componentFields []generatedComponentField,
 	configTypes []configuration.Type,
 	aliases map[string]string,
 	dependencies map[string][]string,
@@ -884,6 +889,7 @@ func renderProvidersTargetSource(
 	if err := writeProviders(
 		&source,
 		providers,
+		componentFields,
 		configTypes,
 		aliases,
 		dependencies,
@@ -970,6 +976,7 @@ func renderContractsTargetSource(
 		applicationAdapter.alias+"."+applicationAdapter.identifier,
 	)
 	writeComponentsType(&source, componentFields, aliases)
+	writeBeanOverridesType(&source, componentFields, aliases)
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
@@ -984,7 +991,7 @@ func renderContractsTargetSource(
 		source.WriteString("\thandler http.Handler\n")
 	}
 	source.WriteString("}\n\n")
-	writeApplicationOptions(&source, features)
+	writeApplicationOptions(&source, features, componentFields)
 	return source.Bytes()
 }
 
@@ -2830,10 +2837,11 @@ func generatedIdentifierPosition(
 }
 
 type generatedComponentField struct {
-	providerID string
-	beanName   string
-	fieldName  string
-	output     types.Type
+	providerID  string
+	beanName    string
+	fieldName   string
+	output      types.Type
+	overridable bool
 }
 
 func generatedComponentFields(
@@ -2877,13 +2885,23 @@ func generatedComponentFields(
 			fieldName += strconv.Itoa(used[base])
 		}
 		fields = append(fields, generatedComponentField{
-			providerID: candidate.provider.SymbolID,
-			beanName:   candidate.provider.Name,
-			fieldName:  fieldName,
-			output:     candidate.provider.Output,
+			providerID:  candidate.provider.SymbolID,
+			beanName:    candidate.provider.Name,
+			fieldName:   fieldName,
+			output:      candidate.provider.Output,
+			overridable: sourceUnitConstructsProvider(candidate.provider),
 		})
 	}
 	return fields
+}
+
+func hasOverridableProviders(fields []generatedComponentField) bool {
+	for _, field := range fields {
+		if field.overridable {
+			return true
+		}
+	}
+	return false
 }
 
 func componentFieldBase(item provider.Provider, index int) string {
@@ -2987,6 +3005,37 @@ func writeComponentsType(
 	source.WriteString("}\n\n")
 }
 
+func writeBeanOverridesType(
+	source *bytes.Buffer,
+	fields []generatedComponentField,
+	aliases map[string]string,
+) {
+	if !hasOverridableProviders(fields) {
+		return
+	}
+	source.WriteString("// BeanOverrides provides compile-time-typed singleton replacements.\n")
+	source.WriteString("// Replacements use the normal generated cleanup and rollback path.\n")
+	source.WriteString("type BeanOverrides struct {\n")
+	for _, field := range fields {
+		if !field.overridable {
+			continue
+		}
+		fmt.Fprintf(
+			source,
+			"\t// %s replaces bean %q.\n",
+			field.fieldName,
+			field.beanName,
+		)
+		fmt.Fprintf(
+			source,
+			"\t%s spicebean.Override[%s]\n",
+			field.fieldName,
+			renderedType(field.output, aliases),
+		)
+	}
+	source.WriteString("}\n\n")
+}
+
 func writeComponentAssignments(
 	source *bytes.Buffer,
 	fields []generatedComponentField,
@@ -3020,6 +3069,7 @@ func writeComponentsMethod(source *bytes.Buffer) {
 func writeProviders(
 	source *bytes.Buffer,
 	providers []provider.Provider,
+	componentFields []generatedComponentField,
 	configTypes []configuration.Type,
 	aliases map[string]string,
 	dependencies map[string][]string,
@@ -3030,6 +3080,7 @@ func writeProviders(
 ) error {
 	configByProvider := configurationProviderIndex(configTypes)
 	eventByProvider := eventProviderIndex(events)
+	overrideFields := overrideFieldIndex(componentFields)
 	for _, item := range providers {
 		variable := providerVariables[item.SymbolID]
 		if item.Scope != sdk.BeanScopeSingleton {
@@ -3068,6 +3119,8 @@ func writeProviders(
 				dependencies[item.SymbolID],
 				providerModules[item.SymbolID],
 				adapter,
+				overrideFields[item.SymbolID],
+				aliases,
 			)
 		case provider.SourceStereotype:
 			adapter, found := adapters[item.SymbolID]
@@ -3084,6 +3137,8 @@ func writeProviders(
 				dependencies[item.SymbolID],
 				providerModules[item.SymbolID],
 				adapter,
+				overrideFields[item.SymbolID],
+				aliases,
 			)
 		case provider.SourceConfiguration:
 			configType, ok := configByProvider[item.SymbolID]
@@ -3126,6 +3181,18 @@ func writeProviders(
 		}
 	}
 	return nil
+}
+
+func overrideFieldIndex(
+	fields []generatedComponentField,
+) map[string]string {
+	result := make(map[string]string)
+	for _, field := range fields {
+		if field.overridable {
+			result[field.providerID] = field.fieldName
+		}
+	}
+	return result
 }
 
 func writeScopedProviderAdapter(
@@ -3192,17 +3259,48 @@ func writeProviderAdapterCall(
 	dependencies []string,
 	moduleID string,
 	adapter providerSourceAdapter,
+	overrideField string,
+	aliases map[string]string,
 ) {
 	cleanup := variable + "Cleanup"
-	fmt.Fprintf(
-		source,
-		"\t%s, %s, err := %s.%s(%s)\n",
-		variable,
-		cleanup,
-		adapter.alias,
-		adapter.function,
-		strings.Join(dependencies, ", "),
-	)
+	if overrideField == "" {
+		fmt.Fprintf(
+			source,
+			"\t%s, %s, err := %s.%s(%s)\n",
+			variable,
+			cleanup,
+			adapter.alias,
+			adapter.function,
+			strings.Join(dependencies, ", "),
+		)
+	} else {
+		fmt.Fprintf(
+			source,
+			"\t%s, %s, err := func() (%s, spicelifecycle.Cleanup, error) {\n",
+			variable,
+			cleanup,
+			renderedType(item.Output, aliases),
+		)
+		fmt.Fprintf(
+			source,
+			"\t\tif options.Overrides.%s.Enabled() {\n",
+			overrideField,
+		)
+		fmt.Fprintf(
+			source,
+			"\t\t\treturn options.Overrides.%s.Acquire(ctx)\n",
+			overrideField,
+		)
+		source.WriteString("\t\t}\n")
+		fmt.Fprintf(
+			source,
+			"\t\treturn %s.%s(%s)\n",
+			adapter.alias,
+			adapter.function,
+			strings.Join(dependencies, ", "),
+		)
+		source.WriteString("\t}()\n")
+	}
 	source.WriteString("\tif err != nil {\n")
 	fmt.Fprintf(
 		source,
@@ -4183,8 +4281,15 @@ func pointerNamedType(value types.Type, packagePath, name string) bool {
 		named.Obj().Pkg().Path() == packagePath && named.Obj().Name() == name
 }
 
-func writeApplicationOptions(source *bytes.Buffer, features commandFeatures) {
+func writeApplicationOptions(
+	source *bytes.Buffer,
+	features commandFeatures,
+	componentFields []generatedComponentField,
+) {
 	source.WriteString("type ApplicationOptions struct {\n")
+	if hasOverridableProviders(componentFields) {
+		source.WriteString("\tOverrides BeanOverrides\n")
+	}
 	source.WriteString("\tProfiles []string\n")
 	source.WriteString("\tSources []spiceconfig.Source\n")
 	source.WriteString("\tAllowUnknownConfiguration bool\n")
