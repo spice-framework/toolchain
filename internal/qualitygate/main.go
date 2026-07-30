@@ -212,13 +212,14 @@ func verify(ctx context.Context, root string, release bool) error {
 			return err
 		}
 	}
-	// These stages each perform broad Go compilation. Running them together
-	// oversubscribes compiler processes and makes the wall clock worse on
-	// developer workstations, so they intentionally reuse one another's cache.
+	// The shuffled pass emits the repository coverage profile, so coverage does
+	// not compile the product graph a second time. The remaining broad stages
+	// stay sequential to avoid oversubscribing compiler processes.
 	if err := runSequential([]verificationStep{
-		{"tests", func() error { return test(ctx, root) }},
+		{"tests and coverage", func() error {
+			return testAndCoverage(ctx, root)
+		}},
 		{"fuzz smoke tests", func() error { return fuzz(ctx, root) }},
-		{"coverage", func() error { return coverage(ctx, root) }},
 		{"offline vendor tests", func() error { return offline(ctx, root) }},
 		{"executable smoke tests", func() error { return smoke(ctx, root) }},
 		{"bootstrap and recovery", func() error {
@@ -1065,33 +1066,77 @@ func security(ctx context.Context, root string) error {
 
 func test(ctx context.Context, root string) error {
 	for _, directory := range []string{root, petclinicRoot(root)} {
-		if err := runExternal(
-			ctx,
-			directory,
-			nil,
-			"go",
-			"test",
-			"-shuffle=on",
-			"-count=1",
-			"./...",
-		); err != nil {
-			return err
-		}
-		if err := runExternal(
-			ctx,
-			directory,
-			nil,
-			"go",
-			"test",
-			"-race",
-			"-shuffle=on",
-			"-count=1",
-			"./...",
-		); err != nil {
+		if err := runTestCommands(ctx, directory, nil); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func testAndCoverage(
+	ctx context.Context,
+	root string,
+) (returnErr error) {
+	temp, err := os.MkdirTemp("", "spice-coverage-*")
+	if err != nil {
+		return fmt.Errorf("create coverage directory: %w", err)
+	}
+	defer removeTemporaryDirectory(temp)
+
+	coverageRoot, err := os.OpenRoot(temp)
+	if err != nil {
+		return fmt.Errorf("open coverage directory: %w", err)
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, coverageRoot.Close())
+	}()
+	const profileName = "coverage.out"
+	profile := filepath.Join(temp, profileName)
+	if err := runTestCommands(
+		ctx,
+		root,
+		[]string{"-covermode=atomic", "-coverprofile=" + profile},
+	); err != nil {
+		return err
+	}
+	if err := runTestCommands(
+		ctx,
+		petclinicRoot(root),
+		[]string{"-covermode=atomic"},
+	); err != nil {
+		return err
+	}
+	return enforceCoverageProfile(
+		ctx,
+		root,
+		temp,
+		coverageRoot,
+		profileName,
+	)
+}
+
+func runTestCommands(
+	ctx context.Context,
+	root string,
+	normalArguments []string,
+) error {
+	arguments := []string{"test", "-shuffle=on", "-count=1"}
+	arguments = append(arguments, normalArguments...)
+	arguments = append(arguments, "./...")
+	if err := runExternal(ctx, root, nil, "go", arguments...); err != nil {
+		return err
+	}
+	return runExternal(
+		ctx,
+		root,
+		nil,
+		"go",
+		"test",
+		"-race",
+		"-shuffle=on",
+		"-count=1",
+		"./...",
+	)
 }
 
 func fuzz(ctx context.Context, root string) error {
@@ -1151,11 +1196,38 @@ func coverage(
 		returnErr = errors.Join(returnErr, coverageRoot.Close())
 	}()
 	const profileName = "coverage.out"
-	const productProfileName = "coverage-product.out"
 	profile := filepath.Join(temp, profileName)
 	if commandErr := runExternal(ctx, root, nil, "go", "test", "-covermode=atomic", "-coverprofile="+profile, "./..."); commandErr != nil {
 		return commandErr
 	}
+	if err := enforceCoverageProfile(
+		ctx,
+		root,
+		temp,
+		coverageRoot,
+		profileName,
+	); err != nil {
+		return err
+	}
+	return runExternal(
+		ctx,
+		petclinicRoot(root),
+		nil,
+		"go",
+		"test",
+		"-covermode=atomic",
+		"./...",
+	)
+}
+
+func enforceCoverageProfile(
+	ctx context.Context,
+	root string,
+	coverageDirectory string,
+	coverageRoot *os.Root,
+	profileName string,
+) error {
+	const productProfileName = "coverage-product.out"
 	if filterErr := filterGeneratedCoverageProfile(
 		root,
 		coverageRoot,
@@ -1170,7 +1242,7 @@ func coverage(
 		"go",
 		"tool",
 		"cover",
-		"-func="+filepath.Join(temp, productProfileName),
+		"-func="+filepath.Join(coverageDirectory, productProfileName),
 	)
 	if err != nil {
 		return err
@@ -1183,15 +1255,7 @@ func coverage(
 	if total < minimumCoverage {
 		return fmt.Errorf("repository coverage %.1f%% is below %.1f%%", total, minimumCoverage)
 	}
-	return runExternal(
-		ctx,
-		petclinicRoot(root),
-		nil,
-		"go",
-		"test",
-		"-covermode=atomic",
-		"./...",
-	)
+	return nil
 }
 
 func filterGeneratedCoverageProfile(

@@ -713,6 +713,72 @@ func TestQualityGateFailurePaths(t *testing.T) {
 	}
 }
 
+func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "sample.go", "package sample\n")
+	writeTestFile(
+		t,
+		root,
+		"examples/petclinic/go.mod",
+		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
+	)
+
+	originalRun, originalCapture := runExternal, captureExternal
+	t.Cleanup(func() {
+		runExternal = originalRun
+		captureExternal = originalCapture
+	})
+	var calls [][]string
+	runExternal = func(
+		_ context.Context,
+		_ string,
+		_ map[string]string,
+		executable string,
+		arguments ...string,
+	) error {
+		call := append([]string{executable}, arguments...)
+		calls = append(calls, call)
+		for _, argument := range arguments {
+			const prefix = "-coverprofile="
+			if profile, found := strings.CutPrefix(argument, prefix); found {
+				return os.WriteFile(
+					profile,
+					[]byte(
+						"mode: atomic\n"+
+							modulePath+"/sample.go:1.1,1.2 1 1\n",
+					),
+					0o600,
+				)
+			}
+		}
+		return nil
+	}
+	captureExternal = func(
+		context.Context,
+		string,
+		string,
+		...string,
+	) (string, error) {
+		return "total:\t(statements)\t100.0%\n", nil
+	}
+
+	if err := testAndCoverage(context.Background(), root); err != nil {
+		t.Fatalf("testAndCoverage() error = %v", err)
+	}
+	if len(calls) != 4 {
+		t.Fatalf("testAndCoverage() made %d commands, want 4: %v", len(calls), calls)
+	}
+	if !slices.ContainsFunc(calls[0], func(argument string) bool {
+		return strings.HasPrefix(argument, "-coverprofile=")
+	}) {
+		t.Fatalf("first test command does not emit coverage: %v", calls[0])
+	}
+	if !slices.Contains(calls[1], "-race") ||
+		!slices.Contains(calls[3], "-race") {
+		t.Fatalf("race commands = %v, %v", calls[1], calls[3])
+	}
+}
+
 func writeTestFile(t *testing.T, root, path, content string) {
 	t.Helper()
 	full := filepath.Join(root, filepath.FromSlash(path))
