@@ -510,16 +510,8 @@ func BenchmarkRenderPackageMainApplication(b *testing.B) {
 	root := writeModule(b, "example.com/renderbenchmark", map[string]string{
 		"cmd/shop/main.go": `package main
 
-import (
-	"os"
-
-	spiceapp "example.com/renderbenchmark/internal/spicegen/shop"
-)
-
 // @Application
-func main() {
-	os.Exit(spiceapp.Main(os.Args[1:]))
-}
+func main() {}
 `,
 		"feature/feature.go": `// Package feature owns benchmark services.
 //

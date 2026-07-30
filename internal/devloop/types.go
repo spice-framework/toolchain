@@ -167,6 +167,8 @@ type Event struct {
 	Paths    []string
 	Err      error
 	Stale    bool
+	Duration time.Duration
+	Reused   bool
 }
 
 // EventSink receives serialized observations from the engine event loop.

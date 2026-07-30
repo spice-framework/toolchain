@@ -351,6 +351,12 @@ type developmentPipeline struct {
 	service    *compilerservice.Service
 	builder    applicationBuildExecutor
 	sink       devloop.EventSink
+
+	cacheMu            sync.Mutex
+	cachedPlan         codegen.Plan
+	cachedTargetName   string
+	cachedStructures   map[string][32]byte
+	hasGenerationCache bool
 }
 
 func (pipeline *developmentPipeline) Prepare(
@@ -358,37 +364,52 @@ func (pipeline *developmentPipeline) Prepare(
 	batch devloop.Batch,
 ) (devloop.Candidate, error) {
 	output := newBoundedOutput(maximumDevelopmentOutput)
-	plan, targetName, ok := prepareGenerationAnalysis(
-		ctx,
-		pipeline.generation,
-		output,
-		pipeline.root,
-		pipeline.service,
-		batch.Revision(),
-	)
-	if !ok {
-		if err := ctx.Err(); err != nil {
-			return devloop.Candidate{}, err
-		}
-		return devloop.Candidate{}, errors.New(output.String())
-	}
-	if plan.Target().Layout != codegen.LayoutApplicationPackage {
-		return devloop.Candidate{}, fmt.Errorf(
-			"target %s uses the legacy generated-package layout; move @Application to package main",
-			targetName,
-		)
-	}
-	result, err := genfs.Apply(plan)
+	generationStarted := time.Now()
+	plan, targetName, reused, err := pipeline.reusableGeneration(batch)
+	generatedChanged := false
 	if err != nil {
-		return devloop.Candidate{}, fmt.Errorf(
-			"generate target %s: %w",
-			targetName,
-			err,
+		return devloop.Candidate{}, err
+	}
+	if !reused {
+		var ok bool
+		plan, targetName, ok = prepareGenerationAnalysis(
+			ctx,
+			pipeline.generation,
+			output,
+			pipeline.root,
+			pipeline.service,
+			batch.Revision(),
 		)
+		if !ok {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return devloop.Candidate{}, contextErr
+			}
+			return devloop.Candidate{}, errors.New(output.String())
+		}
+		if plan.Target().Layout != codegen.LayoutApplicationPackage {
+			return devloop.Candidate{}, fmt.Errorf(
+				"target %s uses the legacy generated-package layout; move @Application to package main",
+				targetName,
+			)
+		}
+		result, applyErr := genfs.Apply(plan)
+		if applyErr != nil {
+			return devloop.Candidate{}, fmt.Errorf(
+				"generate target %s: %w",
+				targetName,
+				applyErr,
+			)
+		}
+		generatedChanged = result.Changed()
+		if cacheErr := pipeline.rememberGeneration(ctx, plan, targetName); cacheErr != nil {
+			return devloop.Candidate{}, cacheErr
+		}
 	}
 	pipeline.sink.Emit(devloop.Event{
 		Kind:     devloop.EventGenerationComplete,
 		Revision: batch.Revision(),
+		Duration: time.Since(generationStarted),
+		Reused:   reused,
 	})
 	temporaryDirectory, err := os.MkdirTemp("", "spice-dev-*")
 	if err != nil {
@@ -403,6 +424,7 @@ func (pipeline *developmentPipeline) Prepare(
 		"application"+applicationExecutableSuffix(),
 	)
 	output.Reset()
+	buildStarted := time.Now()
 	if buildErr := pipeline.builder(
 		ctx,
 		plan.Target().ModuleRoot,
@@ -432,7 +454,8 @@ func (pipeline *developmentPipeline) Prepare(
 	pipeline.sink.Emit(devloop.Event{
 		Kind:     devloop.EventBuildComplete,
 		Revision: batch.Revision(),
-		Stale:    result.Changed(),
+		Stale:    generatedChanged,
+		Duration: time.Since(buildStarted),
 	})
 	return candidate, nil
 }
@@ -584,16 +607,23 @@ func (sink *developmentEventWriter) write(event devloop.Event) error {
 			event.Revision,
 		)
 	case devloop.EventGenerationComplete:
+		status := ""
+		if event.Reused {
+			status = ", structural model reused"
+		}
 		return writef(
 			sink.writer,
-			"spice dev: generation complete (revision %d)\n",
+			"spice dev: generation complete (revision %d); duration=%s%s\n",
 			event.Revision,
+			event.Duration.Round(time.Millisecond),
+			status,
 		)
 	case devloop.EventBuildComplete:
 		return writef(
 			sink.writer,
-			"spice dev: build complete (revision %d)\n",
+			"spice dev: build complete (revision %d); duration=%s\n",
 			event.Revision,
+			event.Duration.Round(time.Millisecond),
 		)
 	case devloop.EventCandidateReady:
 		return nil

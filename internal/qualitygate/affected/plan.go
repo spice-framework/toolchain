@@ -59,11 +59,15 @@ func Build(ctx context.Context, config Config) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	graphs, err := loadGraphs(ctx, root, config.ModuleRoots, changed)
+	relevant := relevantPaths(changed)
+	if len(relevant) == 0 {
+		return Plan{Base: base}, nil
+	}
+	graphs, err := loadGraphs(ctx, root, config.ModuleRoots, relevant)
 	if err != nil {
 		return Plan{}, err
 	}
-	plan := Select(root, base, changed, graphs)
+	plan := Select(root, base, relevant, graphs)
 	return plan, nil
 }
 
