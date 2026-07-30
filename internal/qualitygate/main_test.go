@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/StevenBuglione/spice/internal/qualitygate/affected"
 )
 
 func TestVerifyOrchestration(t *testing.T) {
@@ -530,6 +532,7 @@ func TestCheckGoVersionAndUnknownMode(t *testing.T) {
 func TestRunModesWithFakeExternal(t *testing.T) {
 	silenceOutput(t)
 	originalRun, originalCapture := runExternal, captureExternal
+	originalAffectedPlan := buildAffectedPlan
 	runExternal = func(
 		_ context.Context,
 		directory string,
@@ -586,9 +589,20 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 	t.Cleanup(func() {
 		runExternal = originalRun
 		captureExternal = originalCapture
+		buildAffectedPlan = originalAffectedPlan
 	})
+	buildAffectedPlan = func(
+		context.Context,
+		affected.Config,
+	) (affected.Plan, error) {
+		return affected.Plan{
+			Base:           "base",
+			Changed:        []string{"docs/spring-coverage.md"},
+			SpringCoverage: true,
+		}, nil
+	}
 
-	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
+	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fast", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}

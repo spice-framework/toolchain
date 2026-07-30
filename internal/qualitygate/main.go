@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/internal/bootstrapcheck"
+	"github.com/StevenBuglione/spice/internal/qualitygate/affected"
 )
 
 const (
@@ -43,6 +44,7 @@ var (
 	captureExternal    = capture
 	checkGoLandWrapper = validateGoLandWrapper
 	runBootstrapCheck  = bootstrapcheck.Run
+	buildAffectedPlan  = affected.Build
 )
 
 func main() {
@@ -50,13 +52,18 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fast, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	base := flag.String(
+		"base",
+		"",
+		"optional Git revision used as the affected-work comparison base",
+	)
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	if err := run(ctx, *mode); err != nil {
+	if err := runWithOptions(ctx, *mode, runOptions{base: *base}); err != nil {
 		log.Printf("quality gate failed: %v", err)
 		return 1
 	}
@@ -64,6 +71,18 @@ func execute() int {
 }
 
 func run(ctx context.Context, mode string) error {
+	return runWithOptions(ctx, mode, runOptions{})
+}
+
+type runOptions struct {
+	base string
+}
+
+func runWithOptions(
+	ctx context.Context,
+	mode string,
+	options runOptions,
+) error {
 	root, err := repositoryRoot()
 	if err != nil {
 		return err
@@ -83,6 +102,7 @@ func run(ctx context.Context, mode string) error {
 		"check":          func() error { return check(ctx, root) },
 		"coverage":       func() error { return coverage(ctx, root) },
 		"dogfood":        func() error { return dogfood(ctx, root) },
+		"fast":           func() error { return fast(ctx, root, options.base) },
 		"fmt":            func() error { return format(ctx, root, true) },
 		"fuzz":           func() error { return fuzz(ctx, root) },
 		"goland":         func() error { return goland(ctx, root) },
@@ -101,6 +121,129 @@ func run(ctx context.Context, mode string) error {
 		return fmt.Errorf("unknown mode %q", mode)
 	}
 	return runMode()
+}
+
+func fast(ctx context.Context, root, base string) error {
+	plan, err := buildAffectedPlan(ctx, affected.Config{
+		RepositoryRoot: root,
+		Base:           base,
+	})
+	if err != nil {
+		return fmt.Errorf("plan affected verification: %w", err)
+	}
+	output.Printf(
+		"affected base %s: %d changed paths, %d module plans",
+		plan.Base,
+		len(plan.Changed),
+		len(plan.Modules),
+	)
+	if plan.Empty() {
+		output.Println("==> no affected work")
+		return nil
+	}
+	reportAffectedSelection(plan)
+	if plan.SpringCoverage {
+		if err := runStep(verificationStep{
+			name: "Spring coverage resolution",
+			run:  func() error { return checkSpringCoverage(root) },
+		}); err != nil {
+			return err
+		}
+	}
+	if err := runAffectedStaticChecks(ctx, root, plan); err != nil {
+		return err
+	}
+	for _, module := range plan.Modules {
+		if err := runAffectedModule(ctx, root, module); err != nil {
+			return err
+		}
+	}
+	if plan.GoLand {
+		output.Println(
+			"==> GoLand inputs changed; make goland remains the installed-IDE gate",
+		)
+	}
+	if plan.Zed {
+		output.Println(
+			"==> Zed inputs changed; make zed remains the extension gate",
+		)
+	}
+	output.Println("==> affected verification passed")
+	return nil
+}
+
+func reportAffectedSelection(plan affected.Plan) {
+	if !plan.Full {
+		return
+	}
+	for _, reason := range plan.Reasons {
+		output.Printf("affected selection widened: %s", reason)
+	}
+}
+
+func runAffectedStaticChecks(
+	ctx context.Context,
+	root string,
+	plan affected.Plan,
+) error {
+	if err := runStep(verificationStep{
+		name: "generated target boundaries",
+		run:  func() error { return checkGeneratedTargetBoundaries(root) },
+	}); err != nil {
+		return err
+	}
+	if len(plan.GoFiles) == 0 {
+		return nil
+	}
+	return runStep(verificationStep{
+		name: "affected formatting",
+		run: func() error {
+			return checkGoFilesFormatted(ctx, root, plan.GoFiles)
+		},
+	})
+}
+
+func runAffectedModule(
+	ctx context.Context,
+	repositoryRoot string,
+	module affected.ModulePlan,
+) error {
+	if len(module.Packages) == 0 {
+		return nil
+	}
+	displayRoot, err := filepath.Rel(repositoryRoot, module.Root)
+	if err != nil {
+		displayRoot = module.Root
+	}
+	packages := slices.Clone(module.Packages)
+	return runSequential([]verificationStep{
+		{
+			name: "affected vet " + displayRoot,
+			run: func() error {
+				arguments := append([]string{"vet"}, packages...)
+				return runExternal(
+					ctx,
+					module.Root,
+					nil,
+					"go",
+					arguments...,
+				)
+			},
+		},
+		{
+			name: "affected tests " + displayRoot,
+			run: func() error {
+				arguments := append([]string{"test"}, packages...)
+				return runExternal(
+					ctx,
+					module.Root,
+					nil,
+					"go",
+					arguments...,
+				)
+			},
+		},
+	})
 }
 
 type verificationStep struct {
@@ -789,6 +932,46 @@ func format(ctx context.Context, root string, write bool) error {
 			return err
 		}
 		return fileBatches(ctx, root, gofumpt, "-w", files)
+	}
+	if err := checkFormatted(ctx, root, goimports, files); err != nil {
+		return fmt.Errorf("goimports: %w", err)
+	}
+	if err := checkFormatted(ctx, root, gofumpt, files); err != nil {
+		return fmt.Errorf("gofumpt: %w", err)
+	}
+	return nil
+}
+
+func checkGoFilesFormatted(
+	ctx context.Context,
+	root string,
+	names []string,
+) error {
+	files := make([]string, 0, len(names))
+	for _, name := range names {
+		absolute := filepath.Join(root, filepath.FromSlash(name))
+		info, err := os.Stat(absolute)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect affected Go file %s: %w", name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("affected Go path %s is not a regular file", name)
+		}
+		files = append(files, filepath.FromSlash(name))
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	goimports, err := toolPath(ctx, root, "goimports")
+	if err != nil {
+		return err
+	}
+	gofumpt, err := toolPath(ctx, root, "gofumpt")
+	if err != nil {
+		return err
 	}
 	if err := checkFormatted(ctx, root, goimports, files); err != nil {
 		return fmt.Errorf("goimports: %w", err)
