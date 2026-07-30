@@ -232,6 +232,9 @@ func TestRequiresGoLandUsesRelevantInputs(t *testing.T) {
 			paths: []string{"compiler/controller/controller.go"},
 			want:  true,
 		},
+		"compiler test fixture": {
+			paths: []string{"compiler/generate/generate_test.go"},
+		},
 		"module graph": {
 			paths: []string{".\\go.mod"},
 			want:  true,

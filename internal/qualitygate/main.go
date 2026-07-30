@@ -462,6 +462,10 @@ func requiresGoLand(paths []string) bool {
 			filepath.ToSlash(strings.TrimSpace(name)),
 			"./",
 		)
+		if strings.HasPrefix(name, "compiler/") &&
+			strings.HasSuffix(name, "_test.go") {
+			continue
+		}
 		if _, found := exact[name]; found {
 			return true
 		}
