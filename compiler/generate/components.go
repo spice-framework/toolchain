@@ -211,6 +211,47 @@ func writeBeanOverridesType(
 		)
 	}
 	source.WriteString("}\n\n")
+	writeBeanOverrideComposition(source, fields)
+}
+
+func writeBeanOverrideComposition(
+	source *bytes.Buffer,
+	fields []generatedComponentField,
+) {
+	source.WriteString("// BeanOverrideLayer is one named immutable override composition layer.\n")
+	source.WriteString("// Layers are applied in order; a later layer deliberately replaces an earlier value.\n")
+	source.WriteString("type BeanOverrideLayer struct {\n")
+	source.WriteString("\tName string\n")
+	source.WriteString("\tOverrides BeanOverrides\n")
+	source.WriteString("}\n\n")
+	source.WriteString("// ComposeBeanOverrides validates and deterministically composes named layers.\n")
+	source.WriteString("// It never mutates a running application or performs runtime bean lookup.\n")
+	source.WriteString("func ComposeBeanOverrides(layers ...BeanOverrideLayer) (BeanOverrides, error) {\n")
+	source.WriteString("\tresult := BeanOverrides{}\n")
+	source.WriteString("\tseen := make(map[string]int, len(layers))\n")
+	source.WriteString("\tfor index, layer := range layers {\n")
+	source.WriteString("\t\tif layer.Name == \"\" || strings.TrimSpace(layer.Name) != layer.Name {\n")
+	source.WriteString("\t\t\treturn BeanOverrides{}, fmt.Errorf(\"compose bean overrides: layer %d requires a non-empty name without surrounding whitespace\", index)\n")
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t\tif previous, duplicate := seen[layer.Name]; duplicate {\n")
+	source.WriteString("\t\t\treturn BeanOverrides{}, fmt.Errorf(\"compose bean overrides: layer %q repeats layer %d\", layer.Name, previous)\n")
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t\tseen[layer.Name] = index\n")
+	for _, field := range fields {
+		if !field.overridable {
+			continue
+		}
+		fmt.Fprintf(
+			source,
+			"\t\tif layer.Overrides.%s.Enabled() {\n\t\t\tresult.%s = layer.Overrides.%s\n\t\t}\n",
+			field.fieldName,
+			field.fieldName,
+			field.fieldName,
+		)
+	}
+	source.WriteString("\t}\n")
+	source.WriteString("\treturn result, nil\n")
+	source.WriteString("}\n\n")
 }
 
 func writeComponentAssignments(

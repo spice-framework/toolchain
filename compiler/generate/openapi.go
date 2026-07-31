@@ -62,6 +62,7 @@ type openAPIAuthorization struct {
 	AnyRoles      []string `json:"anyRoles,omitempty"`
 	AllRoles      []string `json:"allRoles,omitempty"`
 	AllScopes     []string `json:"allScopes,omitempty"`
+	Expression    string   `json:"expression,omitempty"`
 }
 
 type openAPIParameter struct {
@@ -185,6 +186,7 @@ func buildOpenAPIOperation(
 			AnyRoles:      authorization.AnyRoles(),
 			AllRoles:      authorization.AllRoles(),
 			AllScopes:     authorization.AllScopes(),
+			Expression:    authorization.Expression(),
 		}
 		operation.Responses["401"] = problemResponse()
 		operation.Responses["403"] = problemResponse()

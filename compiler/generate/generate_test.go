@@ -76,6 +76,8 @@ func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
 		"const TargetID = spiceentrypoint.ApplicationTarget",
 		"type Components struct",
 		"type BeanOverrides struct",
+		"type BeanOverrideLayer struct",
+		"func ComposeBeanOverrides(",
 		"type ApplicationOptions struct {\n\tOverrides",
 		"ConfigProvider spicebean.Override[components.Config]",
 		"StoreProvider spicebean.Override[*components.Store]",
@@ -926,13 +928,14 @@ func TestRenderGeneratesTransactionalHTTPBoundaries(t *testing.T) {
 	for _, expected := range []string{
 		`sql "database/sql"`,
 		`spicedata "github.com/StevenBuglione/spice/data"`,
-		".Within(httpRequest.Context(), spicedata.Definition{",
+		".Within(invocationContext, spicedata.Definition{",
 		`Module:    "example.com/transactional/api"`,
 		"Isolation: sql.LevelSerializable",
 		"ReadOnly:  true",
 		"func(transactionContext context.Context, executor spicedata.Executor) error",
-		".Commit(transactionContext, executor, requestValue)",
-		".Rollback(transactionContext, executor, requestValue)",
+		".Commit(transactionContext, executor, invocationRequest)",
+		".Rollback(transactionContext, executor, invocationRequest)",
+		"spiceintercept.Chain(",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf(
@@ -1241,7 +1244,7 @@ func NewMux() *http.ServeMux {
 func NewAPI() *API { return &API{} }
 
 // @Get("/{id}")
-// @security.Authorize(anyRoles=["reader", "admin"], allScopes=["users:read"])
+// @security.Authorize(anyRoles=["reader", "admin"], allScopes=["users:read"], expression="authenticated && issuer == \"https://issuer.example\" && hasRole(\"reader\")")
 func (*API) Get(_ context.Context, request GetRequest) (Response, error) {
 	if request.ID == "conflict" {
 		return Response{}, spiceweb.NewError(spiceweb.Problem{
@@ -1372,6 +1375,7 @@ func Web(*api.API) {}
 			getOperation.SpiceAuthorization.AllScopes,
 			[]string{"users:read"},
 		) ||
+		getOperation.SpiceAuthorization.Expression != `authenticated && issuer == "https://issuer.example" && hasRole("reader")` ||
 		openAPI.Components.SecuritySchemes["SpicePrincipal"].Scheme != "bearer" ||
 		openAPI.Components.Schemas["SpiceProblem"].Type != "object" {
 		t.Fatalf("generated OpenAPI = %#v", openAPI)
@@ -1387,8 +1391,9 @@ func Web(*api.API) {}
 		`spiceweb.RegisterObserved(routeMux, "POST /users/{id}"`,
 		"spiceweb.ObservationMiddleware(",
 		"spicesecurity.NewPolicy(",
-		`AnyRoles:  []string{"admin", "reader"}`,
-		`AllScopes: []string{"users:read"}`,
+		`AnyRoles:   []string{"admin", "reader"}`,
+		`AllScopes:  []string{"users:read"}`,
+		`Expression: "authenticated && issuer == \"https://issuer.example\" && hasRole(\"reader\")"`,
 		"spicesecurity.Guard(",
 		"routeMiddleware0",
 		"[]spiceweb.HTTPObserver",
@@ -1943,6 +1948,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -2039,6 +2045,37 @@ func TestGeneratedApplication(t *testing.T) {
 	want = []string{"construct config", "construct server"}
 	if got := components.Trace(); !slices.Equal(got, want) {
 		t.Fatalf("override rollback trace = %v, want %v", got, want)
+	}
+}
+
+func TestGeneratedBeanOverrideComposition(t *testing.T) {
+	parent := &components.Store{}
+	child := &components.Store{}
+	composed, err := ComposeBeanOverrides(
+		BeanOverrideLayer{
+			Name: "library",
+			Overrides: BeanOverrides{StoreProvider: bean.Replace(parent)},
+		},
+		BeanOverrideLayer{
+			Name: "application",
+			Overrides: BeanOverrides{StoreProvider: bean.Replace(child)},
+		},
+	)
+	if err != nil {
+		t.Fatalf("ComposeBeanOverrides() error = %v", err)
+	}
+	selected, cleanup, err := composed.StoreProvider.Acquire(context.Background())
+	if err != nil || selected != child || cleanup != nil {
+		t.Fatalf("composed StoreProvider = %#v, %#v, %v", selected, cleanup, err)
+	}
+	if _, err := ComposeBeanOverrides(
+		BeanOverrideLayer{Name: "duplicate"},
+		BeanOverrideLayer{Name: "duplicate"},
+	); err == nil || !strings.Contains(err.Error(), "repeats") {
+		t.Fatalf("duplicate layer error = %v", err)
+	}
+	if _, err := ComposeBeanOverrides(BeanOverrideLayer{Name: " invalid"}); err == nil {
+		t.Fatal("invalid layer name error = nil")
 	}
 }
 `
@@ -2607,6 +2644,7 @@ import (
 	"testing"
 
 	"example.com/web/api"
+	spiceintercept "github.com/StevenBuglione/spice/intercept"
 	spicesecurity "github.com/StevenBuglione/spice/security"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
@@ -2667,6 +2705,7 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	}
 	httpObserver := &recordingHTTPObserver{}
 	var authorizationDecisions []spicesecurity.Decision
+	var interceptorOrder []string
 	application, err := NewApplicationWithOptions(context.Background(), ApplicationOptions{
 		HTTPObservers: []spiceweb.HTTPObserver{httpObserver},
 		AuthorizationObservers: []spicesecurity.Observer{
@@ -2681,6 +2720,17 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 			namedMiddleware("first"),
 			principalMiddleware(principal),
 			namedMiddleware("second"),
+		},
+		Interceptors: RouteInterceptors{
+			APIGet: []spiceintercept.Interceptor[api.GetRequest, api.Response]{
+				func(ctx context.Context, request api.GetRequest, next spiceintercept.Invocation[api.GetRequest, api.Response]) (api.Response, error) {
+					interceptorOrder = append(interceptorOrder, "before")
+					response, invokeErr := next(ctx, request)
+					interceptorOrder = append(interceptorOrder, "after")
+					response.ID += "-intercepted"
+					return response, invokeErr
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -2701,8 +2751,11 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ID != "42" || !body.Verbose || body.Limit != 7 {
+	if body.ID != "42-intercepted" || !body.Verbose || body.Limit != 7 {
 		t.Fatalf("GET body = %#v", body)
+	}
+	if got := strings.Join(interceptorOrder, ","); got != "before,after" {
+		t.Fatalf("interceptor order = %q", got)
 	}
 	if got, want := strings.Join(middlewareOrder, ","), "first:before,second:before,second:after,first:after"; got != want {
 		t.Fatalf("middleware order = %q, want %q", got, want)
@@ -2873,6 +2926,22 @@ func TestGeneratedHTTPAdapters(t *testing.T) {
 		) {
 		t.Fatalf(
 			"nil authorization observer construction = %#v, %v",
+			invalidApplication,
+			constructionErr,
+		)
+	}
+	invalidApplication, constructionErr = NewApplicationWithOptions(
+		context.Background(),
+		ApplicationOptions{
+			Interceptors: RouteInterceptors{
+				APIGet: []spiceintercept.Interceptor[api.GetRequest, api.Response]{nil},
+			},
+		},
+	)
+	if invalidApplication != nil || constructionErr == nil ||
+		!strings.Contains(constructionErr.Error(), "interceptor 0 is nil") {
+		t.Fatalf(
+			"nil route interceptor construction = %#v, %v",
 			invalidApplication,
 			constructionErr,
 		)

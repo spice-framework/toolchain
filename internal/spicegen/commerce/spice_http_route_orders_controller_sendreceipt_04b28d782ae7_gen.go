@@ -11,6 +11,7 @@ import (
 
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	orders "github.com/StevenBuglione/spice/examples/commerce/orders"
+	spiceintercept "github.com/StevenBuglione/spice/intercept"
 	spicesecurity "github.com/StevenBuglione/spice/security"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
@@ -48,6 +49,16 @@ func registerGeneratedRouteOrdersControllerSendReceipt_04b28d78(
 	if routeObservationErr0 != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /orders/{id}/receipt observation: %w", routeObservationErr0))
 	}
+	routeTerminal := func(invocationContext context.Context, invocationRequest orders.ReceiptRequest) (orders.ReceiptResponse, error) {
+		return dependencies.controller.SendReceipt(invocationContext, invocationRequest)
+	}
+	routeInvocation, routeInterceptorErr := spiceintercept.Chain(
+		routeTerminal,
+		options.Interceptors.ControllerSendReceipt...,
+	)
+	if routeInterceptorErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated typed interceptors for route POST /orders/{id}/receipt: %w", routeInterceptorErr))
+	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /orders/{id}/receipt", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		writeRouteError := func(routeError error) error {
 			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
@@ -71,7 +82,7 @@ func registerGeneratedRouteOrdersControllerSendReceipt_04b28d78(
 		if present0 {
 			requestValue.ID = string(raw0)
 		}
-		responseValue, routeErr := dependencies.controller.SendReceipt(httpRequest.Context(), requestValue)
+		responseValue, routeErr := routeInvocation(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = writeRouteError(routeErr)
 			return

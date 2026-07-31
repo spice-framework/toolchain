@@ -418,7 +418,7 @@ func (*Second) Get(context.Context, Request) (Response, error) { return Response
 
 func TestBuildCreatesImmutableRouteAuthorization(t *testing.T) {
 	source := authorizationController(
-		"// @security.Authorize(allScopes=[\"orders:write\"], anyRoles=[\"customer\", \"admin\"], authenticated=true)",
+		"// @security.Authorize(allScopes=[\"orders:write\"], anyRoles=[\"customer\", \"admin\"], authenticated=true, expression=\"subject != \\\"blocked\\\"\")",
 		true,
 	)
 	catalog := buildCatalog(t, source)
@@ -441,6 +441,7 @@ func TestBuildCreatesImmutableRouteAuthorization(t *testing.T) {
 			authorization.AllScopes(),
 			[]string{"orders:write"},
 		) ||
+		authorization.Expression() != `subject != "blocked"` ||
 		len(authorization.AllRoles()) != 0 ||
 		authorization.Position.Filename == "" ||
 		authorization.PhysicalPosition.Filename == "" {
@@ -503,6 +504,18 @@ func TestBuildRejectsInvalidRouteAuthorization(t *testing.T) {
 			annotation: "// @security.Authorize(anyRoles=[\"admin\", \"admin\"])",
 			module:     true,
 			want:       "repeats \"admin\"",
+		},
+		{
+			name:       "invalid expression",
+			annotation: `// @security.Authorize(expression="principal.subject == \"owner\"")`,
+			module:     true,
+			want:       "expression is invalid",
+		},
+		{
+			name:       "wrong expression kind",
+			annotation: "// @security.Authorize(expression=true)",
+			module:     true,
+			want:       "requires string",
 		},
 		{
 			name:       "unknown argument",

@@ -13,6 +13,7 @@ import (
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	spicedata "github.com/StevenBuglione/spice/data"
 	orders "github.com/StevenBuglione/spice/examples/commerce/orders"
+	spiceintercept "github.com/StevenBuglione/spice/intercept"
 	spicesecurity "github.com/StevenBuglione/spice/security"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
@@ -50,6 +51,26 @@ func registerGeneratedRouteOrdersControllerPlace_fbc15ec5(
 	if routeObservationErr0 != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route POST /orders observation: %w", routeObservationErr0))
 	}
+	routeTerminal := func(invocationContext context.Context, invocationRequest orders.PlaceOrderRequest) (orders.OrderResponse, error) {
+		var responseValue orders.OrderResponse
+		routeErr := dependencies.transactions.Within(invocationContext, spicedata.Definition{
+			ID:        "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|5:Place",
+			Module:    "github.com/StevenBuglione/spice/examples/commerce/orders",
+			Isolation: sql.LevelSerializable,
+		}, func(transactionContext context.Context, executor spicedata.Executor) error {
+			var transactionErr error
+			responseValue, transactionErr = dependencies.controller.Place(transactionContext, executor, invocationRequest)
+			return transactionErr
+		})
+		return responseValue, routeErr
+	}
+	routeInvocation, routeInterceptorErr := spiceintercept.Chain(
+		routeTerminal,
+		options.Interceptors.ControllerPlace...,
+	)
+	if routeInterceptorErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated typed interceptors for route POST /orders: %w", routeInterceptorErr))
+	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "POST /orders", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		writeRouteError := func(routeError error) error {
 			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
@@ -73,16 +94,7 @@ func registerGeneratedRouteOrdersControllerPlace_fbc15ec5(
 			_ = writeRouteError(validationErr)
 			return
 		}
-		var responseValue orders.OrderResponse
-		routeErr := dependencies.transactions.Within(httpRequest.Context(), spicedata.Definition{
-			ID:        "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|5:Place",
-			Module:    "github.com/StevenBuglione/spice/examples/commerce/orders",
-			Isolation: sql.LevelSerializable,
-		}, func(transactionContext context.Context, executor spicedata.Executor) error {
-			var transactionErr error
-			responseValue, transactionErr = dependencies.controller.Place(transactionContext, executor, requestValue)
-			return transactionErr
-		})
+		responseValue, routeErr := routeInvocation(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = writeRouteError(routeErr)
 			return

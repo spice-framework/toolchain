@@ -152,6 +152,7 @@ type modelHashAuthorization struct {
 	AnyRoles      []string `json:"any_roles,omitempty"`
 	AllRoles      []string `json:"all_roles,omitempty"`
 	AllScopes     []string `json:"all_scopes,omitempty"`
+	Expression    string   `json:"expression,omitempty"`
 }
 
 type modelHashRoute struct {
@@ -334,6 +335,7 @@ func modelHash(
 					AnyRoles:      authorization.AnyRoles(),
 					AllRoles:      authorization.AllRoles(),
 					AllScopes:     authorization.AllScopes(),
+					Expression:    authorization.Expression(),
 				}
 			}
 			for _, binding := range route.Bindings() {

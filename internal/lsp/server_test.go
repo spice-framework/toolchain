@@ -21,6 +21,11 @@ import (
 	compilerservice "github.com/StevenBuglione/spice/compiler/service"
 )
 
+// The end-to-end client starts the complete typed compiler pipeline. Under the
+// repository-wide race pass it competes with every other package, so the
+// failure bound must tolerate scheduler pressure without changing fast runs.
+const testClientTimeout = 45 * time.Second
+
 func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	root, mainPath, original := writeLSPModule(t)
 	writeAnnotationReference(t, root)
@@ -1011,7 +1016,7 @@ func (client *testClient) read() serverEnvelope {
 			client.t.Fatalf("read() error = %v", received.err)
 		}
 		return received.message
-	case <-time.After(20 * time.Second):
+	case <-time.After(testClientTimeout):
 		client.t.Fatal("timed out waiting for LSP server message")
 		return serverEnvelope{}
 	}
@@ -1029,7 +1034,7 @@ func (client *testClient) wait() error {
 	select {
 	case err := <-client.done:
 		return err
-	case <-time.After(20 * time.Second):
+	case <-time.After(testClientTimeout):
 		client.t.Fatal("timed out waiting for LSP server exit")
 		return nil
 	}

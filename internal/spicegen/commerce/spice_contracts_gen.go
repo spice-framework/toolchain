@@ -7,8 +7,10 @@ package spicegen
 import (
 	context "context"
 	sql "database/sql"
+	fmt "fmt"
 	slog "log/slog"
 	http "net/http"
+	strings "strings"
 	time "time"
 
 	spiceasync "github.com/StevenBuglione/spice/async"
@@ -23,6 +25,7 @@ import (
 	payments "github.com/StevenBuglione/spice/examples/commerce/payments"
 	platform "github.com/StevenBuglione/spice/examples/commerce/platform"
 	storage "github.com/StevenBuglione/spice/examples/commerce/storage"
+	spiceintercept "github.com/StevenBuglione/spice/intercept"
 	spiceentrypoint "github.com/StevenBuglione/spice/internal/spicegen/commerce/sources/examples/commerce"
 	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
 	spiceschedule "github.com/StevenBuglione/spice/schedule"
@@ -126,6 +129,87 @@ type BeanOverrides struct {
 	Controller spicebean.Override[*orders.Controller]
 }
 
+// BeanOverrideLayer is one named immutable override composition layer.
+// Layers are applied in order; a later layer deliberately replaces an earlier value.
+type BeanOverrideLayer struct {
+	Name      string
+	Overrides BeanOverrides
+}
+
+// ComposeBeanOverrides validates and deterministically composes named layers.
+// It never mutates a running application or performs runtime bean lookup.
+func ComposeBeanOverrides(layers ...BeanOverrideLayer) (BeanOverrides, error) {
+	result := BeanOverrides{}
+	seen := make(map[string]int, len(layers))
+	for index, layer := range layers {
+		if layer.Name == "" || strings.TrimSpace(layer.Name) != layer.Name {
+			return BeanOverrides{}, fmt.Errorf("compose bean overrides: layer %d requires a non-empty name without surrounding whitespace", index)
+		}
+		if previous, duplicate := seen[layer.Name]; duplicate {
+			return BeanOverrides{}, fmt.Errorf("compose bean overrides: layer %q repeats layer %d", layer.Name, previous)
+		}
+		seen[layer.Name] = index
+		if layer.Overrides.ViewAudit.Enabled() {
+			result.ViewAudit = layer.Overrides.ViewAudit
+		}
+		if layer.Overrides.Mux.Enabled() {
+			result.Mux = layer.Overrides.Mux
+		}
+		if layer.Overrides.OrderRepository.Enabled() {
+			result.OrderRepository = layer.Overrides.OrderRepository
+		}
+		if layer.Overrides.OpenDatabase.Enabled() {
+			result.OpenDatabase = layer.Overrides.OpenDatabase
+		}
+		if layer.Overrides.Native.Enabled() {
+			result.Native = layer.Overrides.Native
+		}
+		if layer.Overrides.ReadExecutor.Enabled() {
+			result.ReadExecutor = layer.Overrides.ReadExecutor
+		}
+		if layer.Overrides.Transactions.Enabled() {
+			result.Transactions = layer.Overrides.Transactions
+		}
+		if layer.Overrides.OfflineProcessor.Enabled() {
+			result.OfflineProcessor = layer.Overrides.OfflineProcessor
+		}
+		if layer.Overrides.StripeProcessor.Enabled() {
+			result.StripeProcessor = layer.Overrides.StripeProcessor
+		}
+		if layer.Overrides.Server.Enabled() {
+			result.Server = layer.Overrides.Server
+		}
+		if layer.Overrides.InventoryService.Enabled() {
+			result.InventoryService = layer.Overrides.InventoryService
+		}
+		if layer.Overrides.OrdersService.Enabled() {
+			result.OrdersService = layer.Overrides.OrdersService
+		}
+		if layer.Overrides.SystemClock.Enabled() {
+			result.SystemClock = layer.Overrides.SystemClock
+		}
+		if layer.Overrides.Delivery.Enabled() {
+			result.Delivery = layer.Overrides.Delivery
+		}
+		if layer.Overrides.Notifier.Enabled() {
+			result.Notifier = layer.Overrides.Notifier
+		}
+		if layer.Overrides.Controller.Enabled() {
+			result.Controller = layer.Overrides.Controller
+		}
+	}
+	return result, nil
+}
+
+// RouteInterceptors configures typed generated route method decorators.
+// The first interceptor in each field is the outermost invocation.
+type RouteInterceptors struct {
+	ControllerCatalog     []spiceintercept.Interceptor[orders.CatalogRequest, orders.CatalogResponse]
+	ControllerGet         []spiceintercept.Interceptor[orders.GetOrderRequest, orders.OrderResponse]
+	ControllerPlace       []spiceintercept.Interceptor[orders.PlaceOrderRequest, orders.OrderResponse]
+	ControllerSendReceipt []spiceintercept.Interceptor[orders.ReceiptRequest, orders.ReceiptResponse]
+}
+
 type Application struct {
 	coordinator            *spicelifecycle.Coordinator
 	hooks                  []spicelifecycle.Hook
@@ -146,6 +230,7 @@ type ApplicationOptions struct {
 	MaxRequestBodyBytes       int64
 	HTTPObservers             []spiceweb.HTTPObserver
 	Middleware                []spiceweb.Middleware
+	Interceptors              RouteInterceptors
 	AuthorizationObservers    []spicesecurity.Observer
 	AuthorizationWriteFailure spicesecurity.WriteFailure
 	Logger                    *slog.Logger

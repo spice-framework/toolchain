@@ -18,6 +18,7 @@ import (
 	"github.com/StevenBuglione/spice/compiler/modulith"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
+	spicesecurity "github.com/StevenBuglione/spice/security"
 )
 
 // Location identifies one generated request DTO binding source.
@@ -75,6 +76,7 @@ type Authorization struct {
 	anyRoles         []string
 	allRoles         []string
 	allScopes        []string
+	expression       string
 }
 
 // AnyRoles returns the sorted roles of which at least one is required.
@@ -90,6 +92,11 @@ func (authorization Authorization) AllRoles() []string {
 // AllScopes returns the sorted scopes that are all required.
 func (authorization Authorization) AllScopes() []string {
 	return append([]string(nil), authorization.allScopes...)
+}
+
+// Expression returns the compiler-validated restricted policy expression.
+func (authorization Authorization) Expression() string {
+	return authorization.expression
 }
 
 // Route is one validated controller method and HTTP pattern.
@@ -427,6 +434,7 @@ func analyzeAuthorization(
 			[]string(nil),
 			contribution.Authorization.AllScopes...,
 		)
+		authorization.expression = contribution.Authorization.Expression
 		sort.Strings(authorization.anyRoles)
 		sort.Strings(authorization.allRoles)
 		sort.Strings(authorization.allScopes)
@@ -445,11 +453,21 @@ func analyzeAuthorization(
 	if !authorization.Authenticated &&
 		len(authorization.anyRoles) == 0 &&
 		len(authorization.allRoles) == 0 &&
-		len(authorization.allScopes) == 0 {
+		len(authorization.allScopes) == 0 &&
+		authorization.expression == "" {
 		return Authorization{}, fmt.Sprintf(
 			"@security.Authorize method %q must require authentication, a role, or a scope",
 			occurrence.Name,
 		)
+	}
+	if authorization.expression != "" {
+		if err := spicesecurity.ValidateExpression(authorization.expression); err != nil {
+			return Authorization{}, fmt.Sprintf(
+				"@security.Authorize method %q expression is invalid: %v",
+				occurrence.Name,
+				err,
+			)
+		}
 	}
 	return authorization, ""
 }
@@ -477,6 +495,13 @@ func applyAuthorizationArgument(
 			)
 		}
 		authorization.Authenticated = argument.Value.Boolean
+		return ""
+	}
+	if argument.Name == "expression" {
+		if argument.Value.Kind != annotation.KindString {
+			return "@security.Authorize argument \"expression\" requires string"
+		}
+		authorization.expression = argument.Value.String
 		return ""
 	}
 	values, problem := authorizationNames(argument.Name, argument.Value)

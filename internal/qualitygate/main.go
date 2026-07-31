@@ -1144,6 +1144,7 @@ func fuzz(ctx context.Context, root string) error {
 		pkg    string
 		target string
 	}{
+		{"./expression", "FuzzCompile"},
 		{"./compiler/diagnostic", "FuzzDiagnosticReportJSON"},
 		{"./compiler/parser", "FuzzParseComment"},
 		{"./compiler/service", "FuzzNormalizeOverlay"},

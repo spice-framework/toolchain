@@ -133,6 +133,7 @@ func writeControllerRoute(
 	middleware string,
 	aliases map[string]string,
 	routeIndex int,
+	interceptorField generatedRouteInterceptorField,
 ) error {
 	pattern := route.HTTPMethod + " " + route.Path
 	observation := writeRouteObservation(source, route, pattern, routeIndex)
@@ -184,6 +185,19 @@ func writeControllerRoute(
 			)
 		}
 	}
+	invocation := ""
+	if interceptorField.routeID != "" {
+		invocation = writeGeneratedRouteInvocation(
+			source,
+			route,
+			transactionIndex,
+			caches,
+			providerVariables,
+			receiver,
+			aliases,
+			interceptorField,
+		)
+	}
 	writeTypedRoute(
 		source,
 		route,
@@ -195,6 +209,7 @@ func writeControllerRoute(
 		observation,
 		middleware,
 		aliases,
+		invocation,
 	)
 	return nil
 }
@@ -279,6 +294,13 @@ func writeRouteAuthorization(
 		"AllScopes",
 		authorization.AllScopes(),
 	)
+	if authorization.Expression() != "" {
+		fmt.Fprintf(
+			source,
+			"\t\tExpression: %s,\n",
+			strconv.Quote(authorization.Expression()),
+		)
+	}
 	source.WriteString("\t})\n")
 	fmt.Fprintf(source, "\tif %s != nil {\n", policyErr)
 	fmt.Fprintf(
@@ -379,12 +401,45 @@ func writeTypedRoute(
 	observation string,
 	middleware string,
 	aliases map[string]string,
+	invocation string,
 ) {
 	fmt.Fprintf(
 		source,
 		"\tif routeErr := spiceweb.RegisterObserved(routeMux, %s, http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {\n",
 		strconv.Quote(pattern),
 	)
+	writeTypedRouteErrorWriter(source, route, providerVariables)
+	writeTypedRouteRequest(source, route, aliases)
+	writeTypedRouteValidation(source, route)
+	writeTypedRouteInvocation(
+		source,
+		route,
+		transactions,
+		caches,
+		providerVariables,
+		receiver,
+		aliases,
+		invocation,
+	)
+	source.WriteString("\t\tif routeErr != nil {\n")
+	writeGeneratedError(source, "routeErr", 3)
+	source.WriteString("\t\t\treturn\n")
+	source.WriteString("\t\t}\n")
+	writeTypedRouteResponse(source, route, providerVariables)
+	fmt.Fprintf(
+		source,
+		"\t}), %s, %s...); routeErr != nil {\n",
+		observation,
+		middleware,
+	)
+	writeRouteRegistrationError(source, pattern)
+}
+
+func writeTypedRouteErrorWriter(
+	source *bytes.Buffer,
+	route controller.Route,
+	providerVariables map[string]string,
+) {
 	if route.View {
 		fmt.Fprintf(
 			source,
@@ -396,6 +451,13 @@ func writeTypedRoute(
 			"\t\twriteRouteError := func(routeError error) error { return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper) }\n",
 		)
 	}
+}
+
+func writeTypedRouteRequest(
+	source *bytes.Buffer,
+	route controller.Route,
+	aliases map[string]string,
+) {
 	writeRouteNegotiation(source, route)
 	fmt.Fprintf(source, "\t\trequestValue := %s{}\n", renderedType(route.Request, aliases))
 	if route.BindingResult {
@@ -408,6 +470,9 @@ func writeTypedRoute(
 		}
 		writeRequestBinding(source, binding, aliases)
 	}
+}
+
+func writeTypedRouteValidation(source *bytes.Buffer, route controller.Route) {
 	if route.ValidatorID != "" {
 		if route.BindingResult {
 			source.WriteString("\t\tif bindingResult.Valid() {\n")
@@ -422,9 +487,33 @@ func writeTypedRoute(
 			source.WriteString("\t\t}\n")
 		}
 	}
+}
+
+func writeTypedRouteInvocation(
+	source *bytes.Buffer,
+	route controller.Route,
+	transactions map[string]compilertransaction.Boundary,
+	caches map[string]cacheRuntime,
+	providerVariables map[string]string,
+	receiver string,
+	aliases map[string]string,
+	invocation string,
+) {
 	boundary, transactional := transactions[route.SymbolID]
 	cache, cacheable := caches[route.SymbolID]
 	switch {
+	case invocation != "" && route.NoContent:
+		fmt.Fprintf(
+			source,
+			"\t\t_, routeErr := %s(httpRequest.Context(), requestValue)\n",
+			invocation,
+		)
+	case invocation != "":
+		fmt.Fprintf(
+			source,
+			"\t\tresponseValue, routeErr := %s(httpRequest.Context(), requestValue)\n",
+			invocation,
+		)
 	case transactional:
 		writeTransactionalRouteCall(
 			source,
@@ -463,10 +552,13 @@ func writeTypedRoute(
 			route.Name,
 		)
 	}
-	source.WriteString("\t\tif routeErr != nil {\n")
-	writeGeneratedError(source, "routeErr", 3)
-	source.WriteString("\t\t\treturn\n")
-	source.WriteString("\t\t}\n")
+}
+
+func writeTypedRouteResponse(
+	source *bytes.Buffer,
+	route controller.Route,
+	providerVariables map[string]string,
+) {
 	switch {
 	case route.NoContent:
 		source.WriteString("\t\t_ = spiceweb.WriteNoContent(writer)\n")
@@ -479,13 +571,135 @@ func writeTypedRoute(
 	default:
 		source.WriteString("\t\t_ = spiceweb.WriteJSON(writer, http.StatusOK, responseValue)\n")
 	}
+}
+
+func writeGeneratedRouteInvocation(
+	source *bytes.Buffer,
+	route controller.Route,
+	transactions map[string]compilertransaction.Boundary,
+	caches map[string]cacheRuntime,
+	providerVariables map[string]string,
+	receiver string,
+	aliases map[string]string,
+	field generatedRouteInterceptorField,
+) string {
+	requestType := renderedType(route.Request, aliases)
+	responseType := renderedType(route.Response, aliases)
+	source.WriteString("\trouteTerminal := func(invocationContext context.Context, invocationRequest ")
+	source.WriteString(requestType)
+	source.WriteString(") (")
+	source.WriteString(responseType)
+	source.WriteString(", error) {\n")
+	boundary, transactional := transactions[route.SymbolID]
+	cache, cacheable := caches[route.SymbolID]
+	switch {
+	case transactional:
+		writeTransactionalInvocation(
+			source,
+			route,
+			boundary,
+			providerVariables[boundary.ManagerProviderID],
+			receiver,
+			responseType,
+		)
+	case cacheable:
+		writeCacheInvocation(source, route, cache, receiver)
+	default:
+		fmt.Fprintf(
+			source,
+			"\t\treturn %s.%s(invocationContext, invocationRequest)\n",
+			receiver,
+			route.Name,
+		)
+	}
+	source.WriteString("\t}\n")
+	source.WriteString("\trouteInvocation, routeInterceptorErr := spiceintercept.Chain(\n")
+	source.WriteString("\t\trouteTerminal,\n")
 	fmt.Fprintf(
 		source,
-		"\t}), %s, %s...); routeErr != nil {\n",
-		observation,
-		middleware,
+		"\t\toptions.Interceptors.%s...,\n",
+		field.fieldName,
 	)
-	writeRouteRegistrationError(source, pattern)
+	source.WriteString("\t)\n")
+	source.WriteString("\tif routeInterceptorErr != nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(%s, routeInterceptorErr))\n",
+		strconv.Quote(
+			"construct generated typed interceptors for route "+
+				route.HTTPMethod+" "+route.Path+": %w",
+		),
+	)
+	source.WriteString("\t}\n")
+	return "routeInvocation"
+}
+
+func writeTransactionalInvocation(
+	source *bytes.Buffer,
+	route controller.Route,
+	boundary compilertransaction.Boundary,
+	manager string,
+	receiver string,
+	responseType string,
+) {
+	fmt.Fprintf(source, "\t\tvar responseValue %s\n", responseType)
+	fmt.Fprintf(
+		source,
+		"\t\trouteErr := %s.Within(invocationContext, spicedata.Definition{\n",
+		manager,
+	)
+	fmt.Fprintf(source, "\t\t\tID: %s,\n", strconv.Quote(boundary.RouteID))
+	fmt.Fprintf(source, "\t\t\tModule: %s,\n", strconv.Quote(boundary.Module))
+	fmt.Fprintf(
+		source,
+		"\t\t\tIsolation: %s,\n",
+		isolationLevelName(boundary.Isolation),
+	)
+	if boundary.ReadOnly {
+		source.WriteString("\t\t\tReadOnly: true,\n")
+	}
+	source.WriteString("\t\t}, func(transactionContext context.Context, executor spicedata.Executor) error {\n")
+	source.WriteString("\t\t\tvar transactionErr error\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\tresponseValue, transactionErr = %s.%s(transactionContext, executor, invocationRequest)\n",
+		receiver,
+		route.Name,
+	)
+	source.WriteString("\t\t\treturn transactionErr\n")
+	source.WriteString("\t\t})\n")
+	source.WriteString("\t\treturn responseValue, routeErr\n")
+}
+
+func writeCacheInvocation(
+	source *bytes.Buffer,
+	route controller.Route,
+	cache cacheRuntime,
+	receiver string,
+) {
+	fmt.Fprintf(
+		source,
+		"\t\tresponseValue, cacheHit, routeErr := %s.Get(invocationContext, invocationRequest)\n",
+		cache.variable,
+	)
+	source.WriteString("\t\tif routeErr != nil || cacheHit {\n")
+	source.WriteString("\t\t\treturn responseValue, routeErr\n")
+	source.WriteString("\t\t}\n")
+	fmt.Fprintf(
+		source,
+		"\t\tresponseValue, routeErr = %s.%s(invocationContext, invocationRequest)\n",
+		receiver,
+		route.Name,
+	)
+	source.WriteString("\t\tif routeErr == nil {\n")
+	fmt.Fprintf(
+		source,
+		"\t\t\trouteErr = %s.Put(invocationContext, invocationRequest, responseValue, %s)\n",
+		cache.variable,
+		cache.ttl,
+	)
+	source.WriteString("\t\t}\n")
+	source.WriteString("\t\treturn responseValue, routeErr\n")
 }
 
 func writeRouteNegotiation(

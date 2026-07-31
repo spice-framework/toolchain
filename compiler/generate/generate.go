@@ -69,6 +69,7 @@ const (
 	cachePath         = "github.com/StevenBuglione/spice/cache"
 	dataPath          = "github.com/StevenBuglione/spice/data"
 	eventPath         = "github.com/StevenBuglione/spice/event"
+	interceptPath     = "github.com/StevenBuglione/spice/intercept"
 	lifecyclePath     = "github.com/StevenBuglione/spice/lifecycle"
 	managementPath    = "github.com/StevenBuglione/spice/management"
 	observabilityPath = "github.com/StevenBuglione/spice/observability"
@@ -600,8 +601,13 @@ func renderTargetFiles(
 		return nil, err
 	}
 	componentFields := generatedComponentFields(providers)
+	routeInterceptorFields := generatedRouteInterceptorFields(controllers)
 	if hasOverridableProviders(componentFields) {
 		aliases[beanPath] = "spicebean"
+		aliases["strings"] = "strings"
+	}
+	if len(routeInterceptorFields) != 0 {
+		aliases[interceptPath] = "spiceintercept"
 	}
 	applicationOrigins := sourceOriginsForSymbolFamilies(
 		modelOrigins,
@@ -633,6 +639,7 @@ func renderTargetFiles(
 		aliases,
 		features,
 		asyncTasks,
+		routeInterceptorFields,
 	)
 
 	var configurationSource bytes.Buffer
@@ -690,6 +697,7 @@ func renderTargetFiles(
 		dependencyProviderVariables,
 		aliases,
 		modelOrigins,
+		routeInterceptorFields,
 	)
 	if httpErr != nil {
 		return nil, httpErr
@@ -967,6 +975,7 @@ func renderContractsTargetSource(
 	aliases map[string]string,
 	features commandFeatures,
 	asyncTasks []compilerasync.Task,
+	routeInterceptorFields []generatedRouteInterceptorField,
 ) []byte {
 	var source bytes.Buffer
 	writeGeneratedConstants(
@@ -975,6 +984,7 @@ func renderContractsTargetSource(
 	)
 	writeComponentsType(&source, componentFields, aliases)
 	writeBeanOverridesType(&source, componentFields, aliases)
+	writeRouteInterceptorsType(&source, routeInterceptorFields, aliases)
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
@@ -989,7 +999,12 @@ func renderContractsTargetSource(
 		source.WriteString("\thandler http.Handler\n")
 	}
 	source.WriteString("}\n\n")
-	writeApplicationOptions(&source, features, componentFields)
+	writeApplicationOptions(
+		&source,
+		features,
+		componentFields,
+		routeInterceptorFields,
+	)
 	return source.Bytes()
 }
 
@@ -1064,6 +1079,7 @@ func renderHTTPTargetSources(
 	providerVariables map[string]string,
 	aliases map[string]string,
 	modelOrigins []SourceOrigin,
+	routeInterceptorFields []generatedRouteInterceptorField,
 ) ([]byte, []targetFileSpecification, error) {
 	if !features.hasMux {
 		return nil, nil, nil
@@ -1092,6 +1108,7 @@ func renderHTTPTargetSources(
 			aliases,
 			features,
 			modelOrigins,
+			routeInterceptorFields,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1330,6 +1347,7 @@ func renderRouteSpecifications(
 	aliases map[string]string,
 	features commandFeatures,
 	applicationOrigins []SourceOrigin,
+	routeInterceptorFields []generatedRouteInterceptorField,
 ) ([]targetFileSpecification, error) {
 	transactionIndex := make(
 		map[string]compilertransaction.Boundary,
@@ -1342,6 +1360,7 @@ func renderRouteSpecifications(
 	for _, boundary := range caches {
 		cacheIndex[boundary.RouteID] = boundary
 	}
+	interceptorFields := routeInterceptorFieldIndex(routeInterceptorFields)
 
 	var result []targetFileSpecification
 	for _, item := range controllers {
@@ -1382,6 +1401,7 @@ func renderRouteSpecifications(
 				middleware,
 				aliases,
 				0,
+				interceptorFields[route.SymbolID],
 			); err != nil {
 				return nil, err
 			}

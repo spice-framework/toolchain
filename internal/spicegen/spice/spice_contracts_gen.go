@@ -5,6 +5,8 @@
 package spicegen
 
 import (
+	fmt "fmt"
+	strings "strings"
 	time "time"
 
 	spicebean "github.com/StevenBuglione/spice/bean"
@@ -90,6 +92,75 @@ type BeanOverrides struct {
 	AnnotationsHandler spicebean.Override[cli.Handler]
 	// Command replaces bean "command".
 	Command spicebean.Override[*cli.Command]
+}
+
+// BeanOverrideLayer is one named immutable override composition layer.
+// Layers are applied in order; a later layer deliberately replaces an earlier value.
+type BeanOverrideLayer struct {
+	Name      string
+	Overrides BeanOverrides
+}
+
+// ComposeBeanOverrides validates and deterministically composes named layers.
+// It never mutates a running application or performs runtime bean lookup.
+func ComposeBeanOverrides(layers ...BeanOverrideLayer) (BeanOverrides, error) {
+	result := BeanOverrides{}
+	seen := make(map[string]int, len(layers))
+	for index, layer := range layers {
+		if layer.Name == "" || strings.TrimSpace(layer.Name) != layer.Name {
+			return BeanOverrides{}, fmt.Errorf("compose bean overrides: layer %d requires a non-empty name without surrounding whitespace", index)
+		}
+		if previous, duplicate := seen[layer.Name]; duplicate {
+			return BeanOverrides{}, fmt.Errorf("compose bean overrides: layer %q repeats layer %d", layer.Name, previous)
+		}
+		seen[layer.Name] = index
+		if layer.Overrides.Runtime.Enabled() {
+			result.Runtime = layer.Overrides.Runtime
+		}
+		if layer.Overrides.DevHandler.Enabled() {
+			result.DevHandler = layer.Overrides.DevHandler
+		}
+		if layer.Overrides.LspHandler.Enabled() {
+			result.LspHandler = layer.Overrides.LspHandler
+		}
+		if layer.Overrides.RunHandler.Enabled() {
+			result.RunHandler = layer.Overrides.RunHandler
+		}
+		if layer.Overrides.HelpHandler.Enabled() {
+			result.HelpHandler = layer.Overrides.HelpHandler
+		}
+		if layer.Overrides.TestHandler.Enabled() {
+			result.TestHandler = layer.Overrides.TestHandler
+		}
+		if layer.Overrides.BeansHandler.Enabled() {
+			result.BeansHandler = layer.Overrides.BeansHandler
+		}
+		if layer.Overrides.BuildHandler.Enabled() {
+			result.BuildHandler = layer.Overrides.BuildHandler
+		}
+		if layer.Overrides.VerifyHandler.Enabled() {
+			result.VerifyHandler = layer.Overrides.VerifyHandler
+		}
+		if layer.Overrides.ModulesHandler.Enabled() {
+			result.ModulesHandler = layer.Overrides.ModulesHandler
+		}
+		if layer.Overrides.VersionHandler.Enabled() {
+			result.VersionHandler = layer.Overrides.VersionHandler
+		}
+		if layer.Overrides.GenerateHandler.Enabled() {
+			result.GenerateHandler = layer.Overrides.GenerateHandler
+		}
+		if layer.Overrides.GeneratedHandler.Enabled() {
+			result.GeneratedHandler = layer.Overrides.GeneratedHandler
+		}
+		if layer.Overrides.AnnotationsHandler.Enabled() {
+			result.AnnotationsHandler = layer.Overrides.AnnotationsHandler
+		}
+		if layer.Overrides.Command.Enabled() {
+			result.Command = layer.Overrides.Command
+		}
+	}
+	return result, nil
 }
 
 type Application struct {

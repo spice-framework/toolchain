@@ -21,6 +21,7 @@ func writeApplicationOptions(
 	source *bytes.Buffer,
 	features commandFeatures,
 	componentFields []generatedComponentField,
+	routeInterceptorFields []generatedRouteInterceptorField,
 ) {
 	source.WriteString("type ApplicationOptions struct {\n")
 	if hasOverridableProviders(componentFields) {
@@ -34,6 +35,9 @@ func writeApplicationOptions(
 		source.WriteString("\tMaxRequestBodyBytes int64\n")
 		source.WriteString("\tHTTPObservers []spiceweb.HTTPObserver\n")
 		source.WriteString("\tMiddleware []spiceweb.Middleware\n")
+		if len(routeInterceptorFields) != 0 {
+			source.WriteString("\tInterceptors RouteInterceptors\n")
+		}
 		if features.requestScope {
 			source.WriteString("\tScopeErrorHandler spicebean.ScopeErrorHandler\n")
 		}

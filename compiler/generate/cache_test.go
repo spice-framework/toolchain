@@ -63,9 +63,10 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		`Module: "example.com/cachegenerated/api"`,
 		"options.CacheClock",
 		"options.CacheObservers...",
-		"generatedCache0.Get(httpRequest.Context(), requestValue)",
-		"api.Product(httpRequest.Context(), requestValue)",
-		"generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)",
+		"generatedCache0.Get(invocationContext, invocationRequest)",
+		"api.Product(invocationContext, invocationRequest)",
+		"generatedCache0.Put(invocationContext, invocationRequest, responseValue, generatedCache0TTL)",
+		"spiceintercept.Chain(",
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
 			t.Fatalf("generated cache source missing %q:\n%s", required, firstSource)
@@ -93,9 +94,9 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 		t,
 		httpWiring,
 		"spicecache.NewMemory[api.Request, api.Response](",
-		"generatedCache0.Get(httpRequest.Context(), requestValue)",
-		"api.Product(httpRequest.Context(), requestValue)",
-		"generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)",
+		"generatedCache0.Get(invocationContext, invocationRequest)",
+		"api.Product(invocationContext, invocationRequest)",
+		"generatedCache0.Put(invocationContext, invocationRequest, responseValue, generatedCache0TTL)",
 	)
 	assertOrdered(
 		t,

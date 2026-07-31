@@ -182,7 +182,8 @@
           "owner": "github.com/StevenBuglione/spice/examples/commerce/orders",
           "allScopes": [
             "orders:read"
-          ]
+          ],
+          "expression": "authenticated \u0026\u0026 hasScope(\"orders:read\")"
         }
       }
     },

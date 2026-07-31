@@ -11,6 +11,7 @@ import (
 
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	orders "github.com/StevenBuglione/spice/examples/commerce/orders"
+	spiceintercept "github.com/StevenBuglione/spice/intercept"
 	spicesecurity "github.com/StevenBuglione/spice/security"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
@@ -34,7 +35,8 @@ func registerGeneratedRouteOrdersControllerGet_8c548c3f(
 			ID:     "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|3:Get",
 			Module: "github.com/StevenBuglione/spice/examples/commerce/orders",
 		},
-		AllScopes: []string{"orders:read"},
+		AllScopes:  []string{"orders:read"},
+		Expression: "authenticated && hasScope(\"orders:read\")",
 	})
 	if authorizationPolicy0Err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated authorization policy for route GET /orders/{id}: %w", authorizationPolicy0Err))
@@ -47,6 +49,16 @@ func registerGeneratedRouteOrdersControllerGet_8c548c3f(
 	routeObservation0, routeObservationErr0 := spiceweb.ObservationMiddleware(spiceweb.RouteMetadata{ID: "spice:symbol:v1|method|56:github.com/StevenBuglione/spice/examples/commerce/orders|10:Controller|3:Get", Module: "github.com/StevenBuglione/spice/examples/commerce/orders", Method: "GET", Pattern: "/orders/{id}"}, httpObservers...)
 	if routeObservationErr0 != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /orders/{id} observation: %w", routeObservationErr0))
+	}
+	routeTerminal := func(invocationContext context.Context, invocationRequest orders.GetOrderRequest) (orders.OrderResponse, error) {
+		return dependencies.controller.Get(invocationContext, invocationRequest)
+	}
+	routeInvocation, routeInterceptorErr := spiceintercept.Chain(
+		routeTerminal,
+		options.Interceptors.ControllerGet...,
+	)
+	if routeInterceptorErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated typed interceptors for route GET /orders/{id}: %w", routeInterceptorErr))
 	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /orders/{id}", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		writeRouteError := func(routeError error) error {
@@ -71,7 +83,7 @@ func registerGeneratedRouteOrdersControllerGet_8c548c3f(
 		if present0 {
 			requestValue.ID = string(raw0)
 		}
-		responseValue, routeErr := dependencies.controller.Get(httpRequest.Context(), requestValue)
+		responseValue, routeErr := routeInvocation(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = writeRouteError(routeErr)
 			return

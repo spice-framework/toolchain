@@ -12,6 +12,7 @@ import (
 	spicecache "github.com/StevenBuglione/spice/cache"
 	spiceconfig "github.com/StevenBuglione/spice/config"
 	orders "github.com/StevenBuglione/spice/examples/commerce/orders"
+	spiceintercept "github.com/StevenBuglione/spice/intercept"
 	spicesecurity "github.com/StevenBuglione/spice/security"
 	spiceweb "github.com/StevenBuglione/spice/web"
 )
@@ -60,6 +61,24 @@ func registerGeneratedRouteOrdersControllerCatalog_125c6a7a(
 	if routeObservationErr0 != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("configure generated route GET /catalog observation: %w", routeObservationErr0))
 	}
+	routeTerminal := func(invocationContext context.Context, invocationRequest orders.CatalogRequest) (orders.CatalogResponse, error) {
+		responseValue, cacheHit, routeErr := generatedCache0.Get(invocationContext, invocationRequest)
+		if routeErr != nil || cacheHit {
+			return responseValue, routeErr
+		}
+		responseValue, routeErr = dependencies.controller.Catalog(invocationContext, invocationRequest)
+		if routeErr == nil {
+			routeErr = generatedCache0.Put(invocationContext, invocationRequest, responseValue, generatedCache0TTL)
+		}
+		return responseValue, routeErr
+	}
+	routeInvocation, routeInterceptorErr := spiceintercept.Chain(
+		routeTerminal,
+		options.Interceptors.ControllerCatalog...,
+	)
+	if routeInterceptorErr != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct generated typed interceptors for route GET /catalog: %w", routeInterceptorErr))
+	}
 	if routeErr := spiceweb.RegisterObserved(routeMux, "GET /catalog", http.HandlerFunc(func(writer http.ResponseWriter, httpRequest *http.Request) {
 		writeRouteError := func(routeError error) error {
 			return spiceweb.WriteError(writer, httpRequest, routeError, options.ErrorMapper)
@@ -75,13 +94,7 @@ func registerGeneratedRouteOrdersControllerCatalog_125c6a7a(
 			return
 		}
 		requestValue := orders.CatalogRequest{}
-		responseValue, cacheHit, routeErr := generatedCache0.Get(httpRequest.Context(), requestValue)
-		if routeErr == nil && !cacheHit {
-			responseValue, routeErr = dependencies.controller.Catalog(httpRequest.Context(), requestValue)
-			if routeErr == nil {
-				routeErr = generatedCache0.Put(httpRequest.Context(), requestValue, responseValue, generatedCache0TTL)
-			}
-		}
+		responseValue, routeErr := routeInvocation(httpRequest.Context(), requestValue)
 		if routeErr != nil {
 			_ = writeRouteError(routeErr)
 			return
