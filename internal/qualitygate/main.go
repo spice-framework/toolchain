@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -110,6 +111,9 @@ type verificationStep struct {
 
 func check(ctx context.Context, root string) error {
 	return runSequential([]verificationStep{
+		{"API maturity coverage", func() error {
+			return checkAPIMaturity(ctx, root)
+		}},
 		{"Spring coverage resolution", func() error {
 			return checkSpringCoverage(root)
 		}},
@@ -165,6 +169,9 @@ func compileTests(ctx context.Context, root string) error {
 
 func verify(ctx context.Context, root string, release bool) error {
 	if err := runSequential([]verificationStep{
+		{"API maturity coverage", func() error {
+			return checkAPIMaturity(ctx, root)
+		}},
 		{"Spring coverage resolution", func() error {
 			return checkSpringCoverage(root)
 		}},
@@ -230,6 +237,150 @@ func verify(ctx context.Context, root string, release bool) error {
 	}
 	output.Println("==> all verification passed")
 	return nil
+}
+
+type apiMaturityPolicy struct {
+	Schema          string            `json:"schema"`
+	Module          string            `json:"module"`
+	Classifications []apiMaturityRule `json:"classifications"`
+}
+
+type apiMaturityRule struct {
+	Prefix   string `json:"prefix"`
+	Maturity string `json:"maturity"`
+	Reason   string `json:"reason"`
+}
+
+func checkAPIMaturity(ctx context.Context, root string) error {
+	content, err := readRootFile(root, "docs/api-compatibility.json")
+	if err != nil {
+		return fmt.Errorf("read API maturity policy: %w", err)
+	}
+	packages, err := captureExternal(
+		ctx,
+		root,
+		"go",
+		"list",
+		"-mod=vendor",
+		"-f",
+		"{{.ImportPath}}",
+		"./...",
+	)
+	if err != nil {
+		return fmt.Errorf("list API packages: %w", err)
+	}
+	return validateAPIMaturity(content, packages)
+}
+
+func validateAPIMaturity(content []byte, packageOutput string) error {
+	policy, err := decodeAPIMaturityPolicy(content)
+	if err != nil {
+		return err
+	}
+	return validateAPIMaturityPackages(policy.Classifications, packageOutput)
+}
+
+func decodeAPIMaturityPolicy(content []byte) (apiMaturityPolicy, error) {
+	var policy apiMaturityPolicy
+	if err := json.Unmarshal(content, &policy); err != nil {
+		return apiMaturityPolicy{}, fmt.Errorf("decode API maturity policy: %w", err)
+	}
+	if policy.Schema != "spice.api-maturity/v1" {
+		return apiMaturityPolicy{}, fmt.Errorf(
+			"API maturity policy schema = %q, want spice.api-maturity/v1",
+			policy.Schema,
+		)
+	}
+	if policy.Module != modulePath {
+		return apiMaturityPolicy{}, fmt.Errorf(
+			"API maturity policy module = %q, want %q",
+			policy.Module,
+			modulePath,
+		)
+	}
+	if len(policy.Classifications) == 0 {
+		return apiMaturityPolicy{}, errors.New("API maturity policy has no classifications")
+	}
+	seen := make(map[string]struct{}, len(policy.Classifications))
+	for _, rule := range policy.Classifications {
+		if err := validateAPIMaturityRule(rule, seen); err != nil {
+			return apiMaturityPolicy{}, err
+		}
+	}
+	return policy, nil
+}
+
+func validateAPIMaturityRule(
+	rule apiMaturityRule,
+	seen map[string]struct{},
+) error {
+	if rule.Prefix == "" ||
+		rule.Prefix != strings.TrimSpace(rule.Prefix) ||
+		strings.HasPrefix(rule.Prefix, "/") ||
+		strings.HasSuffix(rule.Prefix, "/") ||
+		strings.Contains(rule.Prefix, "\\") {
+		return fmt.Errorf("API maturity prefix %q is invalid", rule.Prefix)
+	}
+	if _, duplicate := seen[rule.Prefix]; duplicate {
+		return fmt.Errorf("API maturity prefix %q is duplicated", rule.Prefix)
+	}
+	seen[rule.Prefix] = struct{}{}
+	if !slices.Contains(
+		[]string{"preview-stable", "experimental", "internal"},
+		rule.Maturity,
+	) {
+		return fmt.Errorf(
+			"API maturity prefix %q has invalid maturity %q",
+			rule.Prefix,
+			rule.Maturity,
+		)
+	}
+	if strings.TrimSpace(rule.Reason) == "" {
+		return fmt.Errorf("API maturity prefix %q requires a reason", rule.Prefix)
+	}
+	return nil
+}
+
+func validateAPIMaturityPackages(
+	rules []apiMaturityRule,
+	packageOutput string,
+) error {
+	packages := strings.Fields(packageOutput)
+	if len(packages) == 0 {
+		return errors.New("go package listing is empty")
+	}
+	matched := make(map[string]bool, len(rules))
+	for _, packagePath := range packages {
+		if packagePath != modulePath && !strings.HasPrefix(packagePath, modulePath+"/") {
+			continue
+		}
+		relative := strings.TrimPrefix(packagePath, modulePath+"/")
+		if !matchAPIMaturityRules(relative, rules, matched) {
+			return fmt.Errorf("go package %s has no API maturity classification", packagePath)
+		}
+	}
+	for _, rule := range rules {
+		if !matched[rule.Prefix] {
+			return fmt.Errorf("API maturity prefix %q matches no Go package", rule.Prefix)
+		}
+	}
+	return nil
+}
+
+func matchAPIMaturityRules(
+	relative string,
+	rules []apiMaturityRule,
+	matched map[string]bool,
+) bool {
+	found := false
+	for _, rule := range rules {
+		if relative != rule.Prefix && !strings.HasPrefix(relative, rule.Prefix+"/") {
+			continue
+		}
+		matched[rule.Prefix] = true
+		found = true
+	}
+	return found
 }
 
 func checkGeneratedTargetBoundaries(root string) error {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -33,6 +34,12 @@ func TestVerifyOrchestration(t *testing.T) {
 		"| Area | Spring capability | Spice direction | Status |\n"+
 			"|---|---|---|---|\n"+
 			"| Core | Test | Executable contract | available |\n",
+	)
+	writeTestFile(
+		t,
+		root,
+		"docs/api-compatibility.json",
+		`{"schema":"spice.api-maturity/v1","module":"`+modulePath+`","classifications":[{"prefix":"sample","maturity":"preview-stable","reason":"test fixture"}]}`,
 	)
 	writeTestFile(t, root, "vendor/modules.txt", "# test vendor tree\n")
 	writeTestFile(
@@ -98,6 +105,10 @@ func TestVerifyOrchestration(t *testing.T) {
 		case executable == "rustc" &&
 			slices.Equal(arguments, []string{"--version"}):
 			return "rustc " + requiredRustVersion + " (test)\n", nil
+		case executable == "go" && slices.Equal(arguments, []string{
+			"list", "-mod=vendor", "-f", "{{.ImportPath}}", "./...",
+		}):
+			return modulePath + "/sample\n", nil
 		case len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return "total:\t(statements)\t90.0%\n", nil
 		case slices.Contains(arguments, "-bench"):
@@ -149,6 +160,68 @@ func TestVerifyOrchestration(t *testing.T) {
 		if !containsCall(recordedCalls, expected) {
 			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(recordedCalls, "\n"))
 		}
+	}
+}
+
+func TestValidateAPIMaturityRequiresCompleteNonStaleCoverage(t *testing.T) {
+	t.Parallel()
+	valid := `{
+  "schema": "spice.api-maturity/v1",
+  "module": "` + modulePath + `",
+  "classifications": [
+    {"prefix":"annotation","maturity":"experimental","reason":"feature descriptors"},
+    {"prefix":"annotation/sdk","maturity":"preview-stable","reason":"extension contract"},
+    {"prefix":"compiler","maturity":"internal","reason":"toolchain implementation"}
+  ]
+}`
+	packages := strings.Join([]string{
+		modulePath + "/annotation/core",
+		modulePath + "/annotation/sdk",
+		modulePath + "/annotation/sdk/protocol",
+		modulePath + "/compiler/provider",
+	}, "\n")
+	if err := validateAPIMaturity([]byte(valid), packages); err != nil {
+		t.Fatalf("validateAPIMaturity() error = %v", err)
+	}
+
+	for name, test := range map[string]struct {
+		policy   string
+		packages string
+		want     string
+	}{
+		"unclassified package": {
+			policy:   valid,
+			packages: packages + "\n" + modulePath + "/web",
+			want:     "has no API maturity classification",
+		},
+		"stale prefix": {
+			policy: strings.Replace(
+				valid,
+				`]`,
+				`,{"prefix":"removed","maturity":"internal","reason":"stale"}]`,
+				1,
+			),
+			packages: packages,
+			want:     `prefix "removed" matches no Go package`,
+		},
+		"invalid maturity": {
+			policy: strings.Replace(
+				valid,
+				`"preview-stable"`,
+				`"stable"`,
+				1,
+			),
+			packages: packages,
+			want:     `invalid maturity "stable"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := validateAPIMaturity([]byte(test.policy), test.packages)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validateAPIMaturity() error = %v, want containing %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -580,6 +653,7 @@ func TestCheckGoVersionAndUnknownMode(t *testing.T) {
 
 func TestRunModesWithFakeExternal(t *testing.T) {
 	silenceOutput(t)
+	apiPackages := apiMaturityFixturePackages(t)
 	originalRun, originalCapture := runExternal, captureExternal
 	runExternal = func(
 		_ context.Context,
@@ -624,6 +698,10 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		case executable == "rustc" &&
 			slices.Equal(arguments, []string{"--version"}):
 			return "rustc " + requiredRustVersion + " (test)", nil
+		case executable == "go" && slices.Equal(arguments, []string{
+			"list", "-mod=vendor", "-f", "{{.ImportPath}}", "./...",
+		}):
+			return apiPackages, nil
 		case len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return "total:\t(statements)\t90.0%\n", nil
 		case slices.Contains(arguments, "-bench"):
@@ -644,6 +722,27 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}
 	}
+}
+
+func apiMaturityFixturePackages(t *testing.T) string {
+	t.Helper()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := readRootFile(root, "docs/api-compatibility.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy apiMaturityPolicy
+	if err := json.Unmarshal(content, &policy); err != nil {
+		t.Fatal(err)
+	}
+	packages := make([]string, 0, len(policy.Classifications))
+	for _, rule := range policy.Classifications {
+		packages = append(packages, modulePath+"/"+rule.Prefix)
+	}
+	return strings.Join(packages, "\n") + "\n"
 }
 
 func TestRunParallelValidatesWorkersAndReturnsStableFailure(t *testing.T) {
