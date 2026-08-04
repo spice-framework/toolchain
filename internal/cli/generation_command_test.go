@@ -163,6 +163,7 @@ import (
 	"os"
 
 	spiceapp "example.com/package-main/internal/spicegen/shop"
+	_ "example.com/package-main/platform"
 )
 
 // @Application
@@ -185,7 +186,7 @@ func Mux() *http.ServeMux {
 `,
 	})
 
-	code, stdout, stderr := runModule(root, "generate")
+	code, stdout, stderr := runModule(root, "generate", "./cmd/shop")
 	if code != 0 ||
 		!strings.Contains(stdout, "generated target Shop") ||
 		stderr != "" {
@@ -241,7 +242,7 @@ func Mux() *http.ServeMux {
 		t.Fatalf("generated package-main source:\n%s", content)
 	}
 
-	code, stdout, stderr = runModule(root, "build")
+	code, stdout, stderr = runModule(root, "build", "./cmd/shop")
 	if code != 0 ||
 		!strings.Contains(stdout, "Spice build passed for target Shop") ||
 		stderr != "" {

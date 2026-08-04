@@ -1870,10 +1870,15 @@ func writeAnnotationProvenance(
 	)
 	if provenance.ReplacementModule != "" ||
 		provenance.ReplacementDir != "" {
-		replacement := provenance.ReplacementModule
-		if replacement == "" {
-			replacement = provenance.ReplacementDir
+		if provenance.ReplacementDir != "" {
+			fmt.Fprintf(
+				content,
+				" Resolved from local replacement `%s`.",
+				provenance.ReplacementDir,
+			)
+			return
 		}
+		replacement := provenance.ReplacementModule
 		fmt.Fprintf(
 			content,
 			" Replaced by `%s`.",

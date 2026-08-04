@@ -152,7 +152,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		"-coverprofile=",
 		"-mod=vendor -count=1",
 		"cargo build --locked --release --target wasm32-wasip2",
-		gradleWrapper + " --no-daemon --console=plain",
+		gradleWrapper + " --no-daemon --no-parallel --console=plain",
 		"verifyPluginStructure verifyPlugin",
 		"generate --check --target Spice ./compiler/...",
 		"bootstrap recovery",
@@ -160,6 +160,13 @@ func TestVerifyOrchestration(t *testing.T) {
 		if !containsCall(recordedCalls, expected) {
 			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(recordedCalls, "\n"))
 		}
+	}
+	if runtime.GOOS != "darwin" &&
+		!containsCall(recordedCalls, " integrationTest") {
+		t.Fatalf(
+			"calls do not contain isolated GoLand integration test:\n%s",
+			strings.Join(recordedCalls, "\n"),
+		)
 	}
 }
 

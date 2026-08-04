@@ -66,6 +66,11 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 			return program, &LoadError{Diagnostics: program.Diagnostics()}
 		}
 	}
+	candidates, requestedPackages := discoverCompositionCandidates(
+		options,
+		patterns,
+		overlay,
+	)
 	config := &packages.Config{
 		Context:    ctx,
 		Mode:       packages.LoadSyntax | packages.NeedModule,
@@ -78,12 +83,18 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 
 	auxiliary := normalizedAuxiliaryPackages(options.AuxiliaryPackages)
 	loadPatterns := append(append([]string(nil), patterns...), auxiliary...)
+	loadPatterns = append(loadPatterns, compositionCandidatePaths(candidates)...)
 	roots, loadErr := packages.Load(config, loadPatterns...)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	program := programFromRoots(
-		roots,
+		selectProgramRoots(
+			roots,
+			requestedPackages,
+			auxiliary,
+			candidates,
+		),
 		loadErr,
 		auxiliary,
 	)
@@ -200,6 +211,13 @@ func programFromRoots(
 	})
 	sortDiagnostics(program.diagnostics)
 	return program
+}
+
+func packageIdentity(pkg *packages.Package) string {
+	if pkg.ID != "" {
+		return pkg.ID
+	}
+	return pkg.PkgPath
 }
 
 func appendLoadedRoot(

@@ -705,7 +705,7 @@ func goland(ctx context.Context, root string) error {
 	if runtime.GOOS == "windows" {
 		executable += ".bat"
 	}
-	arguments := []string{"--no-daemon", "--console=plain"}
+	arguments := []string{"--no-daemon", "--no-parallel", "--console=plain"}
 	localPath, err := localGoLandPath()
 	if err != nil {
 		return err
@@ -713,22 +713,40 @@ func goland(ctx context.Context, root string) error {
 	if localPath != "" {
 		arguments = append(arguments, "-PgolandPath="+localPath)
 	}
-	arguments = append(arguments, "test", "buildPlugin")
-	if runtime.GOOS != "darwin" {
-		arguments = append(arguments, "integrationTest")
-	}
-	arguments = append(
-		arguments,
+	verificationArguments := append(
+		slices.Clone(arguments),
+		"test",
+		"buildPlugin",
 		"verifyPluginProjectConfiguration",
 		"verifyPluginStructure",
 		"verifyPlugin",
 	)
-	if runtime.GOOS == "linux" &&
-		strings.TrimSpace(os.Getenv("DISPLAY")) == "" {
-		arguments = append([]string{"-a", executable}, arguments...)
-		executable = "xvfb-run"
+	runGradle := func(taskArguments []string) error {
+		commandExecutable := executable
+		commandArguments := taskArguments
+		if runtime.GOOS == "linux" &&
+			strings.TrimSpace(os.Getenv("DISPLAY")) == "" {
+			commandArguments = append(
+				[]string{"-a", commandExecutable},
+				commandArguments...,
+			)
+			commandExecutable = "xvfb-run"
+		}
+		return runExternal(
+			ctx,
+			golandRoot,
+			nil,
+			commandExecutable,
+			commandArguments...,
+		)
 	}
-	return runExternal(ctx, golandRoot, nil, executable, arguments...)
+	if err := runGradle(verificationArguments); err != nil {
+		return err
+	}
+	if runtime.GOOS == "darwin" {
+		return nil
+	}
+	return runGradle(append(slices.Clone(arguments), "integrationTest"))
 }
 
 func validateGoLandWrapper(golandRoot string) error {
@@ -1554,11 +1572,11 @@ func smoke(ctx context.Context, root string) error {
 		},
 		{
 			"go", "run", "./cmd/spice", "generate", "--check", "--target", "Commerce",
-			"./examples/commerce/...",
+			"./examples/commerce",
 		},
 		{
 			"go", "run", "./cmd/spice", "run", "--target", "Commerce",
-			"./examples/commerce/...", "--", "-check",
+			"./examples/commerce", "--", "-check",
 		},
 	}
 	for _, args := range commands {
@@ -1757,31 +1775,9 @@ func petclinicSmoke(ctx context.Context, root string) error {
 		return err
 	}
 	directory := petclinicRoot(root)
-	memoryPatterns := []string{
-		".",
-		"./memory",
-		"./model",
-		"./owner",
-		"./presentation",
-		"./system",
-		"./vet",
-	}
-	postgresPatterns := []string{
-		"./cmd/postgres",
-		"./owner",
-		"./postgres",
-		"./presentation",
-		"./system",
-		"./vet",
-	}
-	mysqlPatterns := []string{
-		"./cmd/mysql",
-		"./mysql",
-		"./owner",
-		"./presentation",
-		"./system",
-		"./vet",
-	}
+	memoryPatterns := []string{"."}
+	postgresPatterns := []string{"./cmd/postgres"}
+	mysqlPatterns := []string{"./cmd/mysql"}
 	commands := [][]string{
 		append([]string{"verify"}, memoryPatterns...),
 		append(
