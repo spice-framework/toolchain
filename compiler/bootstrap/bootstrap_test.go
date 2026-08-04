@@ -112,7 +112,7 @@ func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {
 	}
 }
 
-func TestManagementAccessDefaultsToPublic(t *testing.T) {
+func TestManagementAccessDefaultsToLoopback(t *testing.T) {
 	t.Parallel()
 	resolution := resolve.Result{Occurrences: []resolve.Occurrence{
 		bootstrapOccurrence(
@@ -142,7 +142,7 @@ func TestManagementAccessDefaultsToPublic(t *testing.T) {
 		t.Fatalf("Compile() diagnostics = %v", diagnosticText(diagnostics))
 	}
 	management, found := result.Metadata("app").Management()
-	if !found || management.Access() != "public" {
+	if !found || management.Access() != "loopback" {
 		t.Fatalf("Management() = %#v, %v", management, found)
 	}
 }

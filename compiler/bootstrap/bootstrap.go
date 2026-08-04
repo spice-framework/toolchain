@@ -172,7 +172,7 @@ func (m Management) Endpoints() []Endpoint {
 // Access returns the normalized management network-origin policy.
 func (m Management) Access() string {
 	if m.access == "" {
-		return "public"
+		return "loopback"
 	}
 	return m.access
 }

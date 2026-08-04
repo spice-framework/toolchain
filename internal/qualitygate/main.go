@@ -412,14 +412,38 @@ func checkSpringCoverage(root string) (resultErr error) {
 }
 
 func goLandAffected(ctx context.Context, root string) (bool, error) {
-	tracked, err := captureExternal(
-		ctx,
-		root,
-		"git",
+	diffArguments := []string{
 		"diff",
 		"--name-only",
 		"origin/main",
 		"--",
+	}
+	if base := strings.TrimSpace(os.Getenv("SPICE_VERIFY_BASE")); base != "" {
+		resolved, err := captureExternal(
+			ctx,
+			root,
+			"git",
+			"rev-parse",
+			"--verify",
+			"--end-of-options",
+			base+"^{commit}",
+		)
+		if err != nil {
+			return false, fmt.Errorf("resolve verification base %q: %w", base, err)
+		}
+		diffArguments = []string{
+			"diff",
+			"--name-only",
+			strings.TrimSpace(resolved),
+			"HEAD",
+			"--",
+		}
+	}
+	tracked, err := captureExternal(
+		ctx,
+		root,
+		"git",
+		diffArguments...,
 	)
 	if err != nil {
 		return false, err
@@ -1753,7 +1777,7 @@ func command(
 	if err := validateExecutable(executable); err != nil {
 		return err
 	}
-	// #nosec G204 -- validateExecutable restricts execution to approved repository tools and toolchains.
+	// #nosec G204,G702 -- validateExecutable restricts the executable and CommandContext receives discrete arguments without a shell.
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = directory
 	cmd.Env = mergedEnvironment(environment)
@@ -1774,7 +1798,7 @@ func capture(
 	if err := validateExecutable(executable); err != nil {
 		return "", err
 	}
-	// #nosec G204 -- validateExecutable restricts execution to approved repository tools and toolchains.
+	// #nosec G204,G702 -- validateExecutable restricts the executable and CommandContext receives discrete arguments without a shell.
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = directory
 	cmd.Env = os.Environ()

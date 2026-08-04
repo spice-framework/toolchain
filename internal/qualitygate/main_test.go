@@ -250,6 +250,54 @@ func TestRequiresGoLandUsesRelevantInputs(t *testing.T) {
 	}
 }
 
+func TestGoLandAffectedUsesExplicitCIBeforeCommit(t *testing.T) {
+	t.Setenv("SPICE_VERIFY_BASE", "event-before")
+	originalCapture := captureExternal
+	var calls [][]string
+	captureExternal = func(
+		_ context.Context,
+		_ string,
+		executable string,
+		arguments ...string,
+	) (string, error) {
+		calls = append(calls, append([]string{executable}, arguments...))
+		switch {
+		case slices.Equal(arguments, []string{
+			"rev-parse",
+			"--verify",
+			"--end-of-options",
+			"event-before^{commit}",
+		}):
+			return "0123456789abcdef\n", nil
+		case slices.Equal(arguments, []string{
+			"diff",
+			"--name-only",
+			"0123456789abcdef",
+			"HEAD",
+			"--",
+		}):
+			return "editors/goland/src/main/java/Plugin.java\n", nil
+		case slices.Equal(arguments, []string{
+			"ls-files",
+			"--others",
+			"--exclude-standard",
+		}):
+			return "", nil
+		default:
+			return "", errors.New("unexpected command")
+		}
+	}
+	t.Cleanup(func() { captureExternal = originalCapture })
+
+	affected, err := goLandAffected(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("goLandAffected() error = %v; calls=%v", err, calls)
+	}
+	if !affected {
+		t.Fatalf("goLandAffected() = false; calls=%v", calls)
+	}
+}
+
 func TestRepositoryAndFilesystemHelpers(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
