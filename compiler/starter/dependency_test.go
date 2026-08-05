@@ -7,9 +7,9 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
+	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
-	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
 func TestCatalogValidatesExactReviewedModuleVersions(t *testing.T) {

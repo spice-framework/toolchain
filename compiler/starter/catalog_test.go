@@ -12,6 +12,7 @@ import (
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/builtin"
 	"github.com/StevenBuglione/spice/annotation/sdk"
+	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
 	"github.com/StevenBuglione/spice/compiler/application"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/generate"
@@ -20,7 +21,6 @@ import (
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	"github.com/StevenBuglione/spice/internal/testannotation"
-	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
 const (

@@ -13,16 +13,16 @@ import (
 
 	"github.com/StevenBuglione/spice/annotation"
 	"github.com/StevenBuglione/spice/annotation/sdk"
+	startersdk "github.com/StevenBuglione/spice/annotation/sdk/starter"
 	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
-	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
 // Catalog is an immutable, deterministic set of compatible starter manifests
 // and their compiler contributions.
 type Catalog struct {
-	manifests            []publicstarter.Manifest
+	manifests            []startersdk.Manifest
 	definitions          []annotation.Definition
 	bootstrapDefinitions []compilerbootstrap.Definition
 	entryPoints          map[string][]compilerbootstrap.EntryPoint
@@ -36,8 +36,8 @@ type dependencyContract struct {
 }
 
 // New validates manifests against the current Spice API and Go runtime.
-func New(manifests ...publicstarter.Manifest) (Catalog, error) {
-	return NewWithCompatibility(publicstarter.APIVersion, runtime.Version(), manifests...)
+func New(manifests ...startersdk.Manifest) (Catalog, error) {
+	return NewWithCompatibility(startersdk.APIVersion, runtime.Version(), manifests...)
 }
 
 // NewWithCompatibility validates, normalizes, and indexes an explicitly
@@ -46,13 +46,13 @@ func New(manifests ...publicstarter.Manifest) (Catalog, error) {
 func NewWithCompatibility(
 	spiceAPI string,
 	goVersion string,
-	manifests ...publicstarter.Manifest,
+	manifests ...startersdk.Manifest,
 ) (Catalog, error) {
 	if len(manifests) == 0 {
 		return Catalog{}, fmt.Errorf("starter catalog requires at least one manifest")
 	}
 
-	normalized := append([]publicstarter.Manifest(nil), manifests...)
+	normalized := append([]startersdk.Manifest(nil), manifests...)
 	sort.SliceStable(normalized, func(i, j int) bool {
 		return normalized[i].Spec().ID < normalized[j].Spec().ID
 	})
@@ -147,7 +147,7 @@ func NewWithCompatibility(
 }
 
 func registerEntryPoints(
-	spec publicstarter.Spec,
+	spec startersdk.Spec,
 	sources map[string]string,
 	packages map[string]struct{},
 ) error {
@@ -169,7 +169,7 @@ func registerEntryPoints(
 }
 
 func registerDependencyContracts(
-	spec publicstarter.Spec,
+	spec startersdk.Spec,
 	contracts map[string]dependencyContract,
 ) error {
 	for _, dependency := range spec.Dependencies {
@@ -212,8 +212,8 @@ func (catalog Catalog) Registry(base annotation.Registry) (annotation.Registry, 
 }
 
 // Manifests returns compatible manifests in stable identity order.
-func (catalog Catalog) Manifests() []publicstarter.Manifest {
-	return append([]publicstarter.Manifest(nil), catalog.manifests...)
+func (catalog Catalog) Manifests() []startersdk.Manifest {
+	return append([]startersdk.Manifest(nil), catalog.manifests...)
 }
 
 // BootstrapDefinitions returns fresh feature definitions suitable for
@@ -291,13 +291,13 @@ func applicationAnnotations(
 }
 
 func selectedEntryPoints(
-	spec publicstarter.Spec,
+	spec startersdk.Spec,
 	annotations map[string]struct{},
-) []publicstarter.EntryPoint {
-	if spec.Activation.Mode == publicstarter.ActivationExplicitConstructor {
-		return append([]publicstarter.EntryPoint(nil), spec.Activation.EntryPoints...)
+) []startersdk.EntryPoint {
+	if spec.Activation.Mode == startersdk.ActivationExplicitConstructor {
+		return append([]startersdk.EntryPoint(nil), spec.Activation.EntryPoints...)
 	}
-	selected := make(map[string]publicstarter.EntryPoint)
+	selected := make(map[string]startersdk.EntryPoint)
 	for _, feature := range spec.ApplicationFeatures {
 		if _, enabled := annotations[feature.Annotation]; !enabled {
 			continue
@@ -306,7 +306,7 @@ func selectedEntryPoints(
 			selected[entryPoint.Package+"\x00"+entryPoint.Symbol] = entryPoint
 		}
 	}
-	result := make([]publicstarter.EntryPoint, 0, len(selected))
+	result := make([]startersdk.EntryPoint, 0, len(selected))
 	for _, entryPoint := range selected {
 		result = append(result, entryPoint)
 	}
@@ -320,8 +320,8 @@ func selectedEntryPoints(
 }
 
 func bootstrapDefinition(
-	spec publicstarter.Spec,
-	feature publicstarter.FeatureSpec,
+	spec startersdk.Spec,
+	feature startersdk.FeatureSpec,
 	entryPoints []compilerbootstrap.EntryPoint,
 ) compilerbootstrap.Definition {
 	options := make([]compilerbootstrap.OptionDefinition, len(feature.Options))
@@ -352,7 +352,7 @@ func bootstrapDefinition(
 	}
 }
 
-func bootstrapEntryPoints(values []publicstarter.EntryPoint) []compilerbootstrap.EntryPoint {
+func bootstrapEntryPoints(values []startersdk.EntryPoint) []compilerbootstrap.EntryPoint {
 	result := make([]compilerbootstrap.EntryPoint, len(values))
 	for index, value := range values {
 		result[index] = compilerbootstrap.EntryPoint{

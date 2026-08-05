@@ -1264,7 +1264,7 @@ func fuzz(ctx context.Context, root string) error {
 		{"./mail/mailtest", "FuzzSnapshotMIME"},
 		{"./messaging", "FuzzNewMessage"},
 		{"./session", "FuzzManagerLoad"},
-		{"./starter", "FuzzParseManifest"},
+		{"./annotation/sdk/starter", "FuzzParseManifest"},
 		{"./view", "FuzzRendererEscaping"},
 	}
 	for _, target := range targets {

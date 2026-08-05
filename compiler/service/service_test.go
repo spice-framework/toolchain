@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/annotation/sdk"
+	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
 	"github.com/StevenBuglione/spice/compiler/generate"
 	"github.com/StevenBuglione/spice/compiler/load"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
-	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
 func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {

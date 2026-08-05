@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/StevenBuglione/spice/annotation"
+	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
 	"github.com/StevenBuglione/spice/compiler/application"
 	"github.com/StevenBuglione/spice/compiler/load"
 	"github.com/StevenBuglione/spice/compiler/provider"
 	"github.com/StevenBuglione/spice/compiler/resolve"
 	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
 	"github.com/StevenBuglione/spice/internal/testannotation"
-	publicstarter "github.com/StevenBuglione/spice/starter"
 )
 
 func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {
