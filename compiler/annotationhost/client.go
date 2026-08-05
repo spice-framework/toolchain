@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -46,6 +47,7 @@ type Client struct {
 	stdout      *bufio.Reader
 	stderr      *boundedBuffer
 	wait        chan error
+	waitOnce    sync.Once
 	containment processContainment
 
 	mu                 sync.Mutex
@@ -143,10 +145,6 @@ func Start(ctx context.Context, config Config) (*Client, error) {
 		containment: containment,
 		handlers:    make(map[string]protocol.Handler),
 	}
-	go func() {
-		client.wait <- command.Wait()
-		close(client.wait)
-	}()
 	startCtx, cancelStart := context.WithTimeout(ctx, config.StartTimeout)
 	err = client.initialize(startCtx)
 	cancelStart()
@@ -420,9 +418,10 @@ func (client *Client) finish(ctx context.Context) error {
 	if client.closed {
 		return nil
 	}
-	closeErr := client.stdin.Close()
+	closeErr := ignoreClosedPipe(client.stdin.Close())
+	wait := client.waitForExitLocked()
 	select {
-	case waitErr := <-client.wait:
+	case waitErr := <-wait:
 		client.closed = true
 		client.cancel()
 		releaseErr := client.containment.release()
@@ -454,8 +453,8 @@ func (client *Client) abortLocked() error {
 	client.closed = true
 	terminateErr := client.containment.terminate()
 	client.cancel()
-	closeErr := client.stdin.Close()
-	waitErr := <-client.wait
+	closeErr := ignoreClosedPipe(client.stdin.Close())
+	waitErr := <-client.waitForExitLocked()
 	if waitErr != nil &&
 		!strings.Contains(waitErr.Error(), "signal: killed") &&
 		!strings.Contains(waitErr.Error(), "process already finished") {
@@ -467,6 +466,23 @@ func (client *Client) abortLocked() error {
 		))
 	}
 	return errors.Join(terminateErr, closeErr)
+}
+
+func (client *Client) waitForExitLocked() <-chan error {
+	client.waitOnce.Do(func() {
+		go func() {
+			client.wait <- client.command.Wait()
+			close(client.wait)
+		}()
+	})
+	return client.wait
+}
+
+func ignoreClosedPipe(err error) error {
+	if errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
+		return nil
+	}
+	return err
 }
 
 func defaultConfig(config Config) Config {

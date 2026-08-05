@@ -67,6 +67,9 @@ func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 	if err := client.Close(closeCtx); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
+	if err := client.Close(closeCtx); err != nil {
+		t.Fatalf("Close(second) error = %v", err)
+	}
 }
 
 func TestValidateDescriptorPackagesRejectsMissingDuplicateAndForeign(

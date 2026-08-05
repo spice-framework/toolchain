@@ -614,8 +614,9 @@ func requiresGoLand(paths []string) bool {
 		"vendor/",
 	}
 	for _, name := range paths {
+		name = strings.ReplaceAll(strings.TrimSpace(name), "\\", "/")
 		name = strings.TrimPrefix(
-			filepath.ToSlash(strings.TrimSpace(name)),
+			filepath.ToSlash(name),
 			"./",
 		)
 		if strings.HasPrefix(name, "compiler/") &&

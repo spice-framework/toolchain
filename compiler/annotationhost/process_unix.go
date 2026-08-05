@@ -3,6 +3,7 @@
 package annotationhost
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -25,6 +26,9 @@ func (containment *processContainment) terminate() error {
 	}
 	err := syscall.Kill(-containment.pid, syscall.SIGKILL)
 	containment.pid = 0
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
 	return err
 }
 

@@ -319,7 +319,8 @@ func pathBelongsToKnownModule(
 func normalizePaths(paths []string) []string {
 	result := make([]string, 0, len(paths))
 	for _, name := range paths {
-		name = filepath.ToSlash(filepath.Clean(strings.TrimSpace(name)))
+		name = strings.ReplaceAll(strings.TrimSpace(name), "\\", "/")
+		name = path.Clean(name)
 		name = strings.TrimPrefix(name, "./")
 		if name == "" || name == "." {
 			continue
