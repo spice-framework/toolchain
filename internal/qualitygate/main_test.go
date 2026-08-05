@@ -20,12 +20,6 @@ func TestVerifyOrchestration(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.26.0\n")
 	writeTestFile(t, root, "tools/go.mod", "module "+modulePath+"/tools\n\ngo 1.26.0\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/petclinic/go.mod",
-		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
-	)
 	writeTestFile(t, root, "main.go", "package main\n")
 	writeTestFile(
 		t,
@@ -42,12 +36,6 @@ func TestVerifyOrchestration(t *testing.T) {
 		`{"schema":"spice.api-maturity/v1","module":"`+modulePath+`","classifications":[{"prefix":"sample","maturity":"preview-stable","reason":"test fixture"}]}`,
 	)
 	writeTestFile(t, root, "vendor/modules.txt", "# test vendor tree\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/petclinic/vendor/modules.txt",
-		"# test Petclinic vendor tree\n",
-	)
 	writeBenchmarkFixture(t, root)
 
 	originalRun, originalCapture := runExternal, captureExternal
@@ -786,20 +774,8 @@ func TestQualityGateFailurePaths(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.26.0\n")
 	writeTestFile(t, root, "tools/go.mod", "module "+modulePath+"/tools\n\ngo 1.26.0\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/petclinic/go.mod",
-		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
-	)
 	writeTestFile(t, root, "main.go", "package main\n")
 	writeTestFile(t, root, "vendor/modules.txt", "# committed\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/petclinic/vendor/modules.txt",
-		"# committed\n",
-	)
 
 	originalRun, originalCapture := runExternal, captureExternal
 	t.Cleanup(func() {
@@ -883,13 +859,6 @@ func TestQualityGateFailurePaths(t *testing.T) {
 func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "sample.go", "package sample\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/petclinic/go.mod",
-		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
-	)
-
 	originalRun, originalCapture := runExternal, captureExternal
 	t.Cleanup(func() {
 		runExternal = originalRun
@@ -932,17 +901,16 @@ func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 	if err := testAndCoverage(context.Background(), root); err != nil {
 		t.Fatalf("testAndCoverage() error = %v", err)
 	}
-	if len(calls) != 4 {
-		t.Fatalf("testAndCoverage() made %d commands, want 4: %v", len(calls), calls)
+	if len(calls) != 2 {
+		t.Fatalf("testAndCoverage() made %d commands, want 2: %v", len(calls), calls)
 	}
 	if !slices.ContainsFunc(calls[0], func(argument string) bool {
 		return strings.HasPrefix(argument, "-coverprofile=")
 	}) {
 		t.Fatalf("first test command does not emit coverage: %v", calls[0])
 	}
-	if !slices.Contains(calls[1], "-race") ||
-		!slices.Contains(calls[3], "-race") {
-		t.Fatalf("race commands = %v, %v", calls[1], calls[3])
+	if !slices.Contains(calls[1], "-race") {
+		t.Fatalf("race command = %v", calls[1])
 	}
 }
 

@@ -35,7 +35,6 @@ const (
 	fuzzSmokeExecutions         = "100x"
 	modulePath                  = "github.com/spice-framework/spice"
 	legacyModulePath            = "github.com/" + "StevenBuglione/spice"
-	petclinicModulePath         = modulePath + "/examples/petclinic"
 )
 
 var output = log.New(os.Stdout, "", 0)
@@ -133,53 +132,12 @@ func check(ctx context.Context, root string) error {
 	})
 }
 
-func petclinicRoot(root string) string {
-	return filepath.Join(root, "examples", "petclinic")
-}
-
-type productModule struct {
-	root string
-	path string
-}
-
-func productModules(root string) []productModule {
-	return []productModule{
-		{root: root, path: modulePath},
-		{root: petclinicRoot(root), path: petclinicModulePath},
-	}
-}
-
 func vet(ctx context.Context, root string) error {
-	for _, module := range productModules(root) {
-		if err := runExternal(
-			ctx,
-			module.root,
-			nil,
-			"go",
-			"vet",
-			"./...",
-		); err != nil {
-			return err
-		}
-	}
-	return nil
+	return runExternal(ctx, root, nil, "go", "vet", "./...")
 }
 
 func compileTests(ctx context.Context, root string) error {
-	for _, module := range productModules(root) {
-		if err := runExternal(
-			ctx,
-			module.root,
-			nil,
-			"go",
-			"test",
-			"-run=^$",
-			"./...",
-		); err != nil {
-			return err
-		}
-	}
-	return nil
+	return runExternal(ctx, root, nil, "go", "test", "-run=^$", "./...")
 }
 
 func verify(ctx context.Context, root string, release bool) error {
@@ -808,10 +766,7 @@ func fileBatches(ctx context.Context, root, executable, option string, files []s
 }
 
 func checkModuleTidy(ctx context.Context, root string) error {
-	directories := []string{filepath.Join(root, "tools")}
-	for _, module := range productModules(root) {
-		directories = append(directories, module.root)
-	}
+	directories := []string{filepath.Join(root, "tools"), root}
 	for _, directory := range directories {
 		stdout, err := captureExternal(ctx, directory, "go", "mod", "tidy", "-diff")
 		if err != nil {
@@ -825,12 +780,7 @@ func checkModuleTidy(ctx context.Context, root string) error {
 }
 
 func checkVendor(ctx context.Context, root string) error {
-	for _, module := range productModules(root) {
-		if err := checkModuleVendor(ctx, module.root); err != nil {
-			return err
-		}
-	}
-	return nil
+	return checkModuleVendor(ctx, root)
 }
 
 func checkModuleVendor(ctx context.Context, moduleRoot string) error {
@@ -918,35 +868,28 @@ func lint(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	for _, module := range productModules(root) {
-		if commandErr := runExternal(
-			ctx,
-			module.root,
-			nil,
-			golangci,
-			"run",
-			"--timeout=10m",
-		); commandErr != nil {
-			return commandErr
-		}
+	if commandErr := runExternal(
+		ctx,
+		root,
+		nil,
+		golangci,
+		"run",
+		"--timeout=10m",
+	); commandErr != nil {
+		return commandErr
 	}
 	nilaway, err := toolPath(ctx, root, "nilaway")
 	if err != nil {
 		return err
 	}
-	for _, module := range productModules(root) {
-		if commandErr := runExternal(
-			ctx,
-			module.root,
-			nil,
-			nilaway,
-			"-include-pkgs="+module.path,
-			"./...",
-		); commandErr != nil {
-			return commandErr
-		}
-	}
-	return nil
+	return runExternal(
+		ctx,
+		root,
+		nil,
+		nilaway,
+		"-include-pkgs="+modulePath,
+		"./...",
+	)
 }
 
 func security(ctx context.Context, root string) error {
@@ -954,44 +897,26 @@ func security(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	for _, module := range productModules(root) {
-		if commandErr := runExternal(
-			ctx,
-			module.root,
-			nil,
-			gosec,
-			"-quiet",
-			"-exclude-generated",
-			"./...",
-		); commandErr != nil {
-			return commandErr
-		}
+	if commandErr := runExternal(
+		ctx,
+		root,
+		nil,
+		gosec,
+		"-quiet",
+		"-exclude-generated",
+		"./...",
+	); commandErr != nil {
+		return commandErr
 	}
 	govulncheck, err := toolPath(ctx, root, "govulncheck")
 	if err != nil {
 		return err
 	}
-	for _, module := range productModules(root) {
-		if commandErr := runExternal(
-			ctx,
-			module.root,
-			nil,
-			govulncheck,
-			"./...",
-		); commandErr != nil {
-			return commandErr
-		}
-	}
-	return nil
+	return runExternal(ctx, root, nil, govulncheck, "./...")
 }
 
 func test(ctx context.Context, root string) error {
-	for _, module := range productModules(root) {
-		if err := runTestCommands(ctx, module.root, nil); err != nil {
-			return err
-		}
-	}
-	return nil
+	return runTestCommands(ctx, root, nil)
 }
 
 func testAndCoverage(
@@ -1019,15 +944,6 @@ func testAndCoverage(
 		[]string{"-covermode=atomic", "-coverprofile=" + profile},
 	); err != nil {
 		return err
-	}
-	for _, module := range productModules(root)[1:] {
-		if err := runTestCommands(
-			ctx,
-			module.root,
-			[]string{"-covermode=atomic"},
-		); err != nil {
-			return err
-		}
 	}
 	return enforceCoverageProfile(
 		ctx,
@@ -1132,19 +1048,6 @@ func coverage(
 		profileName,
 	); err != nil {
 		return err
-	}
-	for _, module := range productModules(root)[1:] {
-		if err := runExternal(
-			ctx,
-			module.root,
-			nil,
-			"go",
-			"test",
-			"-covermode=atomic",
-			"./...",
-		); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -1272,21 +1175,16 @@ func totalCoverage(report string) (float64, error) {
 }
 
 func offline(ctx context.Context, root string) error {
-	for _, module := range productModules(root) {
-		if err := runExternal(
-			ctx,
-			module.root,
-			map[string]string{"GOPROXY": "off"},
-			"go",
-			"test",
-			"-mod=vendor",
-			"-count=1",
-			"./...",
-		); err != nil {
-			return err
-		}
-	}
-	return nil
+	return runExternal(
+		ctx,
+		root,
+		map[string]string{"GOPROXY": "off"},
+		"go",
+		"test",
+		"-mod=vendor",
+		"-count=1",
+		"./...",
+	)
 }
 
 func smoke(ctx context.Context, root string) error {
@@ -1303,9 +1201,6 @@ func smoke(ctx context.Context, root string) error {
 		if err := runExternal(ctx, root, nil, args[0], args[1:]...); err != nil {
 			return err
 		}
-	}
-	if err := petclinicSmoke(ctx, root); err != nil {
-		return err
 	}
 	return thirdPartyAnnotationSmoke(ctx, root)
 }
@@ -1622,97 +1517,6 @@ func dogfoodRuntime(ctx context.Context, root string) error {
 		if err := runExternal(
 			ctx,
 			root,
-			offline,
-			executable,
-			arguments...,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func petclinicSmoke(ctx context.Context, root string) error {
-	temp, err := os.MkdirTemp("", "spice-petclinic-*")
-	if err != nil {
-		return fmt.Errorf("create Petclinic smoke directory: %w", err)
-	}
-	defer removeTemporaryDirectory(temp)
-	executable := filepath.Join(temp, "spice")
-	if runtime.GOOS == "windows" {
-		executable += ".exe"
-	}
-	offline := map[string]string{
-		"GOPROXY": "off",
-		"SPICE_PETCLINIC_POSTGRES_URL": "postgres://petclinic:petclinic@" +
-			"127.0.0.1:1/petclinic?sslmode=disable",
-		"SPICE_PETCLINIC_POSTGRES_ALLOW_INSECURE": "true",
-		"SPICE_PETCLINIC_MYSQL_URL": "mysql://petclinic:petclinic@" +
-			"127.0.0.1:1/petclinic?tls=disable",
-		"SPICE_PETCLINIC_MYSQL_ALLOW_INSECURE": "true",
-	}
-	if err := runExternal(
-		ctx,
-		root,
-		offline,
-		"go",
-		"build",
-		"-trimpath",
-		"-o",
-		executable,
-		"./cmd/spice",
-	); err != nil {
-		return err
-	}
-	directory := petclinicRoot(root)
-	memoryPatterns := []string{"."}
-	postgresPatterns := []string{"./cmd/postgres"}
-	mysqlPatterns := []string{"./cmd/mysql"}
-	commands := [][]string{
-		append([]string{"verify"}, memoryPatterns...),
-		append(
-			[]string{"generate", "--check", "--target", "Petclinic"},
-			memoryPatterns...,
-		),
-		append(
-			append(
-				[]string{"run", "--target", "Petclinic"},
-				memoryPatterns...,
-			),
-			"--",
-			"-check",
-		),
-		append([]string{"verify"}, postgresPatterns...),
-		append(
-			[]string{"generate", "--check", "--target", "Postgres"},
-			postgresPatterns...,
-		),
-		append(
-			append(
-				[]string{"run", "--target", "Postgres"},
-				postgresPatterns...,
-			),
-			"--",
-			"-check",
-		),
-		append([]string{"verify"}, mysqlPatterns...),
-		append(
-			[]string{"generate", "--check", "--target", "Mysql"},
-			mysqlPatterns...,
-		),
-		append(
-			append(
-				[]string{"run", "--target", "Mysql"},
-				mysqlPatterns...,
-			),
-			"--",
-			"-check",
-		),
-	}
-	for _, arguments := range commands {
-		if err := runExternal(
-			ctx,
-			directory,
 			offline,
 			executable,
 			arguments...,

@@ -13,7 +13,7 @@ import (
 func TestSelectBuildsCrossModuleReverseClosure(t *testing.T) {
 	t.Parallel()
 	root := filepath.Clean(t.TempDir())
-	petclinic := filepath.Join(root, "examples", "petclinic")
+	consumer := filepath.Join(root, "examples", "consumer")
 	graph := Graph{Packages: []Package{
 		testPackage(root, "example.com/spice/config", "config"),
 		{
@@ -23,9 +23,9 @@ func TestSelectBuildsCrossModuleReverseClosure(t *testing.T) {
 			Imports:    []string{"example.com/spice/config"},
 		},
 		{
-			ImportPath: "example.com/spice/examples/petclinic/app",
-			Directory:  filepath.Join(petclinic, "app"),
-			ModuleRoot: petclinic,
+			ImportPath: "example.com/spice/examples/consumer/app",
+			Directory:  filepath.Join(consumer, "app"),
+			ModuleRoot: consumer,
 			Imports:    []string{"example.com/spice/config"},
 		},
 	}}
@@ -47,7 +47,7 @@ func TestSelectBuildsCrossModuleReverseClosure(t *testing.T) {
 		"example.com/spice/config",
 	})
 	assertPackages(t, plan.Modules[1].Packages, []string{
-		"example.com/spice/examples/petclinic/app",
+		"example.com/spice/examples/consumer/app",
 	})
 }
 
@@ -90,9 +90,9 @@ func TestSelectWidensGlobalAndAmbiguousInputs(t *testing.T) {
 	}}
 	for name, changed := range map[string][]string{
 		"module":        {"go.mod"},
-		"nested module": {"examples/petclinic/go.mod"},
+		"nested module": {"examples/consumer/go.mod"},
 		"vendor":        {"vendor/modules.txt"},
-		"nested vendor": {"examples/petclinic/vendor/dependency/source.go"},
+		"nested vendor": {"examples/consumer/vendor/dependency/source.go"},
 		"newpackage":    {"newpkg/new.go"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -185,8 +185,8 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 	writeFile(
 		t,
 		root,
-		"examples/petclinic/go.mod",
-		"module example.com/spice/examples/petclinic\n\n"+
+		"examples/consumer/go.mod",
+		"module example.com/spice/examples/consumer\n\n"+
 			"go 1.26.0\n\n"+
 			"require example.com/spice v0.0.0\n\n"+
 			"replace example.com/spice => ../..\n",
@@ -194,7 +194,7 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 	writeFile(
 		t,
 		root,
-		"examples/petclinic/app/app.go",
+		"examples/consumer/app/app.go",
 		"package app\n\nimport \"example.com/spice/alpha\"\n\nvar Value = alpha.Value\n",
 	)
 	runGit(t, root, "init", "-q")
@@ -210,7 +210,10 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 		"package alpha\n\nconst Value = 2\n",
 	)
 
-	plan, err := Build(context.Background(), Config{RepositoryRoot: root})
+	plan, err := Build(context.Background(), Config{
+		RepositoryRoot: root,
+		ModuleRoots:    []string{filepath.Join(root, "examples", "consumer")},
+	})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -222,7 +225,7 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 		"example.com/spice/beta",
 	})
 	assertPackages(t, plan.Modules[1].Packages, []string{
-		"example.com/spice/examples/petclinic/app",
+		"example.com/spice/examples/consumer/app",
 	})
 }
 

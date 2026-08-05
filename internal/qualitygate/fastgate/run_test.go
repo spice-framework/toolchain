@@ -135,7 +135,7 @@ func TestCheckGeneratedTargetBoundaries(t *testing.T) {
 		},
 		{
 			name:     "nested module source unit",
-			path:     "examples/petclinic/internal/spicegen/app/spice_orders_gen.go",
+			path:     "testdata/annotationapp/internal/spicegen/app/spice_orders_gen.go",
 			content:  "package app\n",
 			manifest: true,
 			owned:    true,
@@ -414,13 +414,9 @@ func repositoryRoot(t *testing.T) string {
 }
 
 func generatedTestModule(root, file string) (string, string) {
-	for _, prefix := range []string{
-		"examples/petclinic/",
-		"testdata/annotationapp/",
-	} {
-		if relative, found := strings.CutPrefix(file, prefix); found {
-			return filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(prefix, "/"))), relative
-		}
+	const prefix = "testdata/annotationapp/"
+	if relative, found := strings.CutPrefix(file, prefix); found {
+		return filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(prefix, "/"))), relative
 	}
 	return root, file
 }

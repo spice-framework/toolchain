@@ -451,10 +451,7 @@ func loadGraphs(
 	configured []string,
 	changed []string,
 ) (Graph, error) {
-	roots := []string{
-		repositoryRoot,
-		filepath.Join(repositoryRoot, "examples", "petclinic"),
-	}
+	roots := []string{repositoryRoot}
 	roots = append(roots, configured...)
 	for _, name := range changed {
 		if ignoredWorkspacePath(name) {
