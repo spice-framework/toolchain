@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 const (
 	annotationReferencePath = "docs/annotations.md"
-	annotationReferenceURL  = "https://github.com/StevenBuglione/spice/blob/main/docs/annotations.md#built-in-definitions-and-targets"
+	annotationReferenceURL  = "https://github.com/spice-framework/spice/blob/main/docs/annotations.md#built-in-definitions-and-targets"
 	maxReferenceBytes       = 2 << 20
 )
 

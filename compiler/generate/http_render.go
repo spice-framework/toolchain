@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	compilercache "github.com/StevenBuglione/spice/compiler/cache"
-	"github.com/StevenBuglione/spice/compiler/controller"
-	compilertransaction "github.com/StevenBuglione/spice/compiler/transaction"
+	compilercache "github.com/spice-framework/spice/compiler/cache"
+	"github.com/spice-framework/spice/compiler/controller"
+	compilertransaction "github.com/spice-framework/spice/compiler/transaction"
 )
 
 type cacheRuntime struct {

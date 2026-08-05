@@ -30,7 +30,7 @@ func TestDiscoverFindsModuleGraphDescriptorsOffline(t *testing.T) {
 	for _, identity := range []string{
 		"example.com/spice-annotation-fixture/annotation/policy.Policy",
 		"example.com/spice-annotation-fixture/annotation/wiring.Factory",
-		"github.com/StevenBuglione/spice/annotation/core.Application",
+		"github.com/spice-framework/spice/annotation/core.Application",
 	} {
 		candidate, exists := found[identity]
 		if !exists ||
@@ -73,7 +73,7 @@ example.com/plugin/annotation/web
 		"vendor/example.com/plugin/annotation/web/controller.go",
 		`package web
 
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 
 // Controller documents the vendored descriptor.
 func Controller() sdk.Definition {
@@ -133,7 +133,7 @@ go 1.26.0
 		"annotation/mail/send.go",
 		`package mail
 
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 
 func Send() sdk.Definition {
 	return sdk.Definition{
@@ -164,7 +164,7 @@ func Incomplete() sdk.Definition {
 		"nested/annotation/hidden.go",
 		`package annotation
 
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 
 func Hidden() sdk.Definition {
 	return sdk.Definition{

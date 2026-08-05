@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package annotationimport resolves explicit file-scoped annotation imports.
 //
@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
+	"github.com/spice-framework/spice/annotation"
 )
 
 // Diagnostic is one deterministic import binding failure.

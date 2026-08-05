@@ -8,18 +8,18 @@ package spicegen
 import (
 	fmt "fmt"
 
-	autoconfigure "github.com/StevenBuglione/spice/internal/autoconfigure"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	autoconfigure "github.com/spice-framework/spice/internal/autoconfigure"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
-// ConstructAnnotationsHandler_d2f38e5c performs the direct construction selected for bean "annotationsHandler".
-// Spice source identity: spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler.
-func ConstructAnnotationsHandler_d2f38e5c(dependency0 *cli.Runtime) (cli.Handler, spicelifecycle.Cleanup, error) {
+// ConstructAnnotationsHandler_394a50b0 performs the direct construction selected for bean "annotationsHandler".
+// Spice source identity: spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler.
+func ConstructAnnotationsHandler_394a50b0(dependency0 *cli.Runtime) (cli.Handler, spicelifecycle.Cleanup, error) {
 	value, err := autoconfigure.DefaultAnnotationsHandler(dependency0)
 	if err != nil {
 		var zero cli.Handler
-		return zero, nil, fmt.Errorf("construct bean annotationsHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler): %w", err)
+		return zero, nil, fmt.Errorf("construct bean annotationsHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler): %w", err)
 	}
 	return value, nil, nil
 }

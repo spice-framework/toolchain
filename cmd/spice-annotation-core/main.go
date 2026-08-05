@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
-	"github.com/StevenBuglione/spice/internal/annotationcore"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/internal/annotationcore"
 )
 
 func main() {

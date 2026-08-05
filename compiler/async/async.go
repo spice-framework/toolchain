@@ -8,12 +8,12 @@ import (
 	"go/types"
 	"sort"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/compiler/signature"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/compiler/signature"
 )
 
 const (

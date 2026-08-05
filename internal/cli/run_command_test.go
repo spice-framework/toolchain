@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestRunCommandBuildsAndExecutesPreferredApplication(t *testing.T) {
@@ -359,8 +359,8 @@ func packageMainRunModule(t *testing.T) string {
 	}
 	return writeModule(t, map[string]string{
 		"go.mod": "module example.com/runfixture\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": `package main
 

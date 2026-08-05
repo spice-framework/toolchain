@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	codegen "github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
+	codegen "github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 const (

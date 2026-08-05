@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestBuildCompilesTypedTopicsAndListeners(t *testing.T) {
@@ -25,7 +25,7 @@ func TestBuildCompilesTypedTopicsAndListeners(t *testing.T) {
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/event"
+	"github.com/spice-framework/spice/event"
 )
 
 type OrderPlaced struct {
@@ -75,7 +75,7 @@ func OrderEvents(audit *Audit, inventory *Inventory) event.Publisher[OrderPlaced
 		topic.ProviderID == "" ||
 		topic.Module != "example.com/events/orders" ||
 		topic.PublisherTypeID !=
-			"github.com/StevenBuglione/spice/event.Publisher[example.com/events/orders.OrderPlaced]" ||
+			"github.com/spice-framework/spice/event.Publisher[example.com/events/orders.OrderPlaced]" ||
 		topic.PayloadTypeID != "example.com/events/orders.OrderPlaced" {
 		t.Fatalf("Topic = %#v", topic)
 	}
@@ -178,7 +178,7 @@ func (Listener) Handle(context.Context, Event) error { return nil }
 			name: "topic target",
 			source: `package app
 
-import "github.com/StevenBuglione/spice/event"
+import "github.com/spice-framework/spice/event"
 
 type Event struct{}
 type Marker struct{}
@@ -192,7 +192,7 @@ func (Marker) Topic() event.Publisher[Event] { return nil }
 			name: "topic marker",
 			source: `package app
 
-import "github.com/StevenBuglione/spice/event"
+import "github.com/spice-framework/spice/event"
 
 type Event struct{}
 
@@ -214,7 +214,7 @@ func Topic() string { return "" }
 			name: "pointer payload",
 			source: `package app
 
-import "github.com/StevenBuglione/spice/event"
+import "github.com/spice-framework/spice/event"
 
 type Event struct{}
 
@@ -227,7 +227,7 @@ func Topic() event.Publisher[*Event] { return nil }
 			name: "missing topic listener",
 			source: `package app
 
-import "github.com/StevenBuglione/spice/event"
+import "github.com/spice-framework/spice/event"
 
 type Event struct{}
 type Listener struct{}
@@ -295,7 +295,7 @@ func TestBuildDiagnosticsAreDeterministic(t *testing.T) {
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/event"
+	"github.com/spice-framework/spice/event"
 )
 
 type Event struct{}
@@ -356,7 +356,7 @@ package orders
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/event"
+	"github.com/spice-framework/spice/event"
 )
 
 type ContextAlias = context.Context
@@ -448,8 +448,8 @@ func writeEventModule(t *testing.T, files map[string]string) string {
 	repository := repositoryRoot(t)
 	allFiles := map[string]string{
 		"go.mod": "module example.com/events\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n",
 	}
 	maps.Copy(allFiles, files)

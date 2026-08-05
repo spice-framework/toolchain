@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/compiler/application"
-	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
-	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/compiler/application"
+	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
+	"github.com/spice-framework/spice/compiler/provider"
 )
 
 type modelHashBootstrapOption struct {

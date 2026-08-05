@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package modulith discovers and validates Spice application-module metadata
 // from the shared typed compiler program.
@@ -14,10 +14,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 const dependencySeparator = "::"

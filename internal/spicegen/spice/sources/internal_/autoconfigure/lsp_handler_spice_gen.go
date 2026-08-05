@@ -8,18 +8,18 @@ package spicegen
 import (
 	fmt "fmt"
 
-	autoconfigure "github.com/StevenBuglione/spice/internal/autoconfigure"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	autoconfigure "github.com/spice-framework/spice/internal/autoconfigure"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
-// ConstructLspHandler_0af17292 performs the direct construction selected for bean "lspHandler".
-// Spice source identity: spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultLSPHandler.
-func ConstructLspHandler_0af17292(dependency0 *cli.Runtime) (cli.Handler, spicelifecycle.Cleanup, error) {
+// ConstructLspHandler_61c2e0f8 performs the direct construction selected for bean "lspHandler".
+// Spice source identity: spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultLSPHandler.
+func ConstructLspHandler_61c2e0f8(dependency0 *cli.Runtime) (cli.Handler, spicelifecycle.Cleanup, error) {
 	value, err := autoconfigure.DefaultLSPHandler(dependency0)
 	if err != nil {
 		var zero cli.Handler
-		return zero, nil, fmt.Errorf("construct bean lspHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultLSPHandler): %w", err)
+		return zero, nil, fmt.Errorf("construct bean lspHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultLSPHandler): %w", err)
 	}
 	return value, nil, nil
 }

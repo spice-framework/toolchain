@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/mod/modfile"
 
-	"github.com/StevenBuglione/spice/compiler/targetid"
+	"github.com/spice-framework/spice/compiler/targetid"
 )
 
 const generatedApplicationAnalysisFilename = "zz_spice_analysis.go"

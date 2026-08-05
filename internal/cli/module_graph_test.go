@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerstarter "github.com/spice-framework/spice/compiler/starter"
 )
 
 func TestDecodeModuleVersions(t *testing.T) {

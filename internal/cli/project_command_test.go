@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestScaffoldCommandCreatesApplicationWithoutResolvingModules(t *testing.T) {
@@ -40,12 +40,12 @@ func TestAddCommandPreviewsThenAppliesExactDependency(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	goMod := "module example.com/add-app\n\ngo 1.26.0\n\n" +
-		"replace github.com/StevenBuglione/spice => " +
+		"replace github.com/spice-framework/spice => " +
 		filepath.ToSlash(cliRepositoryRoot(t)) + "\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	selector := "github.com/StevenBuglione/spice/bean@v0.0.0"
+	selector := "github.com/spice-framework/spice/bean@v0.0.0"
 	options := load.Options{Dir: root, Env: append(os.Environ(), "GOPROXY=off")}
 	var previewOutput, previewError strings.Builder
 	code := addCommand(
@@ -85,7 +85,7 @@ func TestAddCommandPreviewsThenAppliesExactDependency(t *testing.T) {
 	}
 	if current := readCLIFile(t, filepath.Join(root, "go.mod")); !strings.Contains(
 		current,
-		"github.com/StevenBuglione/spice v0.0.0",
+		"github.com/spice-framework/spice v0.0.0",
 	) {
 		t.Fatalf("applied go.mod:\n%s", current)
 	}

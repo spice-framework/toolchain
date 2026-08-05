@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	codegen "github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/internal/genfs"
+	codegen "github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/internal/genfs"
 )
 
 const applicationProcessStopTimeout = 15 * time.Second

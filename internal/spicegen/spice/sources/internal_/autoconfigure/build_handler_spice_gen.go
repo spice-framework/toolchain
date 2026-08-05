@@ -8,18 +8,18 @@ package spicegen
 import (
 	fmt "fmt"
 
-	autoconfigure "github.com/StevenBuglione/spice/internal/autoconfigure"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	autoconfigure "github.com/spice-framework/spice/internal/autoconfigure"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
-// ConstructBuildHandler_ea352864 performs the direct construction selected for bean "buildHandler".
-// Spice source identity: spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBuildHandler.
-func ConstructBuildHandler_ea352864(dependency0 *cli.Runtime) (cli.Handler, spicelifecycle.Cleanup, error) {
+// ConstructBuildHandler_65b5ff52 performs the direct construction selected for bean "buildHandler".
+// Spice source identity: spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBuildHandler.
+func ConstructBuildHandler_65b5ff52(dependency0 *cli.Runtime) (cli.Handler, spicelifecycle.Cleanup, error) {
 	value, err := autoconfigure.DefaultBuildHandler(dependency0)
 	if err != nil {
 		var zero cli.Handler
-		return zero, nil, fmt.Errorf("construct bean buildHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBuildHandler): %w", err)
+		return zero, nil, fmt.Errorf("construct bean buildHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBuildHandler): %w", err)
 	}
 	return value, nil, nil
 }

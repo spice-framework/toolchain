@@ -6,8 +6,8 @@ import (
 	"go/types"
 	"slices"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 // NamespaceReferences discovers every exported descriptor function from

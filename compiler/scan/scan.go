@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
+	"github.com/spice-framework/spice/annotation"
+	annotationparser "github.com/spice-framework/spice/compiler/parser"
 )
 
 // Target identifies the Go declaration associated with an annotation.

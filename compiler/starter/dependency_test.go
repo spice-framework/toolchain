@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	publicstarter "github.com/spice-framework/spice/annotation/sdk/starter"
+	"github.com/spice-framework/spice/compiler/resolve"
+	compilerstarter "github.com/spice-framework/spice/compiler/starter"
 )
 
 func TestCatalogValidatesExactReviewedModuleVersions(t *testing.T) {

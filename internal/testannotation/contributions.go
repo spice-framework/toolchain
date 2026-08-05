@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 // AttachOfficial adds typed capability markers for official annotations in a

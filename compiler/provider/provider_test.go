@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestConstructibleStereotypeBindsExplicitInterfaces(t *testing.T) {
@@ -944,14 +944,14 @@ func catalogSummary(catalog Catalog) string {
 
 func TestCatalogAcceptsCleanupSignatures(t *testing.T) {
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"go.mod": "module github.com/spice-framework/spice\n\ngo 1.23.0\n",
 		"lifecycle/cleanup.go": `package lifecycle
 import "context"
 type Cleanup func(context.Context) error
 `,
 		"app/providers.go": `package app
 
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 
 type Config struct{}
 type PlainValue struct{}
@@ -1030,21 +1030,21 @@ func CleanupAsOutputProvider() life.Cleanup {
 	if cleanupOutput == nil {
 		t.Fatal("missing CleanupAsOutputProvider")
 	}
-	if cleanupOutput.OutputTypeID != "github.com/StevenBuglione/spice/lifecycle.Cleanup" || cleanupOutput.ReturnsCleanup {
+	if cleanupOutput.OutputTypeID != "github.com/spice-framework/spice/lifecycle.Cleanup" || cleanupOutput.ReturnsCleanup {
 		t.Fatalf("cleanup primary output = %#v", cleanupOutput)
 	}
 	cleanupProvider := providerByName(providers, "CleanupProvider")
 	if cleanupProvider == nil {
 		t.Fatal("missing CleanupProvider")
 	}
-	if len(cleanupProvider.Dependencies) != 1 || cleanupProvider.Dependencies[0].TypeID != "github.com/StevenBuglione/spice/app.Config" {
+	if len(cleanupProvider.Dependencies) != 1 || cleanupProvider.Dependencies[0].TypeID != "github.com/spice-framework/spice/app.Config" {
 		t.Fatalf("cleanup provider dependencies = %#v", cleanupProvider.Dependencies)
 	}
 }
 
 func TestCatalogRejectsInvalidCleanupSignatures(t *testing.T) {
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"go.mod": "module github.com/spice-framework/spice\n\ngo 1.23.0\n",
 		"lifecycle/cleanup.go": `package lifecycle
 import "context"
 type Cleanup func(context.Context) error
@@ -1053,7 +1053,7 @@ type Cleanup func(context.Context) error
 
 import (
 	"context"
-	life "github.com/StevenBuglione/spice/lifecycle"
+	life "github.com/spice-framework/spice/lifecycle"
 )
 
 type Value struct{}
@@ -1104,19 +1104,19 @@ func CleanupInFinalPosition() (Value, int, life.Cleanup) { panic("must not execu
 
 func TestCatalogCleanupMetadataDeterministic(t *testing.T) {
 	files := map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"go.mod": "module github.com/spice-framework/spice\n\ngo 1.23.0\n",
 		"lifecycle/cleanup.go": `package lifecycle
 import "context"
 type Cleanup func(context.Context) error
 `,
 		"app/z.go": `package app
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 type Z struct{}
 // @Bean
 func ZProvider() (Z, life.Cleanup) { panic("must not execute") }
 `,
 		"app/a.go": `package app
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 type A struct{}
 // @Bean
 func AProvider() (A, life.Cleanup, error) { panic("must not execute") }

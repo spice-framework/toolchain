@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	codegen "github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
-	"github.com/StevenBuglione/spice/internal/devloop"
-	"github.com/StevenBuglione/spice/internal/genfs"
+	codegen "github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/spice/internal/devloop"
+	"github.com/spice-framework/spice/internal/genfs"
 )
 
 const maximumDevelopmentOutput = 256 << 10

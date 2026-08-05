@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/application"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/application"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
@@ -981,7 +981,7 @@ func TestRenderGeneratesTransactionalHTTPBoundaries(t *testing.T) {
 	source := string(generatedGoContent(t, first))
 	for _, expected := range []string{
 		`sql "database/sql"`,
-		`spicedata "github.com/StevenBuglione/spice/data"`,
+		`spicedata "github.com/spice-framework/spice/data"`,
 		".Within(invocationContext, spicedata.Definition{",
 		`Module:    "example.com/transactional/api"`,
 		"Isolation: sql.LevelSerializable",
@@ -1164,7 +1164,7 @@ func Configured(*components.Server) {}
 	}
 	source := string(generatedGoContent(t, plan))
 	for _, expected := range []string{
-		`spiceconfig "github.com/StevenBuglione/spice/config"`,
+		`spiceconfig "github.com/spice-framework/spice/config"`,
 		"type ApplicationOptions struct",
 		"func ConfigurationSchema() (spiceconfig.Schema, error)",
 		"func NewApplicationWithOptions(",
@@ -1243,7 +1243,7 @@ import (
 	"net/http"
 	"time"
 
-	spiceweb "github.com/StevenBuglione/spice/web"
+	spiceweb "github.com/spice-framework/spice/web"
 )
 
 type UserID string
@@ -1437,8 +1437,8 @@ func Web(*api.API) {}
 	source := string(generatedGoContent(t, plan))
 	for _, expected := range []string{
 		`http "net/http"`,
-		`spicesecurity "github.com/StevenBuglione/spice/security"`,
-		`spiceweb "github.com/StevenBuglione/spice/web"`,
+		`spicesecurity "github.com/spice-framework/spice/security"`,
+		`spiceweb "github.com/spice-framework/spice/web"`,
 		"type ApplicationOptions struct",
 		"func (application *Application) Handler() http.Handler",
 		`spiceweb.RegisterObserved(routeMux, "GET /users/{id}"`,
@@ -1491,9 +1491,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/StevenBuglione/spice/validation"
-	"github.com/StevenBuglione/spice/view"
-	"github.com/StevenBuglione/spice/web"
+	"github.com/spice-framework/spice/validation"
+	"github.com/spice-framework/spice/view"
+	"github.com/spice-framework/spice/web"
 )
 
 //go:embed templates/*.html
@@ -1586,7 +1586,7 @@ func Forms(*api.Owners) {}
 		FileRoleTargetHTTP,
 	))
 	for _, expected := range []string{
-		`spiceview "github.com/StevenBuglione/spice/view"`,
+		`spiceview "github.com/spice-framework/spice/view"`,
 		"bindingResult := spiceweb.BindingResult{}",
 		"spiceweb.DecodeForm(",
 		"spiceweb.RejectUnknownForm(",
@@ -2007,8 +2007,8 @@ import (
 	"testing"
 
 	"example.com/shop/components"
-	"github.com/StevenBuglione/spice/bean"
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/bean"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 func TestGeneratedApplication(t *testing.T) {
@@ -2144,7 +2144,7 @@ import (
 
 	"example.com/configured/components"
 	"example.com/configured/shared"
-	"github.com/StevenBuglione/spice/config"
+	"github.com/spice-framework/spice/config"
 )
 
 func TestGeneratedConfigurationApplication(t *testing.T) {
@@ -2249,7 +2249,7 @@ import (
 	"time"
 
 	"example.com/scheduled/jobs"
-	spiceschedule "github.com/StevenBuglione/spice/schedule"
+	spiceschedule "github.com/spice-framework/spice/schedule"
 )
 
 func TestGeneratedFixedDelayScheduler(t *testing.T) {
@@ -2356,8 +2356,8 @@ import (
 
 	"example.com/asynchronous/contract"
 	"example.com/asynchronous/tasks"
-	spiceasync "github.com/StevenBuglione/spice/async"
-	spiceconfig "github.com/StevenBuglione/spice/config"
+	spiceasync "github.com/spice-framework/spice/async"
+	spiceconfig "github.com/spice-framework/spice/config"
 )
 
 func TestGeneratedBoundedTypedAsyncSubmission(t *testing.T) {
@@ -2698,9 +2698,9 @@ import (
 	"testing"
 
 	"example.com/web/api"
-	spiceintercept "github.com/StevenBuglione/spice/intercept"
-	spicesecurity "github.com/StevenBuglione/spice/security"
-	spiceweb "github.com/StevenBuglione/spice/web"
+	spiceintercept "github.com/spice-framework/spice/intercept"
+	spicesecurity "github.com/spice-framework/spice/security"
+	spiceweb "github.com/spice-framework/spice/web"
 )
 
 type recordingHTTPObserver struct {
@@ -3041,8 +3041,8 @@ import (
 	"time"
 
 	"example.com/command/components"
-	spiceconfig "github.com/StevenBuglione/spice/config"
-	spicemanagement "github.com/StevenBuglione/spice/management"
+	spiceconfig "github.com/spice-framework/spice/config"
+	spicemanagement "github.com/spice-framework/spice/management"
 )
 
 func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
@@ -3447,7 +3447,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 var ErrServer = errors.New("server construction failed")
@@ -3530,7 +3530,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 type Worker struct{}
@@ -3739,8 +3739,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/StevenBuglione/spice/data"
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/data"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 var ErrRollback = errors.New("rollback requested")
@@ -3926,7 +3926,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 type Settings struct {
@@ -4109,8 +4109,8 @@ func writeModule(tb testing.TB, modulePath string, files map[string]string) stri
 	root := tb.TempDir()
 	repository := repositoryRoot(tb)
 	goMod := "module " + modulePath + "\n\ngo 1.26.0\n\n" +
-		"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-		"replace github.com/StevenBuglione/spice => " + filepath.ToSlash(repository) + "\n"
+		"require github.com/spice-framework/spice v0.0.0\n\n" +
+		"replace github.com/spice-framework/spice => " + filepath.ToSlash(repository) + "\n"
 	writeTestFile(tb, root, "go.mod", goMod)
 	paths := make([]string, 0, len(files))
 	for file := range files {

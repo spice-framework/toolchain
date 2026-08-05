@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
 )
 
 func TestRunVerifyEnforcesModuleImportBoundaries(t *testing.T) {

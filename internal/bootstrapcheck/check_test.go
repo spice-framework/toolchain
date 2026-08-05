@@ -41,7 +41,7 @@ func TestRunExercisesDeterministicRecoveryWorkflow(t *testing.T) {
 						spiceModule + "/internal/spicegen/spice/sources/internal_/autoconfigure\n",
 				), nil
 			}
-			return []byte("github.com/StevenBuglione/spice/internal/cli\n"), nil
+			return []byte("github.com/spice-framework/spice/internal/cli\n"), nil
 		}
 		if name == "go" {
 			return nil, nil

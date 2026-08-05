@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	codegen "github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/internal/devloop"
+	codegen "github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/internal/devloop"
 )
 
 func (pipeline *developmentPipeline) reusableGeneration(

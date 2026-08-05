@@ -8,16 +8,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/application"
-	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
-	"github.com/StevenBuglione/spice/compiler/descriptor"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/application"
+	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
+	"github.com/spice-framework/spice/compiler/descriptor"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 func summarizeAnnotations(

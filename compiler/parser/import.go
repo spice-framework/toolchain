@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/StevenBuglione/spice/annotation"
+	"github.com/spice-framework/spice/annotation"
 )
 
 const (

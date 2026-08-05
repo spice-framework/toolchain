@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package parser parses Spice annotations embedded in valid Go comments.
 //
@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/StevenBuglione/spice/annotation"
+	"github.com/spice-framework/spice/annotation"
 )
 
 // ParseComment parses a single comment line. The bool reports whether the line

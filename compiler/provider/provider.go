@@ -15,17 +15,17 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
-	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
+	annotationparser "github.com/spice-framework/spice/compiler/parser"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 const (
 	acceptedSignature  = "func(dependencies...) T, func(dependencies...) (T, error), func(dependencies...) (T, lifecycle.Cleanup), or func(dependencies...) (T, lifecycle.Cleanup, error)"
-	beanPackagePath    = "github.com/StevenBuglione/spice/bean"
-	cleanupPackagePath = "github.com/StevenBuglione/spice/lifecycle"
+	beanPackagePath    = "github.com/spice-framework/spice/bean"
+	cleanupPackagePath = "github.com/spice-framework/spice/lifecycle"
 	cleanupTypeName    = "Cleanup"
 )
 

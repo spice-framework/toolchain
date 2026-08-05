@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 func TestCompileBuildsNormalizedImmutableBuiltinMetadata(t *testing.T) {

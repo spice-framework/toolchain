@@ -11,7 +11,7 @@ func TestRunVerifyAcceptsLifecycleHooks(t *testing.T) {
 		"app/app.go": `package app
 import (
     "context"
-    life "github.com/StevenBuglione/spice/lifecycle"
+    life "github.com/spice-framework/spice/lifecycle"
 )
 type Server struct{}
 type Worker struct{}

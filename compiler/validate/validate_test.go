@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/builtin"
-	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
-	"github.com/StevenBuglione/spice/compiler/scan"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/builtin"
+	annotationparser "github.com/spice-framework/spice/compiler/parser"
+	"github.com/spice-framework/spice/compiler/scan"
 )
 
 func TestOccurrencesAcceptsValidBuiltInsAndArguments(t *testing.T) {

@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/compiler/controller"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/compiler/controller"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestCatalogCompilesCacheableReadRoutes(t *testing.T) {
@@ -344,8 +344,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/StevenBuglione/spice/data"
-	"github.com/StevenBuglione/spice/web"
+	"github.com/spice-framework/spice/data"
+	"github.com/spice-framework/spice/web"
 )
 
 var (
@@ -390,8 +390,8 @@ func loadCatalogs(
 	t.Helper()
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/cacheapplication\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repositoryRoot(t)) + "\n",
 		"api/api.go": source,
 	})

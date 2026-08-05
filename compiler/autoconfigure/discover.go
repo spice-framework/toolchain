@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 const packageName = "autoconfigure"

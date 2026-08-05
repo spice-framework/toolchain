@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/provider"
 )
 
 func providerVariableNames(providers []provider.Provider) []string {

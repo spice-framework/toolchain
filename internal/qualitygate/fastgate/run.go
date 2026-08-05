@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StevenBuglione/spice/internal/qualitygate/affected"
+	"github.com/spice-framework/spice/internal/qualitygate/affected"
 )
 
 const (

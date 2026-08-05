@@ -1,8 +1,8 @@
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package cli implements the Spice command-line interface.
 //
-// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::annotationhost", "github.com/StevenBuglione/spice/compiler::annotationimport", "github.com/StevenBuglione/spice/compiler::annotationinstall", "github.com/StevenBuglione/spice/compiler::application", "github.com/StevenBuglione/spice/compiler::descriptor", "github.com/StevenBuglione/spice/compiler::diagnostic", "github.com/StevenBuglione/spice/compiler::diagnostic-adapt", "github.com/StevenBuglione/spice/compiler::generate", "github.com/StevenBuglione/spice/compiler::load", "github.com/StevenBuglione/spice/compiler::modulith", "github.com/StevenBuglione/spice/compiler::resolve", "github.com/StevenBuglione/spice/compiler::service", "github.com/StevenBuglione/spice/compiler::starter", "github.com/StevenBuglione/spice/internal/devloop", "github.com/StevenBuglione/spice/internal/genfs", "github.com/StevenBuglione/spice/internal/lsp", "github.com/StevenBuglione/spice/internal/scaffold"])
+// @Module(allowedDependencies=["github.com/spice-framework/spice/compiler::annotationhost", "github.com/spice-framework/spice/compiler::annotationimport", "github.com/spice-framework/spice/compiler::annotationinstall", "github.com/spice-framework/spice/compiler::application", "github.com/spice-framework/spice/compiler::descriptor", "github.com/spice-framework/spice/compiler::diagnostic", "github.com/spice-framework/spice/compiler::diagnostic-adapt", "github.com/spice-framework/spice/compiler::generate", "github.com/spice-framework/spice/compiler::load", "github.com/spice-framework/spice/compiler::modulith", "github.com/spice-framework/spice/compiler::resolve", "github.com/spice-framework/spice/compiler::service", "github.com/spice-framework/spice/compiler::starter", "github.com/spice-framework/spice/internal/devloop", "github.com/spice-framework/spice/internal/genfs", "github.com/spice-framework/spice/internal/lsp", "github.com/spice-framework/spice/internal/scaffold"])
 package cli
 
 import (
@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 
-	codegen "github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	codegen "github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 // Version is the version reported by the Spice CLI. Release builds replace the

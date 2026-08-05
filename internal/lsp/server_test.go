@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 // The end-to-end client starts the complete typed compiler pipeline. Under the
@@ -133,7 +133,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 			len(item.AdditionalEdits) == 1 &&
 			strings.Contains(
 				item.AdditionalEdits[0].NewText,
-				`// @import { Enable } from "github.com/StevenBuglione/spice/annotation/management"`,
+				`// @import { Enable } from "github.com/spice-framework/spice/annotation/management"`,
 			) {
 			foundManagement = true
 		}
@@ -340,7 +340,7 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	legacyImport := strings.Replace(
 		validWithConfigurationKey,
 		"// @Application",
-		`// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+		`// @spice.import { Application } from "github.com/spice-framework/spice/annotation/core"
 
 // @Application`,
 		1,
@@ -587,7 +587,7 @@ func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
 	hover := client.waitForID("4")
 	for _, expected := range []string{
 		"Application marks",
-		"go tool github.com/StevenBuglione/spice/cmd/spice-annotation-core",
+		"go tool github.com/spice-framework/spice/cmd/spice-annotation-core",
 		"annotation/core.ApplicationHandler",
 		"spice.annotation/v1alpha2",
 		"local",
@@ -1097,13 +1097,13 @@ func main() {
 	os.Exit(spiceapp.Main(os.Args[1:]))
 }
 
-// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
 `
 	files := map[string]string{
 		"go.mod": "module example.com/lspfixture\n\ngo 1.26.0\n\n" +
-			"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n" +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": original,
 		"internal/spicegen/lspfixture/spice_command_gen.go": `//go:build !spice_generate
@@ -1116,7 +1116,7 @@ func Main([]string) int { return 0 }
 // @Module
 package orders
 
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 `,
 		"orders/config.go": `package orders
 
@@ -1125,7 +1125,7 @@ type Settings struct {
 	Limit int ` + "`spice:\"limit,default=100\"`" + `
 }
 
-// @import { Configuration } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Configuration } from "github.com/spice-framework/spice/annotation/core"
 `,
 	}
 	for relative, content := range files {
@@ -1155,7 +1155,7 @@ import (
 	spiceapp "example.com/importedlsp/internal/spicegen/importedlsp"
 )
 
-// @import { Application as App } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application as App } from "github.com/spice-framework/spice/annotation/core"
 
 // @App
 func main() {
@@ -1163,9 +1163,9 @@ func main() {
 }
 `
 	mod := "module example.com/importedlsp\n\ngo 1.26.0\n\n" +
-		"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n" +
-		"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-		"replace github.com/StevenBuglione/spice => " +
+		"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n" +
+		"require github.com/spice-framework/spice v0.0.0\n\n" +
+		"replace github.com/spice-framework/spice => " +
 		filepath.ToSlash(repository) + "\n"
 	for relative, content := range map[string]string{
 		"go.mod":  mod,

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/internal/devloop"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/internal/devloop"
 )
 
 func TestParseDevArguments(t *testing.T) {

@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package diagnostic defines the shared immutable diagnostic contract consumed
 // by Spice command, development, and editor integrations.

@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestGraphResolvesOnlyExplicitInterfaceBindings(t *testing.T) {
@@ -600,14 +600,14 @@ func providerNames(items []provider.Provider) []string {
 
 func TestGraphIgnoresProviderCleanupMetadata(t *testing.T) {
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+		"go.mod": "module github.com/spice-framework/spice\n\ngo 1.23.0\n",
 		"lifecycle/cleanup.go": `package lifecycle
 import "context"
 type Cleanup func(context.Context) error
 `,
 		"app/providers.go": `package app
 
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 
 type Config struct{}
 type Store struct{}
@@ -640,7 +640,7 @@ func ServiceProvider(Store) (Service, life.Cleanup, error) { panic("must not exe
 		if item.ReturnsCleanup {
 			cleanupProviders++
 		}
-		if item.OutputTypeID == "github.com/StevenBuglione/spice/lifecycle.Cleanup" {
+		if item.OutputTypeID == "github.com/spice-framework/spice/lifecycle.Cleanup" {
 			t.Fatalf("cleanup metadata became a graph output node: %#v", item)
 		}
 	}
@@ -648,7 +648,7 @@ func ServiceProvider(Store) (Service, life.Cleanup, error) { panic("must not exe
 		t.Fatalf("cleanup provider metadata count = %d, want 2", cleanupProviders)
 	}
 	for _, edge := range result.Edges() {
-		if edge.RequiredTypeID == "github.com/StevenBuglione/spice/lifecycle.Cleanup" {
+		if edge.RequiredTypeID == "github.com/spice-framework/spice/lifecycle.Cleanup" {
 			t.Fatalf("cleanup metadata became a graph dependency edge: %#v", edge)
 		}
 	}

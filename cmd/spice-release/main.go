@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	spicerelease "github.com/StevenBuglione/spice/internal/release"
+	spicerelease "github.com/spice-framework/spice/internal/release"
 )
 
 func main() {

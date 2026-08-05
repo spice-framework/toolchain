@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StevenBuglione/spice/compiler/annotationinstall"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/internal/scaffold"
+	"github.com/spice-framework/spice/compiler/annotationinstall"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/internal/scaffold"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 )

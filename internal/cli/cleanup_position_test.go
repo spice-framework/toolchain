@@ -31,7 +31,7 @@ func TestRunVerifyTreatsFirstCleanupResultAsProvidedOutput(t *testing.T) {
 				"go.mod": "module example.com/cleanup\n\ngo 1.26.0\n",
 				"app/providers.go": `package app
 
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 
 ` + test.declarations + `
 

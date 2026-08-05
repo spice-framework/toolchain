@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 func TestCompletionProducesValidGoCommentsAndTypedValues(t *testing.T) {
@@ -593,7 +593,7 @@ func TestGoInterfaceCompletionUsesRealCompilerAuthoringMetadata(
 	}
 	source := []byte(`package main
 
-// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Implements, Service } from "github.com/spice-framework/spice/annotation/core"
 
 // @Service
 // @Implements(payments.Pro)
@@ -602,10 +602,10 @@ type Stripe struct{}
 	files := map[string]string{
 		"go.mod": "module example.com/interfacecompletion\n\n" +
 			"go 1.26.0\n\n" +
-			"tool github.com/StevenBuglione/spice/cmd/" +
+			"tool github.com/spice-framework/spice/cmd/" +
 			"spice-annotation-core\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": string(source),
 		"payments/payments.go": `package payments

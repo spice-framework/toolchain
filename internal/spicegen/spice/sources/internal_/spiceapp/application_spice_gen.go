@@ -5,5 +5,5 @@
 
 package spicegen
 
-// ApplicationTargetSpice_b77b32e5 identifies the generated target selected by spice:symbol:v1|function|49:github.com/StevenBuglione/spice/internal/spiceapp|0:|5:Spice.
-const ApplicationTargetSpice_b77b32e5 = "spice"
+// ApplicationTargetSpice_bb7121fb identifies the generated target selected by spice:symbol:v1|function|50:github.com/spice-framework/spice/internal/spiceapp|0:|5:Spice.
+const ApplicationTargetSpice_bb7121fb = "spice"

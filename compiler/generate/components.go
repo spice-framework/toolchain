@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/provider"
 )
 
 type generatedComponentField struct {

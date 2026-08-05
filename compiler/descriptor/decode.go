@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package descriptor statically decodes annotation SDK descriptor functions
 // from the compiler's single typed Go program.
@@ -17,12 +17,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
-const sdkPackagePath = "github.com/StevenBuglione/spice/annotation/sdk"
+const sdkPackagePath = "github.com/spice-framework/spice/annotation/sdk"
 
 // Descriptor is one validated public annotation definition and its real Go
 // source location.

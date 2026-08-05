@@ -7,9 +7,9 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
 	"golang.org/x/tools/go/packages"
 )
 

@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package starter adapts explicitly supplied public starter manifests into
 // compiler annotation and application-bootstrap metadata.
@@ -11,12 +11,12 @@ import (
 	"runtime"
 	"sort"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	startersdk "github.com/StevenBuglione/spice/annotation/sdk/starter"
-	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	startersdk "github.com/spice-framework/spice/annotation/sdk/starter"
+	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 // Catalog is an immutable, deterministic set of compatible starter manifests

@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package application assembles the immutable Spice application model from
 // one resolved, type-aware compiler program.
@@ -15,22 +15,22 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	compilerasync "github.com/StevenBuglione/spice/compiler/async"
-	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
-	compilercache "github.com/StevenBuglione/spice/compiler/cache"
-	"github.com/StevenBuglione/spice/compiler/configuration"
-	"github.com/StevenBuglione/spice/compiler/controller"
-	compilerevent "github.com/StevenBuglione/spice/compiler/event"
-	"github.com/StevenBuglione/spice/compiler/graph"
-	"github.com/StevenBuglione/spice/compiler/lifecycle"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
-	compilertransaction "github.com/StevenBuglione/spice/compiler/transaction"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	compilerasync "github.com/spice-framework/spice/compiler/async"
+	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
+	compilercache "github.com/spice-framework/spice/compiler/cache"
+	"github.com/spice-framework/spice/compiler/configuration"
+	"github.com/spice-framework/spice/compiler/controller"
+	compilerevent "github.com/spice-framework/spice/compiler/event"
+	"github.com/spice-framework/spice/compiler/graph"
+	"github.com/spice-framework/spice/compiler/lifecycle"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	compilerschedule "github.com/spice-framework/spice/compiler/schedule"
+	compilertransaction "github.com/spice-framework/spice/compiler/transaction"
 )
 
 const (
@@ -785,7 +785,7 @@ func validHTTPObserverType(value types.Type) bool {
 		) ||
 		!exactNamedType(
 			signature.Params().At(1).Type(),
-			"github.com/StevenBuglione/spice/web",
+			"github.com/spice-framework/spice/web",
 			"RouteMetadata",
 		) ||
 		!exactNamedType(
@@ -804,7 +804,7 @@ func validHTTPObserverType(value types.Type) bool {
 		finish.Results().Len() == 0 &&
 		exactNamedType(
 			finish.Params().At(0).Type(),
-			"github.com/StevenBuglione/spice/web",
+			"github.com/spice-framework/spice/web",
 			"HTTPResult",
 		)
 }

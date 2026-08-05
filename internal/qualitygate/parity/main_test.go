@@ -294,7 +294,7 @@ func TestIsSpiceRepositoryRoot(t *testing.T) {
 		t,
 		root,
 		"go.mod",
-		"module github.com/StevenBuglione/spice\n",
+		"module github.com/spice-framework/spice\n",
 	)
 	found, err = isSpiceRepositoryRoot(root)
 	if err != nil || !found {

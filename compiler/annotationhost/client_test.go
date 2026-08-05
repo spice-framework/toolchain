@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
 )
 
 const fixtureTool = "example.com/annotationfixture/cmd/annotations"
@@ -221,9 +221,9 @@ go 1.26.0
 
 tool example.com/annotationfixture/cmd/annotations
 
-require github.com/StevenBuglione/spice v0.0.0
+require github.com/spice-framework/spice v0.0.0
 
-replace github.com/StevenBuglione/spice => `+filepath.ToSlash(repository)+"\n")
+replace github.com/spice-framework/spice => `+filepath.ToSlash(repository)+"\n")
 	writeToolFile(t, root, "cmd/annotations/main.go", toolFixtureSource)
 	return root
 }
@@ -248,8 +248,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
 )
 
 func main() {

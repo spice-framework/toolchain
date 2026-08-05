@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 const (
 	descriptorFunction = "SpiceAutoConfiguration"
-	starterPackagePath = "github.com/StevenBuglione/spice/starter"
+	starterPackagePath = "github.com/spice-framework/spice/starter"
 )
 
 // Bean is one statically decoded library-owned default factory.

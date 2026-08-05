@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 type textDocumentItem struct {

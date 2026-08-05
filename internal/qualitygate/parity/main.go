@@ -301,7 +301,7 @@ func isSpiceRepositoryRoot(path string) (result bool, resultErr error) {
 	}
 	return bytes.Contains(
 		content,
-		[]byte("module github.com/StevenBuglione/spice"),
+		[]byte("module github.com/spice-framework/spice"),
 	), nil
 }
 

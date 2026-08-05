@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	spiceapp "github.com/StevenBuglione/spice/internal/spicegen/spice"
+	spiceapp "github.com/spice-framework/spice/internal/spicegen/spice"
 )
 
 func main() {

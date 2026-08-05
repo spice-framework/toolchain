@@ -9,14 +9,14 @@ import (
 	strings "strings"
 	time "time"
 
-	spicebean "github.com/StevenBuglione/spice/bean"
-	spiceconfig "github.com/StevenBuglione/spice/config"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spiceentrypoint "github.com/StevenBuglione/spice/internal/spicegen/spice/sources/internal_/spiceapp"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spicebean "github.com/spice-framework/spice/bean"
+	spiceconfig "github.com/spice-framework/spice/config"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spiceentrypoint "github.com/spice-framework/spice/internal/spicegen/spice/sources/internal_/spiceapp"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
-const TargetID = spiceentrypoint.ApplicationTargetSpice_b77b32e5
+const TargetID = spiceentrypoint.ApplicationTargetSpice_bb7121fb
 
 const (
 	ExitSuccess = 0

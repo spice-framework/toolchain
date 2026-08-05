@@ -47,7 +47,7 @@ func TestRenderGeneratesExecutableCacheableHTTPReads(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		`spicecache "github.com/StevenBuglione/spice/cache"`,
+		`spicecache "github.com/spice-framework/spice/cache"`,
 		`Key:         "spice.cache.products.by-id.capacity"`,
 		`Environment: "SPICE_CACHE_PRODUCTS_BY_ID_CAPACITY"`,
 		`Default:     "256"`,
@@ -254,7 +254,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 var state struct {
@@ -349,8 +349,8 @@ import (
 	"time"
 
 	"example.com/cachegenerated/api"
-	spicecache "github.com/StevenBuglione/spice/cache"
-	spiceconfig "github.com/StevenBuglione/spice/config"
+	spicecache "github.com/spice-framework/spice/cache"
+	spiceconfig "github.com/spice-framework/spice/config"
 )
 
 func TestGeneratedCacheableRead(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestPetclinicDevelopmentWorkflowKeepsLastKnownGoodAndRestarts(
@@ -170,8 +170,8 @@ func copyPetclinicDevelopmentModule(t *testing.T) string {
 		if name == "go.mod" {
 			content = []byte(strings.Replace(
 				string(content),
-				"replace github.com/StevenBuglione/spice => ../..",
-				"replace github.com/StevenBuglione/spice => "+
+				"replace github.com/spice-framework/spice => ../..",
+				"replace github.com/spice-framework/spice => "+
 					filepath.ToSlash(repository),
 				1,
 			))

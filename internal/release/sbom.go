@@ -115,13 +115,13 @@ func buildSBOM(
 		DataLicense: "CC0-1.0",
 		SPDXID:      "SPDXRef-DOCUMENT",
 		Name:        "Spice " + version,
-		DocumentNamespace: "https://github.com/StevenBuglione/spice/releases/" +
+		DocumentNamespace: "https://github.com/spice-framework/spice/releases/" +
 			version + "/spdx/" + hex.EncodeToString(namespaceHash[:]),
 		CreationInfo: spdxCreationInfo{
 			Created: epoch.UTC().Format(time.RFC3339),
 			Creators: []string{
 				"Organization: Spice Authors",
-				"Tool: github.com/StevenBuglione/spice/cmd/spice-release",
+				"Tool: github.com/spice-framework/spice/cmd/spice-release",
 			},
 		},
 		Packages:      packages,

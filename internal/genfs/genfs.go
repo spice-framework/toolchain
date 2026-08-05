@@ -1,8 +1,8 @@
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package genfs safely compares and applies deterministic generation plans.
 //
-// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::generate"])
+// @Module(allowedDependencies=["github.com/spice-framework/spice/compiler::generate"])
 package genfs
 
 import (
@@ -24,7 +24,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/generate"
 )
 
 const (

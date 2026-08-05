@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/diagnostic"
 )
 
 func TestVerifyJSONSuccessAndValidationFailure(t *testing.T) {

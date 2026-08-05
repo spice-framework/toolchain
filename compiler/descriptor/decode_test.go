@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestDecodeStaticDescriptor(t *testing.T) {
@@ -18,7 +18,7 @@ func TestDecodeStaticDescriptor(t *testing.T) {
 
 import (
 	"context"
-	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk"
 )
 
 // Controller marks an HTTP controller and documents its generated behavior.
@@ -78,26 +78,26 @@ func TestDecodeAllOfficialDescriptors(t *testing.T) {
 		t.Fatalf("Abs(repository) error = %v", err)
 	}
 	references := []annotation.DefinitionReference{
-		{Package: "github.com/StevenBuglione/spice/annotation/async", Symbol: "Execute"},
-		{Package: "github.com/StevenBuglione/spice/annotation/cache", Symbol: "Cacheable"},
-		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Application"},
-		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Bean"},
-		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Configuration"},
-		{Package: "github.com/StevenBuglione/spice/annotation/core", Symbol: "Service"},
-		{Package: "github.com/StevenBuglione/spice/annotation/data", Symbol: "Transactional"},
-		{Package: "github.com/StevenBuglione/spice/annotation/event", Symbol: "Listener"},
-		{Package: "github.com/StevenBuglione/spice/annotation/event", Symbol: "Topic"},
-		{Package: "github.com/StevenBuglione/spice/annotation/lifecycle", Symbol: "OnStart"},
-		{Package: "github.com/StevenBuglione/spice/annotation/lifecycle", Symbol: "OnStop"},
-		{Package: "github.com/StevenBuglione/spice/annotation/management", Symbol: "Enable"},
-		{Package: "github.com/StevenBuglione/spice/annotation/modulith", Symbol: "Module"},
-		{Package: "github.com/StevenBuglione/spice/annotation/modulith", Symbol: "NamedInterface"},
-		{Package: "github.com/StevenBuglione/spice/annotation/observability", Symbol: "Logging"},
-		{Package: "github.com/StevenBuglione/spice/annotation/schedule", Symbol: "FixedDelay"},
-		{Package: "github.com/StevenBuglione/spice/annotation/security", Symbol: "Authorize"},
-		{Package: "github.com/StevenBuglione/spice/annotation/web", Symbol: "Controller"},
-		{Package: "github.com/StevenBuglione/spice/annotation/web", Symbol: "Get"},
-		{Package: "github.com/StevenBuglione/spice/annotation/web", Symbol: "Post"},
+		{Package: "github.com/spice-framework/spice/annotation/async", Symbol: "Execute"},
+		{Package: "github.com/spice-framework/spice/annotation/cache", Symbol: "Cacheable"},
+		{Package: "github.com/spice-framework/spice/annotation/core", Symbol: "Application"},
+		{Package: "github.com/spice-framework/spice/annotation/core", Symbol: "Bean"},
+		{Package: "github.com/spice-framework/spice/annotation/core", Symbol: "Configuration"},
+		{Package: "github.com/spice-framework/spice/annotation/core", Symbol: "Service"},
+		{Package: "github.com/spice-framework/spice/annotation/data", Symbol: "Transactional"},
+		{Package: "github.com/spice-framework/spice/annotation/event", Symbol: "Listener"},
+		{Package: "github.com/spice-framework/spice/annotation/event", Symbol: "Topic"},
+		{Package: "github.com/spice-framework/spice/annotation/lifecycle", Symbol: "OnStart"},
+		{Package: "github.com/spice-framework/spice/annotation/lifecycle", Symbol: "OnStop"},
+		{Package: "github.com/spice-framework/spice/annotation/management", Symbol: "Enable"},
+		{Package: "github.com/spice-framework/spice/annotation/modulith", Symbol: "Module"},
+		{Package: "github.com/spice-framework/spice/annotation/modulith", Symbol: "NamedInterface"},
+		{Package: "github.com/spice-framework/spice/annotation/observability", Symbol: "Logging"},
+		{Package: "github.com/spice-framework/spice/annotation/schedule", Symbol: "FixedDelay"},
+		{Package: "github.com/spice-framework/spice/annotation/security", Symbol: "Authorize"},
+		{Package: "github.com/spice-framework/spice/annotation/web", Symbol: "Controller"},
+		{Package: "github.com/spice-framework/spice/annotation/web", Symbol: "Get"},
+		{Package: "github.com/spice-framework/spice/annotation/web", Symbol: "Post"},
 	}
 	packages := make([]string, 0, len(references))
 	for _, reference := range references {
@@ -125,7 +125,7 @@ func TestDecodeAllOfficialDescriptors(t *testing.T) {
 	for _, item := range descriptors {
 		if item.Documentation == "" ||
 			item.Definition.Implementation.Tool !=
-				"github.com/StevenBuglione/spice/cmd/spice-annotation-core" ||
+				"github.com/spice-framework/spice/cmd/spice-annotation-core" ||
 			item.Handler.Package != item.Package {
 			t.Fatalf("official descriptor = %+v", item)
 		}
@@ -142,7 +142,7 @@ func TestDecodeRejectsExecutableOrAmbiguousDescriptors(t *testing.T) {
 		{
 			name: "computed body",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 func summary() string { return "computed" }
 // Controller documents the descriptor.
 func Controller() sdk.Definition {
@@ -155,7 +155,7 @@ func Controller() sdk.Definition {
 		{
 			name: "local constant",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 const descriptorName = "Controller"
 // Controller documents the descriptor.
 func Controller() sdk.Definition {
@@ -168,7 +168,7 @@ func Controller() sdk.Definition {
 		{
 			name: "computed Boolean constant",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 const repeatable = true
 // Controller documents the descriptor.
 func Controller() sdk.Definition {
@@ -181,7 +181,7 @@ func Controller() sdk.Definition {
 		{
 			name: "control flow",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 // Controller documents the descriptor.
 func Controller() sdk.Definition {
 	if true { return sdk.Definition{} }
@@ -194,7 +194,7 @@ func Controller() sdk.Definition {
 		{
 			name: "wrong suffix",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 // Controller documents the descriptor.
 func Controller() sdk.Definition {
 	return sdk.Definition{Name: "web.Route"}
@@ -206,7 +206,7 @@ func Controller() sdk.Definition {
 		{
 			name: "multiple descriptors",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 // Controller documents the descriptor.
 func Controller() sdk.Definition { return sdk.Definition{} }
 // Get documents the descriptor.
@@ -218,7 +218,7 @@ func Get() sdk.Definition { return sdk.Definition{} }
 		{
 			name: "missing docs",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 func Controller() sdk.Definition { return sdk.Definition{} }
 `,
 			symbol:  "Controller",
@@ -227,7 +227,7 @@ func Controller() sdk.Definition { return sdk.Definition{} }
 		{
 			name: "wrong signature",
 			source: `package defs
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 // Controller documents the descriptor.
 func Controller(value string) sdk.Definition { return sdk.Definition{} }
 `,
@@ -273,7 +273,7 @@ func TestDecodeRejectsHandlerIndirectionAndSeparateFiles(t *testing.T) {
 	const descriptorSource = `package defs
 import (
 	"context"
-	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk"
 )
 var _ context.Context
 // Controller documents the annotation.
@@ -319,7 +319,7 @@ func Controller() sdk.Definition {
 				"defs/handler.go": `package defs
 import (
 	"context"
-	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk"
 )
 func ControllerHandler(
 	context.Context,
@@ -392,7 +392,7 @@ func validDescriptorSource(symbol, name string) string {
 	return `package defs
 import (
 	"context"
-	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk"
 )
 // ` + symbol + ` documents the annotation.
 func ` + symbol + `() sdk.Definition {
@@ -429,8 +429,8 @@ func loadDescriptorProgram(
 		t.Fatalf("repository root: %v", err)
 	}
 	module := "module example.com/plugin\n\ngo 1.26.0\n\n" +
-		"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-		"replace github.com/StevenBuglione/spice => " +
+		"require github.com/spice-framework/spice v0.0.0\n\n" +
+		"replace github.com/spice-framework/spice => " +
 		filepath.ToSlash(repositoryRoot) + "\n"
 	writeDescriptorFile(t, root, "go.mod", module)
 	writeDescriptorFile(t, root, "app/app.go", "package app\n")

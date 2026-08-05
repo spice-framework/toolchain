@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	diagnosticadapt "github.com/StevenBuglione/spice/compiler/diagnostic/adapt"
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	diagnosticadapt "github.com/spice-framework/spice/compiler/diagnostic/adapt"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 type diagnosticFormat string

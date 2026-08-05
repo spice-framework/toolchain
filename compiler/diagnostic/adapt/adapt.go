@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package adapt converts existing compiler-stage diagnostics into the shared
 // Spice diagnostic contract without changing stage-local metadata models.
@@ -9,15 +9,15 @@ package adapt
 import (
 	"go/token"
 
-	"github.com/StevenBuglione/spice/compiler/application"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	"github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/compiler/starter"
-	"github.com/StevenBuglione/spice/compiler/validate"
+	"github.com/spice-framework/spice/compiler/application"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/compiler/starter"
+	"github.com/spice-framework/spice/compiler/validate"
 )
 
 // Application converts immutable application-model diagnostics.

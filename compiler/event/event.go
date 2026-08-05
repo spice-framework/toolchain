@@ -9,13 +9,13 @@ import (
 	"go/types"
 	"sort"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/compiler/signature"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/compiler/signature"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 	// ListenerAnnotation identifies a provider-owned event subscriber method.
 	ListenerAnnotation = "event.Listener"
 
-	eventPackagePath = "github.com/StevenBuglione/spice/event"
+	eventPackagePath = "github.com/spice-framework/spice/event"
 )
 
 var errorType = types.Universe.Lookup("error").Type()

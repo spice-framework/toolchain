@@ -8,15 +8,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
-	"github.com/StevenBuglione/spice/compiler/annotationhost"
-	"github.com/StevenBuglione/spice/compiler/descriptor"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/compiler/annotationhost"
+	"github.com/spice-framework/spice/compiler/descriptor"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 func (service *Service) applyToolContributions(

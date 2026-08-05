@@ -4,7 +4,7 @@ import (
 	"go/token"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
+	"github.com/spice-framework/spice/annotation"
 )
 
 func TestParseComment(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestAnnotationsExcludeAuxiliaryPackageComments(t *testing.T) {

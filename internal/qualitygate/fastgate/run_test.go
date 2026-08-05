@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/internal/qualitygate/affected"
+	"github.com/spice-framework/spice/internal/qualitygate/affected"
 )
 
 func TestRunNoAffectedWork(t *testing.T) {

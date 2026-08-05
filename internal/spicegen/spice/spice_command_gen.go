@@ -15,8 +15,8 @@ import (
 	syscall "syscall"
 	time "time"
 
-	spiceconfig "github.com/StevenBuglione/spice/config"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spiceconfig "github.com/spice-framework/spice/config"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
 type ShutdownContextFactory func(time.Duration) (context.Context, context.CancelFunc)

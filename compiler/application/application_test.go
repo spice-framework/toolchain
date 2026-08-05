@@ -12,19 +12,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
-	"github.com/StevenBuglione/spice/compiler/lifecycle"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	runtimeconfig "github.com/StevenBuglione/spice/config"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
+	"github.com/spice-framework/spice/compiler/lifecycle"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	runtimeconfig "github.com/spice-framework/spice/config"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestBuildAssemblesDeterministicApplicationIR(t *testing.T) {
 	root := writeModule(t, map[string]string{
-		"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.26.0\n",
+		"go.mod": "module github.com/spice-framework/spice\n\ngo 1.26.0\n",
 		"lifecycle/cleanup.go": `package lifecycle
 
 import "context"
@@ -36,7 +36,7 @@ type Cleanup func(context.Context) error
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 type Config struct{}
@@ -159,7 +159,7 @@ func Worker(Config) {
 	if roots := targets[0].Roots(); len(roots) != 1 ||
 		roots[0].Name != "server" ||
 		roots[0].ProviderID != providers[1].SymbolID ||
-		roots[0].TypeID != "github.com/StevenBuglione/spice/app.ServerAlias" {
+		roots[0].TypeID != "github.com/spice-framework/spice/app.ServerAlias" {
 		t.Fatalf("Web roots = %#v", roots)
 	}
 	if roots := targets[1].Roots(); len(roots) != 1 ||
@@ -853,8 +853,8 @@ func TestBuildRejectsResolutionDiagnosticsAndNilProgram(t *testing.T) {
 func TestBuildCarriesTransactionalRoutesInApplicationIR(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/transactions\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(applicationRepositoryRoot(t)) + "\n",
 		"app/application.go": `package app
 
@@ -862,7 +862,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/StevenBuglione/spice/data"
+	"github.com/spice-framework/spice/data"
 )
 
 type Request struct{}

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/StevenBuglione/spice/internal/cli"
+	"github.com/spice-framework/spice/internal/cli"
 )
 
 func TestDefaultCommandConstructsCommand(t *testing.T) {

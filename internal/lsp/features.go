@@ -15,11 +15,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	annotationparser "github.com/spice-framework/spice/compiler/parser"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 type textDocumentPositionParams struct {

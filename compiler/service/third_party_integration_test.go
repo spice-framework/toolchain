@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/generate"
 )
 
 func TestThirdPartyAnnotationModuleCompletesCompilerWorkflow(t *testing.T) {
@@ -110,8 +110,8 @@ func assertFixtureUsesPublicSDK(t *testing.T, root string) {
 			return readErr
 		}
 		for _, forbidden := range [][]byte{
-			[]byte(`github.com/StevenBuglione/spice/compiler`),
-			[]byte(`github.com/StevenBuglione/spice/internal`),
+			[]byte(`github.com/spice-framework/spice/compiler`),
+			[]byte(`github.com/spice-framework/spice/internal`),
 		} {
 			if bytes.Contains(content, forbidden) {
 				t.Errorf(

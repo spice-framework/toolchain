@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
 )
 
 func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
@@ -38,7 +38,7 @@ func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
 	foundApplication := false
 	for _, item := range description.Handlers {
 		if item.Descriptor.Package ==
-			"github.com/StevenBuglione/spice/annotation/core" &&
+			"github.com/spice-framework/spice/annotation/core" &&
 			item.Descriptor.Name == "Application" {
 			foundApplication = true
 		}
@@ -50,11 +50,11 @@ func TestToolIdentityDescriptionAndDispatch(t *testing.T) {
 		context.Background(),
 		protocol.AnalyzeParams{
 			Descriptor: sdk.Symbol{
-				Package: "github.com/StevenBuglione/spice/annotation/core",
+				Package: "github.com/spice-framework/spice/annotation/core",
 				Name:    "Application",
 			},
 			Invocation: protocol.Invocation{
-				DescriptorPackage: "github.com/StevenBuglione/spice/annotation/core",
+				DescriptorPackage: "github.com/spice-framework/spice/annotation/core",
 				DescriptorSymbol:  "Application",
 			},
 		},

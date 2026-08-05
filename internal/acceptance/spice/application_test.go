@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/bean"
-	"github.com/StevenBuglione/spice/config"
-	"github.com/StevenBuglione/spice/internal/cli"
-	spicegen "github.com/StevenBuglione/spice/internal/spicegen/spice"
-	"github.com/StevenBuglione/spice/lifecycle"
-	"github.com/StevenBuglione/spice/spicetest"
+	"github.com/spice-framework/spice/bean"
+	"github.com/spice-framework/spice/config"
+	"github.com/spice-framework/spice/internal/cli"
+	spicegen "github.com/spice-framework/spice/internal/spicegen/spice"
+	"github.com/spice-framework/spice/lifecycle"
+	"github.com/spice-framework/spice/spicetest"
 )
 
 type (

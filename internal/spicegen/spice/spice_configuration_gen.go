@@ -5,7 +5,7 @@
 package spicegen
 
 import (
-	spiceconfig "github.com/StevenBuglione/spice/config"
+	spiceconfig "github.com/spice-framework/spice/config"
 )
 
 func ConfigurationSchema() (spiceconfig.Schema, error) {

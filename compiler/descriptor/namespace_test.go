@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
+	"github.com/spice-framework/spice/annotation"
 )
 
 func TestNamespaceReferencesDiscoversOnlyStaticDescriptorSignatures(
@@ -19,7 +19,7 @@ func TestNamespaceReferencesDiscoversOnlyStaticDescriptorSignatures(
 		),
 		"defs/other.go": `package defs
 
-import "github.com/StevenBuglione/spice/annotation/sdk"
+import "github.com/spice-framework/spice/annotation/sdk"
 
 func Helper(string) sdk.Definition {
 	return sdk.Definition{}

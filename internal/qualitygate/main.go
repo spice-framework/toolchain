@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StevenBuglione/spice/internal/bootstrapcheck"
-	"github.com/StevenBuglione/spice/internal/qualitygate/fastgate"
+	"github.com/spice-framework/spice/internal/bootstrapcheck"
+	"github.com/spice-framework/spice/internal/qualitygate/fastgate"
 )
 
 const (
@@ -35,7 +35,8 @@ const (
 	requiredGradleWrapperHash      = "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7"
 	minimumCoverage                = 85.0
 	maximumGeneratedTargetLines    = fastgate.MaximumGeneratedTargetLines
-	modulePath                     = "github.com/StevenBuglione/spice"
+	modulePath                     = "github.com/spice-framework/spice"
+	legacyModulePath               = "github.com/" + "StevenBuglione/spice"
 	commerceModulePath             = modulePath + "/examples/commerce"
 	petclinicModulePath            = modulePath + "/examples/petclinic"
 )
@@ -47,6 +48,7 @@ var (
 	captureExternal    = capture
 	checkGoLandWrapper = validateGoLandWrapper
 	runBootstrapCheck  = bootstrapcheck.Run
+	zedTargetDirectory = defaultZedTargetDirectory
 )
 
 func main() {
@@ -114,6 +116,9 @@ type verificationStep struct {
 
 func check(ctx context.Context, root string) error {
 	return runSequential([]verificationStep{
+		{"canonical repository namespace", func() error {
+			return checkCanonicalNamespace(root)
+		}},
 		{"API maturity coverage", func() error {
 			return checkAPIMaturity(ctx, root)
 		}},
@@ -189,6 +194,9 @@ func compileTests(ctx context.Context, root string) error {
 
 func verify(ctx context.Context, root string, release bool) error {
 	if err := runSequential([]verificationStep{
+		{"canonical repository namespace", func() error {
+			return checkCanonicalNamespace(root)
+		}},
 		{"API maturity coverage", func() error {
 			return checkAPIMaturity(ctx, root)
 		}},
@@ -256,6 +264,62 @@ func verify(ctx context.Context, root string, release bool) error {
 		return err
 	}
 	output.Println("==> all verification passed")
+	return nil
+}
+
+func checkCanonicalNamespace(root string) (resultErr error) {
+	repository, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("open canonical namespace root: %w", err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, repository.Close())
+	}()
+
+	var matches []string
+	err = fs.WalkDir(repository.FS(), ".", func(
+		filename string,
+		entry fs.DirEntry,
+		walkErr error,
+	) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if filename == "." {
+				return nil
+			}
+			switch entry.Name() {
+			case ".git", ".gradle", ".idea", ".intellijPlatform", ".tmp", "bin", "build", "node_modules", "out", "target":
+				return filepath.SkipDir
+			default:
+				return nil
+			}
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		content, readErr := repository.ReadFile(filepath.FromSlash(filename))
+		if readErr != nil {
+			return fmt.Errorf("read repository source %q: %w", filename, readErr)
+		}
+		if !bytes.Contains(content, []byte(legacyModulePath)) {
+			return nil
+		}
+		matches = append(matches, filename)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("scan canonical repository namespace: %w", err)
+	}
+	if len(matches) != 0 {
+		slices.Sort(matches)
+		return fmt.Errorf(
+			"legacy module namespace %q remains in %s",
+			legacyModulePath,
+			strings.Join(matches, ", "),
+		)
+	}
 	return nil
 }
 
@@ -820,6 +884,11 @@ func zed(ctx context.Context, root string) error {
 	if err := checkRustVersion(ctx, zedRoot); err != nil {
 		return err
 	}
+	targetRoot, targetErr := zedTargetDirectory()
+	if targetErr != nil {
+		return targetErr
+	}
+	cargoEnvironment := map[string]string{"CARGO_TARGET_DIR": targetRoot}
 	commands := [][]string{
 		{"fmt", "--check"},
 		{"test", "--locked"},
@@ -830,7 +899,7 @@ func zed(ctx context.Context, root string) error {
 		if err := runExternal(
 			ctx,
 			zedRoot,
-			nil,
+			cargoEnvironment,
 			"cargo",
 			arguments...,
 		); err != nil {
@@ -849,9 +918,9 @@ func zed(ctx context.Context, root string) error {
 	); err != nil {
 		return err
 	}
-	temp, err := os.MkdirTemp("", "spice-zed-*")
-	if err != nil {
-		return fmt.Errorf("create Zed fixture directory: %w", err)
+	temp, tempErr := os.MkdirTemp("", "spice-zed-*")
+	if tempErr != nil {
+		return fmt.Errorf("create Zed fixture directory: %w", tempErr)
 	}
 	defer removeTemporaryDirectory(temp)
 	executable := filepath.Join(temp, "spice")
@@ -883,6 +952,18 @@ func zed(ctx context.Context, root string) error {
 		return err
 	}
 	return nil
+}
+
+func defaultZedTargetDirectory() (string, error) {
+	cacheRoot, cacheErr := os.UserCacheDir()
+	if cacheErr != nil {
+		return "", fmt.Errorf("resolve user cache for Zed target: %w", cacheErr)
+	}
+	targetRoot := filepath.Join(cacheRoot, "spice", "qualitygate", "zed-target")
+	if mkdirErr := os.MkdirAll(targetRoot, 0o700); mkdirErr != nil {
+		return "", fmt.Errorf("create isolated Zed target directory: %w", mkdirErr)
+	}
+	return targetRoot, nil
 }
 
 func format(ctx context.Context, root string, write bool) error {

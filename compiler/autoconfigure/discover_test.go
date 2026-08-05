@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestDiscoverAndDecodeSelectedTypedConfiguration(t *testing.T) {
@@ -24,7 +24,7 @@ type Client struct{}
 
 import (
 	"example.com/auto/client"
-	"github.com/StevenBuglione/spice/starter"
+	"github.com/spice-framework/spice/starter"
 )
 
 func DefaultClient() *client.Client { return &client.Client{} }
@@ -212,7 +212,7 @@ func New() *Client { return &Client{} }
 				"client/autoconfigure/config.go": `package autoconfigure
 import (
 	"example.com/auto/client"
-	"github.com/StevenBuglione/spice/starter"
+	"github.com/spice-framework/spice/starter"
 )
 func Local() *client.Client { return client.New() }
 func local() *client.Client { return client.New() }
@@ -332,7 +332,7 @@ func TestDecodeRequiresCanonicalPackageAndDescriptor(t *testing.T) {
 import _ "example.com/auto/client/autoconfigure"
 `,
 				"client/autoconfigure/config.go": "package " + test.packageName + `
-import "github.com/StevenBuglione/spice/starter"
+import "github.com/spice-framework/spice/starter"
 var _ starter.AutoConfiguration
 ` + test.descriptor,
 			})
@@ -357,7 +357,7 @@ var _ starter.AutoConfiguration
 
 func minimalAutoConfigurationSource(name string) string {
 	return `package autoconfigure
-import "github.com/StevenBuglione/spice/starter"
+import "github.com/spice-framework/spice/starter"
 type ` + name + ` struct{}
 func Default() *` + name + ` { return &` + name + `{} }
 func SpiceAutoConfiguration() starter.AutoConfiguration {
@@ -380,8 +380,8 @@ func autoConfigurationModule(
 		t.Fatal(err)
 	}
 	files["go.mod"] = "module example.com/auto\n\ngo 1.26.0\n\n" +
-		"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-		"replace github.com/StevenBuglione/spice => " +
+		"require github.com/spice-framework/spice v0.0.0\n\n" +
+		"replace github.com/spice-framework/spice => " +
 		filepath.ToSlash(repository) + "\n"
 	for name, content := range files {
 		filename := filepath.Join(root, filepath.FromSlash(name))

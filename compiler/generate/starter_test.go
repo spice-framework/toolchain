@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
-	"github.com/StevenBuglione/spice/compiler/application"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/annotation"
+	publicstarter "github.com/spice-framework/spice/annotation/sdk/starter"
+	"github.com/spice-framework/spice/compiler/application"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	compilerstarter "github.com/spice-framework/spice/compiler/starter"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {
@@ -364,7 +364,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/StevenBuglione/spice/web"
+	"github.com/spice-framework/spice/web"
 )
 
 type Options struct{}
@@ -539,7 +539,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 type Options struct{}

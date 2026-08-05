@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
 )
 
 // ValidateDescriptor proves that one statically decoded descriptor and its

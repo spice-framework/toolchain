@@ -48,7 +48,7 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		`spiceevent "github.com/StevenBuglione/spice/event"`,
+		`spiceevent "github.com/spice-framework/spice/event"`,
 		"EventObservers",
 		"[]spiceevent.Observer",
 		"spiceevent.NewTopic(",
@@ -154,8 +154,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/StevenBuglione/spice/event"
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/event"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 var state struct {
@@ -275,7 +275,7 @@ import (
 	"testing"
 
 	"example.com/eventgenerated/events"
-	spiceevent "github.com/StevenBuglione/spice/event"
+	spiceevent "github.com/spice-framework/spice/event"
 )
 
 type recordingEventObserver struct {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/StevenBuglione/spice/compiler/annotationinstall"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/compiler/annotationinstall"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 const (

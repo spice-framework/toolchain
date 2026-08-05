@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/application"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	"github.com/StevenBuglione/spice/internal/testannotation"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/application"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/spice/internal/testannotation"
 )
 
 func TestImportNamesExcludeTypesUsedOnlyForSingleDependencyResolution(
@@ -80,8 +80,8 @@ func TestRenderGeneratesSelectionCollectionsHandlesAndScopes(
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/bean"
-	"github.com/StevenBuglione/spice/lifecycle"
+	"github.com/spice-framework/spice/bean"
+	"github.com/spice-framework/spice/lifecycle"
 )
 
 type Processor interface{ Name() string }

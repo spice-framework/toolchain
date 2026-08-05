@@ -1,4 +1,4 @@
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package compiler owns Spice's ordinary-Go analysis and generation pipeline.
 //

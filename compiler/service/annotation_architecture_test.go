@@ -62,7 +62,7 @@ func assertNoBuiltInAnnotationSemantics(t *testing.T, path string) {
 			t.Fatalf("decode import in %s: %v", path, unquoteErr)
 		}
 		if importPath ==
-			"github.com/StevenBuglione/spice/annotation/builtin" {
+			"github.com/spice-framework/spice/annotation/builtin" {
 			t.Errorf(
 				"%s imports the retired built-in annotation registry",
 				path,

@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	publicstarter "github.com/StevenBuglione/spice/annotation/sdk/starter"
-	"github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
+	"github.com/spice-framework/spice/annotation/sdk"
+	publicstarter "github.com/spice-framework/spice/annotation/sdk/starter"
+	"github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerstarter "github.com/spice-framework/spice/compiler/starter"
 )
 
 func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
@@ -233,7 +233,7 @@ func TestServiceValidationModeDoesNotRequireApplicationTarget(t *testing.T) {
 	root := writeServiceModule(t)
 	writeServiceFixtureFile(t, root, "main.go", `package main
 
-// @import { Service } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Service } from "github.com/spice-framework/spice/annotation/core"
 
 // @Service
 type ProcessBoundary struct{}
@@ -296,7 +296,7 @@ import (
 	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
 )
 
-// @import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application as SpiceApplication } from "github.com/spice-framework/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
@@ -330,7 +330,7 @@ import (
 	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
 )
 
-// @import { Application as SpiceApplication } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application as SpiceApplication } from "github.com/spice-framework/spice/annotation/core"
 
 // @SpiceApplication
 func main() {
@@ -361,7 +361,7 @@ func main() {
 	}
 	if imported.Spelling != "SpiceApplication" ||
 		imported.DefinitionPackage !=
-			"github.com/StevenBuglione/spice/annotation/core" ||
+			"github.com/spice-framework/spice/annotation/core" ||
 		imported.DefinitionSymbol != "Application" {
 		t.Fatalf("imported annotation metadata = %+v", imported)
 	}
@@ -379,16 +379,16 @@ func main() {
 		definition.DescriptorSymbol != imported.DefinitionSymbol ||
 		!definition.HasDescriptorLocation ||
 		definition.Implementation.Tool !=
-			"github.com/StevenBuglione/spice/cmd/spice-annotation-core" ||
+			"github.com/spice-framework/spice/cmd/spice-annotation-core" ||
 		definition.Implementation.Handler !=
-			"github.com/StevenBuglione/spice/annotation/core.ApplicationHandler" ||
+			"github.com/spice-framework/spice/annotation/core.ApplicationHandler" ||
 		!definition.Implementation.HasLocation ||
 		!strings.HasSuffix(
 			definition.Implementation.Location.Path,
 			"/annotation/core/application.go",
 		) ||
 		definition.Provenance.Module !=
-			"github.com/StevenBuglione/spice" ||
+			"github.com/spice-framework/spice" ||
 		!definition.Provenance.LocalReplacement {
 		t.Fatalf("descriptor definition metadata = %+v", definition)
 	}
@@ -407,7 +407,7 @@ import (
 	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
 )
 
-// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
 
 // @Application
 func main() {
@@ -422,7 +422,7 @@ func main() {
 	content = bytes.Replace(
 		content,
 		[]byte(
-			"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n",
+			"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n",
 		),
 		nil,
 		1,
@@ -464,7 +464,7 @@ import (
 	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
 )
 
-// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
 
 // @Application
 func main() {
@@ -472,13 +472,13 @@ func main() {
 }
 `)
 	writeServiceFixtureFile(t, root, "orders/doc.go", `// Package orders owns order configuration.
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 // @Module
 package orders
 `)
 	writeServiceFixtureFile(t, root, "orders/config.go", `package orders
 
-// @import { Bean, Configuration } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Bean, Configuration } from "github.com/spice-framework/spice/annotation/core"
 
 // @Configuration(prefix="orders")
 type Settings struct {
@@ -628,7 +628,7 @@ import (
 	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
 )
 
-// @spice.import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @spice.import { Application } from "github.com/spice-framework/spice/annotation/core"
 
 // @Application
 func main() {
@@ -694,7 +694,7 @@ type Processor interface {
 	)
 	content := []byte(`package main
 
-// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Implements, Service } from "github.com/spice-framework/spice/annotation/core"
 // @import * as contracts from "example.com/servicefixture/contracts"
 
 // @Service
@@ -800,7 +800,7 @@ func TestServiceKeepsAuthoringMetadataForIncompleteInterface(
 	mainPath := filepath.Join(root, "main.go")
 	content := []byte(`package main
 
-// @import { Implements, Service } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Implements, Service } from "github.com/spice-framework/spice/annotation/core"
 
 // @Service
 // @Implements(payments.Pro)
@@ -1419,9 +1419,9 @@ func writeServiceModule(tb testingTB) string {
 	}
 	files := map[string]string{
 		"go.mod": "module example.com/servicefixture\n\ngo 1.26.0\n\n" +
-			"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n" +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": `package main
 
@@ -1431,7 +1431,7 @@ import (
 	spiceapp "example.com/servicefixture/internal/spicegen/servicefixture"
 )
 
-// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
 
 // @Application
 func main() {
@@ -1444,7 +1444,7 @@ package spicegen
 
 func Main([]string) int { return 0 }
 `,
-		"orders/doc.go": `// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+		"orders/doc.go": `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package orders owns order configuration.
 // @Module
@@ -1452,7 +1452,7 @@ package orders
 `,
 		"orders/config.go": `package orders
 
-// @import { Configuration } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Configuration } from "github.com/spice-framework/spice/annotation/core"
 
 // @Configuration(prefix="orders")
 type Settings struct {

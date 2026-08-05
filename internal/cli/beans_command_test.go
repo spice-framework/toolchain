@@ -221,7 +221,7 @@ func Application(` + applicationParameter + `) {}
 
 import (
 	"example.com/cli-generation/client"
-	"github.com/StevenBuglione/spice/starter"
+	"github.com/spice-framework/spice/starter"
 )
 
 func DefaultClient(` + factoryParameter + `) *client.Client { return &client.Client{} }

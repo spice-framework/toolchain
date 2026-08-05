@@ -169,7 +169,7 @@ func TestRunVerifyAcceptsCleanupSignaturesWithoutExecutingBodies(t *testing.T) {
 		"go.mod": "module example.com/cleanup-providers\n\ngo 1.26.0\n",
 		"app/providers.go": `package app
 
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 
 type Config struct{}
 type Plain struct{}
@@ -212,7 +212,7 @@ func TestRunVerifyRejectsInvalidCleanupSignatures(t *testing.T) {
 
 import (
 	"context"
-	life "github.com/StevenBuglione/spice/lifecycle"
+	life "github.com/spice-framework/spice/lifecycle"
 )
 
 type Value struct{}

@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
+	"github.com/spice-framework/spice/annotation"
+	annotationparser "github.com/spice-framework/spice/compiler/parser"
 )
 
 // Discovery is the deterministic lexical preload input for one typed compiler

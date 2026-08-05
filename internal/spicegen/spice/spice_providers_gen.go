@@ -8,10 +8,10 @@ import (
 	context "context"
 	fmt "fmt"
 
-	spiceconfig "github.com/StevenBuglione/spice/config"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spiceAutoconfigure "github.com/StevenBuglione/spice/internal/spicegen/spice/sources/internal_/autoconfigure"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spiceconfig "github.com/spice-framework/spice/config"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spiceAutoconfigure "github.com/spice-framework/spice/internal/spicegen/spice/sources/internal_/autoconfigure"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
 type applicationDependencies struct {
@@ -48,14 +48,14 @@ func constructApplicationDependencies(
 		if options.Overrides.Runtime.Enabled() {
 			return options.Overrides.Runtime.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructRuntime_db45b3f3()
+		return spiceAutoconfigure.ConstructRuntime_f87f17cd()
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean runtime (*github.com/StevenBuglione/spice/internal/cli.Runtime, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultRuntime): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean runtime (*github.com/spice-framework/spice/internal/cli.Runtime, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultRuntime): %w", err))
 	}
 	if runtimeCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultRuntime", runtimeCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean runtime (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultRuntime): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultRuntime", runtimeCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean runtime (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultRuntime): %w", err))
 		}
 	}
 	_ = runtime
@@ -63,14 +63,14 @@ func constructApplicationDependencies(
 		if options.Overrides.AddHandler.Enabled() {
 			return options.Overrides.AddHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructAddHandler_34e0a0a6(runtime)
+		return spiceAutoconfigure.ConstructAddHandler_b6cc6c14(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean addHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultAddHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean addHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultAddHandler): %w", err))
 	}
 	if addHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultAddHandler", addHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean addHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultAddHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultAddHandler", addHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean addHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultAddHandler): %w", err))
 		}
 	}
 	_ = addHandler
@@ -78,14 +78,14 @@ func constructApplicationDependencies(
 		if options.Overrides.DevHandler.Enabled() {
 			return options.Overrides.DevHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructDevHandler_c50e7036(runtime)
+		return spiceAutoconfigure.ConstructDevHandler_f21ff514(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean devHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultDevHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean devHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultDevHandler): %w", err))
 	}
 	if devHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultDevHandler", devHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean devHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultDevHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultDevHandler", devHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean devHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultDevHandler): %w", err))
 		}
 	}
 	_ = devHandler
@@ -93,14 +93,14 @@ func constructApplicationDependencies(
 		if options.Overrides.LspHandler.Enabled() {
 			return options.Overrides.LspHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructLspHandler_0af17292(runtime)
+		return spiceAutoconfigure.ConstructLspHandler_61c2e0f8(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean lspHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultLSPHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean lspHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultLSPHandler): %w", err))
 	}
 	if lspHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultLSPHandler", lspHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean lspHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultLSPHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultLSPHandler", lspHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean lspHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultLSPHandler): %w", err))
 		}
 	}
 	_ = lspHandler
@@ -108,14 +108,14 @@ func constructApplicationDependencies(
 		if options.Overrides.RunHandler.Enabled() {
 			return options.Overrides.RunHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructRunHandler_72015628(runtime)
+		return spiceAutoconfigure.ConstructRunHandler_a60bce4e(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean runHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultRunHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean runHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultRunHandler): %w", err))
 	}
 	if runHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultRunHandler", runHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean runHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultRunHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultRunHandler", runHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean runHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|17:DefaultRunHandler): %w", err))
 		}
 	}
 	_ = runHandler
@@ -123,14 +123,14 @@ func constructApplicationDependencies(
 		if options.Overrides.HelpHandler.Enabled() {
 			return options.Overrides.HelpHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructHelpHandler_a8dc9a98(runtime)
+		return spiceAutoconfigure.ConstructHelpHandler_05b3fad6(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean helpHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|18:DefaultHelpHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean helpHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|18:DefaultHelpHandler): %w", err))
 	}
 	if helpHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|18:DefaultHelpHandler", helpHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean helpHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|18:DefaultHelpHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|18:DefaultHelpHandler", helpHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean helpHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|18:DefaultHelpHandler): %w", err))
 		}
 	}
 	_ = helpHandler
@@ -138,14 +138,14 @@ func constructApplicationDependencies(
 		if options.Overrides.TestHandler.Enabled() {
 			return options.Overrides.TestHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructTestHandler_4773e6e8(runtime)
+		return spiceAutoconfigure.ConstructTestHandler_7c79fc53(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean testHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|18:DefaultTestHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean testHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|18:DefaultTestHandler): %w", err))
 	}
 	if testHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|18:DefaultTestHandler", testHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean testHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|18:DefaultTestHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|18:DefaultTestHandler", testHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean testHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|18:DefaultTestHandler): %w", err))
 		}
 	}
 	_ = testHandler
@@ -153,14 +153,14 @@ func constructApplicationDependencies(
 		if options.Overrides.BeansHandler.Enabled() {
 			return options.Overrides.BeansHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructBeansHandler_f5e2fbd1(runtime)
+		return spiceAutoconfigure.ConstructBeansHandler_1b836257(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean beansHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBeansHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean beansHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBeansHandler): %w", err))
 	}
 	if beansHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBeansHandler", beansHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean beansHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBeansHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBeansHandler", beansHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean beansHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBeansHandler): %w", err))
 		}
 	}
 	_ = beansHandler
@@ -168,14 +168,14 @@ func constructApplicationDependencies(
 		if options.Overrides.BuildHandler.Enabled() {
 			return options.Overrides.BuildHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructBuildHandler_ea352864(runtime)
+		return spiceAutoconfigure.ConstructBuildHandler_65b5ff52(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean buildHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBuildHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean buildHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBuildHandler): %w", err))
 	}
 	if buildHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBuildHandler", buildHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean buildHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|19:DefaultBuildHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBuildHandler", buildHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean buildHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|19:DefaultBuildHandler): %w", err))
 		}
 	}
 	_ = buildHandler
@@ -183,14 +183,14 @@ func constructApplicationDependencies(
 		if options.Overrides.VerifyHandler.Enabled() {
 			return options.Overrides.VerifyHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructVerifyHandler_b8cd6b5d(runtime)
+		return spiceAutoconfigure.ConstructVerifyHandler_7ef47763(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean verifyHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|20:DefaultVerifyHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean verifyHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|20:DefaultVerifyHandler): %w", err))
 	}
 	if verifyHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|20:DefaultVerifyHandler", verifyHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean verifyHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|20:DefaultVerifyHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|20:DefaultVerifyHandler", verifyHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean verifyHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|20:DefaultVerifyHandler): %w", err))
 		}
 	}
 	_ = verifyHandler
@@ -198,14 +198,14 @@ func constructApplicationDependencies(
 		if options.Overrides.ModulesHandler.Enabled() {
 			return options.Overrides.ModulesHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructModulesHandler_c27eb3a2(runtime)
+		return spiceAutoconfigure.ConstructModulesHandler_fdf8526c(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean modulesHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|21:DefaultModulesHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean modulesHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|21:DefaultModulesHandler): %w", err))
 	}
 	if modulesHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|21:DefaultModulesHandler", modulesHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean modulesHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|21:DefaultModulesHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|21:DefaultModulesHandler", modulesHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean modulesHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|21:DefaultModulesHandler): %w", err))
 		}
 	}
 	_ = modulesHandler
@@ -213,14 +213,14 @@ func constructApplicationDependencies(
 		if options.Overrides.VersionHandler.Enabled() {
 			return options.Overrides.VersionHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructVersionHandler_2e36ecad(runtime)
+		return spiceAutoconfigure.ConstructVersionHandler_239156e6(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean versionHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|21:DefaultVersionHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean versionHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|21:DefaultVersionHandler): %w", err))
 	}
 	if versionHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|21:DefaultVersionHandler", versionHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean versionHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|21:DefaultVersionHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|21:DefaultVersionHandler", versionHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean versionHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|21:DefaultVersionHandler): %w", err))
 		}
 	}
 	_ = versionHandler
@@ -228,14 +228,14 @@ func constructApplicationDependencies(
 		if options.Overrides.GenerateHandler.Enabled() {
 			return options.Overrides.GenerateHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructGenerateHandler_256a8cd2(runtime)
+		return spiceAutoconfigure.ConstructGenerateHandler_5c36cbc4(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean generateHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultGenerateHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean generateHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|22:DefaultGenerateHandler): %w", err))
 	}
 	if generateHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultGenerateHandler", generateHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean generateHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultGenerateHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|22:DefaultGenerateHandler", generateHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean generateHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|22:DefaultGenerateHandler): %w", err))
 		}
 	}
 	_ = generateHandler
@@ -243,14 +243,14 @@ func constructApplicationDependencies(
 		if options.Overrides.ScaffoldHandler.Enabled() {
 			return options.Overrides.ScaffoldHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructScaffoldHandler_d072b7cb(runtime)
+		return spiceAutoconfigure.ConstructScaffoldHandler_90093206(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean scaffoldHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean scaffoldHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler): %w", err))
 	}
 	if scaffoldHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler", scaffoldHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean scaffoldHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler", scaffoldHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean scaffoldHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler): %w", err))
 		}
 	}
 	_ = scaffoldHandler
@@ -258,14 +258,14 @@ func constructApplicationDependencies(
 		if options.Overrides.GeneratedHandler.Enabled() {
 			return options.Overrides.GeneratedHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructGeneratedHandler_4b019338(runtime)
+		return spiceAutoconfigure.ConstructGeneratedHandler_d58ef20e(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean generatedHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|23:DefaultGeneratedHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean generatedHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|23:DefaultGeneratedHandler): %w", err))
 	}
 	if generatedHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|23:DefaultGeneratedHandler", generatedHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean generatedHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|23:DefaultGeneratedHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|23:DefaultGeneratedHandler", generatedHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean generatedHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|23:DefaultGeneratedHandler): %w", err))
 		}
 	}
 	_ = generatedHandler
@@ -273,14 +273,14 @@ func constructApplicationDependencies(
 		if options.Overrides.AnnotationsHandler.Enabled() {
 			return options.Overrides.AnnotationsHandler.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructAnnotationsHandler_d2f38e5c(runtime)
+		return spiceAutoconfigure.ConstructAnnotationsHandler_394a50b0(runtime)
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean annotationsHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean annotationsHandler (github.com/spice-framework/spice/internal/cli.Handler, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler): %w", err))
 	}
 	if annotationsHandlerCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler", annotationsHandlerCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean annotationsHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler", annotationsHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean annotationsHandler (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|25:DefaultAnnotationsHandler): %w", err))
 		}
 	}
 	_ = annotationsHandler
@@ -288,14 +288,14 @@ func constructApplicationDependencies(
 		if options.Overrides.Command.Enabled() {
 			return options.Overrides.Command.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructCommand_ea2da0e1([]cli.Handler{helpHandler, versionHandler, scaffoldHandler, addHandler, verifyHandler, annotationsHandler, modulesHandler, beansHandler, generatedHandler, testHandler, generateHandler, buildHandler, runHandler, devHandler, lspHandler})
+		return spiceAutoconfigure.ConstructCommand_183145f9([]cli.Handler{helpHandler, versionHandler, scaffoldHandler, addHandler, verifyHandler, annotationsHandler, modulesHandler, beansHandler, generatedHandler, testHandler, generateHandler, buildHandler, runHandler, devHandler, lspHandler})
 	}()
 	if err != nil {
-		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean command (*github.com/StevenBuglione/spice/internal/cli.Command, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err))
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean command (*github.com/spice-framework/spice/internal/cli.Command, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err))
 	}
 	if commandCleanup != nil {
-		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultCommand", commandCleanup); err != nil {
-			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean command (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err))
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultCommand", commandCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean command (source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err))
 		}
 	}
 	_ = command

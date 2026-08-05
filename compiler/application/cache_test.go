@@ -99,8 +99,8 @@ func writeCacheApplicationModule(t *testing.T, source string) string {
 	t.Helper()
 	return writeModule(t, map[string]string{
 		"go.mod": "module example.com/cacheir\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(applicationRepositoryRoot(t)) + "\n",
 		"app/application.go": source,
 	})

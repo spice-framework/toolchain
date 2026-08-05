@@ -12,13 +12,13 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
-	spicesecurity "github.com/StevenBuglione/spice/security"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
+	spicesecurity "github.com/spice-framework/spice/security"
 )
 
 // Location identifies one generated request DTO binding source.
@@ -770,10 +770,10 @@ func typedRoute(
 	route.RequestTypeID = provider.TypeID(requestType)
 	route.Response = signature.Results().At(0).Type()
 	route.ResponseTypeID = provider.TypeID(route.Response)
-	route.NoContent = namedType(route.Response, "github.com/StevenBuglione/spice/web", "NoContent")
+	route.NoContent = namedType(route.Response, "github.com/spice-framework/spice/web", "NoContent")
 	route.View = namedType(
 		route.Response,
-		"github.com/StevenBuglione/spice/view",
+		"github.com/spice-framework/spice/view",
 		"Result",
 	)
 	route.ExecutorParameter = executorParameter
@@ -853,7 +853,7 @@ func configureViewRoute(
 		return nil
 	}
 	renderer, found := providerByTypeID(
-		"*github.com/StevenBuglione/spice/view.Renderer",
+		"*github.com/spice-framework/spice/view.Renderer",
 		providers,
 	)
 	if !found {
@@ -879,14 +879,14 @@ func typedRouteParameters(signature *types.Signature) (int, bool, bool) {
 	case 3:
 		if namedType(
 			signature.Params().At(1).Type(),
-			"github.com/StevenBuglione/spice/data",
+			"github.com/spice-framework/spice/data",
 			"Executor",
 		) {
 			return 2, true, false
 		}
 		if namedType(
 			signature.Params().At(2).Type(),
-			"github.com/StevenBuglione/spice/web",
+			"github.com/spice-framework/spice/web",
 			"BindingResult",
 		) {
 			return 1, false, true
@@ -894,11 +894,11 @@ func typedRouteParameters(signature *types.Signature) (int, bool, bool) {
 	case 4:
 		if namedType(
 			signature.Params().At(1).Type(),
-			"github.com/StevenBuglione/spice/data",
+			"github.com/spice-framework/spice/data",
 			"Executor",
 		) && namedType(
 			signature.Params().At(3).Type(),
-			"github.com/StevenBuglione/spice/web",
+			"github.com/spice-framework/spice/web",
 			"BindingResult",
 		) {
 			return 2, true, true

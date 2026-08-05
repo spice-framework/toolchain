@@ -183,6 +183,88 @@ func TestVerifyOrchestration(t *testing.T) {
 	}
 }
 
+func TestCheckCanonicalNamespaceRejectsLegacySourceAndSkipsLocalArtifacts(
+	t *testing.T,
+) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestFile(t, root, "canonical.go", "package canonical\n")
+	writeTestFile(t, root, ".tmp/reference.txt", legacyModulePath)
+	writeTestFile(t, root, ".idea/workspace.xml", legacyModulePath)
+	if err := checkCanonicalNamespace(root); err != nil {
+		t.Fatalf("checkCanonicalNamespace(canonical) error = %v", err)
+	}
+
+	writeTestFile(
+		t,
+		root,
+		"docs/import.md",
+		"import "+legacyModulePath+"/annotation/core\n",
+	)
+	err := checkCanonicalNamespace(root)
+	if err == nil ||
+		!strings.Contains(err.Error(), legacyModulePath) ||
+		!strings.Contains(err.Error(), "docs/import.md") {
+		t.Fatalf(
+			"checkCanonicalNamespace(legacy) error = %v, want path and namespace",
+			err,
+		)
+	}
+}
+
+func TestZedUsesIsolatedCargoTargetDirectory(t *testing.T) {
+	silenceOutput(t)
+	root := t.TempDir()
+	externalTarget := t.TempDir()
+	originalRun, originalCapture := runExternal, captureExternal
+	originalTargetDirectory := zedTargetDirectory
+	var cargoTargets []string
+	runExternal = func(
+		_ context.Context,
+		_ string,
+		environment map[string]string,
+		executable string,
+		_ ...string,
+	) error {
+		if executable == "cargo" {
+			cargoTargets = append(cargoTargets, environment["CARGO_TARGET_DIR"])
+		}
+		return nil
+	}
+	captureExternal = func(
+		_ context.Context,
+		_ string,
+		executable string,
+		arguments ...string,
+	) (string, error) {
+		if executable == "rustc" && slices.Equal(arguments, []string{"--version"}) {
+			return "rustc " + requiredRustVersion + " (test)\n", nil
+		}
+		return "", nil
+	}
+	zedTargetDirectory = func() (string, error) { return externalTarget, nil }
+	t.Cleanup(func() {
+		runExternal = originalRun
+		captureExternal = originalCapture
+		zedTargetDirectory = originalTargetDirectory
+	})
+
+	if err := zed(context.Background(), root); err != nil {
+		t.Fatalf("zed() error = %v", err)
+	}
+	if len(cargoTargets) != 4 {
+		t.Fatalf("cargo target count = %d, want 4", len(cargoTargets))
+	}
+	for _, target := range cargoTargets {
+		if target != externalTarget || !filepath.IsAbs(target) || strings.HasPrefix(target, root) {
+			t.Fatalf("CARGO_TARGET_DIR = %q, want isolated absolute path", target)
+		}
+		if info, err := os.Stat(target); err != nil || !info.IsDir() {
+			t.Fatalf("persistent Cargo target %q unavailable: %v", target, err)
+		}
+	}
+}
+
 func TestValidateAPIMaturityRequiresCompleteNonStaleCoverage(t *testing.T) {
 	t.Parallel()
 	valid := `{

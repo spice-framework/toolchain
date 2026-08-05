@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/StevenBuglione/spice/internal/qualitygate/fastgate"
+	"github.com/spice-framework/spice/internal/qualitygate/fastgate"
 )
 
-const moduleDeclaration = "module github.com/StevenBuglione/spice"
+const moduleDeclaration = "module github.com/spice-framework/spice"
 
 func main() {
 	os.Exit(execute()) // Entrypoint exception: return the gate failure to make.

@@ -9,11 +9,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/annotationimport"
-	"github.com/StevenBuglione/spice/compiler/load"
-	annotationparser "github.com/StevenBuglione/spice/compiler/parser"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/annotationimport"
+	"github.com/spice-framework/spice/compiler/load"
+	annotationparser "github.com/spice-framework/spice/compiler/parser"
 )
 
 // Occurrence associates one parsed annotation with the exact declaration from

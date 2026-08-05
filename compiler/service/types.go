@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package service exposes Spice's typed compiler pipeline as an isolated,
 // overlay-aware analysis service for commands and editor integrations.
@@ -11,16 +11,16 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/application"
-	compilerbootstrap "github.com/StevenBuglione/spice/compiler/bootstrap"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	"github.com/StevenBuglione/spice/compiler/generate"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	compilerstarter "github.com/StevenBuglione/spice/compiler/starter"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/application"
+	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/spice/compiler/provider"
+	compilerstarter "github.com/spice-framework/spice/compiler/starter"
 )
 
 const (

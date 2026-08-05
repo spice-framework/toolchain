@@ -2,7 +2,7 @@
 // bean used by the production CLI application.
 package autoconfigure
 
-import "github.com/StevenBuglione/spice/starter"
+import "github.com/spice-framework/spice/starter"
 
 // SpiceAutoConfiguration declares the default command bean. The descriptor is
 // statically decoded during analysis and is never executed by the compiler.

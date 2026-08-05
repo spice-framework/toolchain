@@ -1,9 +1,9 @@
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package scaffold creates minimal, valid-Go Spice applications without
 // downloading dependencies or overwriting developer-owned files.
 //
-// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::targetid"])
+// @Module(allowedDependencies=["github.com/spice-framework/spice/compiler::targetid"])
 package scaffold
 
 import (
@@ -17,7 +17,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/targetid"
+	"github.com/spice-framework/spice/compiler/targetid"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -25,7 +25,7 @@ import (
 
 const (
 	// FrameworkModule is the canonical Spice module used by this CLI line.
-	FrameworkModule = "github.com/StevenBuglione/spice"
+	FrameworkModule = "github.com/spice-framework/spice"
 	// AnnotationTool is the canonical core annotation tool package.
 	AnnotationTool = FrameworkModule + "/cmd/spice-annotation-core"
 	goVersion      = "1.26.0"

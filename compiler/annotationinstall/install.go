@@ -1,4 +1,4 @@
-// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package annotationinstall plans and applies hash-guarded Go module changes.
 // It supports both explicit annotation-tool authorization and ordinary module

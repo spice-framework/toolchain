@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/compiler/scan"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/compiler/scan"
 )
 
 type diagnosticKind uint8

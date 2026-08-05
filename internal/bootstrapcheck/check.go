@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-const spiceModule = "github.com/StevenBuglione/spice"
+const spiceModule = "github.com/spice-framework/spice"
 
 type commandRunner func(
 	context.Context,
@@ -576,11 +576,11 @@ go 1.26.0
 
 toolchain go1.26.5
 
-tool github.com/StevenBuglione/spice/cmd/spice-annotation-core
+tool github.com/spice-framework/spice/cmd/spice-annotation-core
 
-require github.com/StevenBuglione/spice v0.0.0
+require github.com/spice-framework/spice v0.0.0
 
-replace github.com/StevenBuglione/spice => %s
+replace github.com/spice-framework/spice => %s
 `, strconv.Quote(filepath.ToSlash(repositoryRoot))),
 		"main.go": `package main
 
@@ -590,7 +590,7 @@ import (
 	spiceapp "example.com/bootstrap/internal/spicegen/bootstrap"
 )
 
-// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
 
 // @Application
 func main() {
@@ -600,7 +600,7 @@ func main() {
 		"component/message.go": `// Package component owns the bootstrap proof bean.
 package component
 
-// @import { Bean } from "github.com/StevenBuglione/spice/annotation/core"
+// @import { Bean } from "github.com/spice-framework/spice/annotation/core"
 
 // @Bean
 func Message() string {

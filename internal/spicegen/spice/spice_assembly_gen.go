@@ -8,8 +8,8 @@ import (
 	context "context"
 	fmt "fmt"
 
-	spiceconfig "github.com/StevenBuglione/spice/config"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	spiceconfig "github.com/spice-framework/spice/config"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
 func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {

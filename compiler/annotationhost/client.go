@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
 	"golang.org/x/mod/module"
 )
 

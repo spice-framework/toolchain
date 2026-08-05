@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
+	"github.com/spice-framework/spice/annotation"
 )
 
 func TestDiscoverFindsStableImportsAndHonorsOverlays(t *testing.T) {

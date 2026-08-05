@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/application"
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/application"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
@@ -154,8 +154,8 @@ func TestRunGenerateBuildsPreferredPackageMainWithExplicitGeneratedImport(t *tes
 	}
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/package-main\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n",
 		"cmd/shop/main.go": `package main
 
@@ -503,8 +503,8 @@ func generationCLIModule(t *testing.T, source string) string {
 	}
 	return writeModule(t, map[string]string{
 		"go.mod": "module example.com/cli-generation\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " + filepath.ToSlash(repository) + "\n",
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " + filepath.ToSlash(repository) + "\n",
 		"app/application.go": source,
 	})
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/provider"
 )
 
 func TestBuildAddsGeneratedEventPublisherToApplicationGraph(t *testing.T) {
@@ -15,7 +15,7 @@ func TestBuildAddsGeneratedEventPublisherToApplicationGraph(t *testing.T) {
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/event"
+	"github.com/spice-framework/spice/event"
 )
 
 type OrderPlaced struct {
@@ -62,7 +62,7 @@ func Application(*Service) {}
 	providers := model.Providers()
 	if providers[1].Source != provider.SourceEvent ||
 		providers[1].OutputTypeID !=
-			"github.com/StevenBuglione/spice/event.Publisher[example.com/eventapplication/app.OrderPlaced]" {
+			"github.com/spice-framework/spice/event.Publisher[example.com/eventapplication/app.OrderPlaced]" {
 		t.Fatalf("event provider = %#v", providers[1])
 	}
 	events := model.Events()
@@ -96,7 +96,7 @@ func TestBuildReportsGeneratedEventDependencyCycle(t *testing.T) {
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/event"
+	"github.com/spice-framework/spice/event"
 )
 
 type OrderPlaced struct{}
@@ -131,7 +131,7 @@ func TestBuildRejectsDuplicateGeneratedPublisherTypes(t *testing.T) {
 import (
 	"context"
 
-	"github.com/StevenBuglione/spice/event"
+	"github.com/spice-framework/spice/event"
 )
 
 type OrderPlaced struct{}
@@ -172,8 +172,8 @@ func writeEventApplicationModule(t *testing.T, source string) string {
 	t.Helper()
 	return writeModule(t, map[string]string{
 		"go.mod": "module example.com/eventapplication\n\ngo 1.26.0\n\n" +
-			"require github.com/StevenBuglione/spice v0.0.0\n\n" +
-			"replace github.com/StevenBuglione/spice => " +
+			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(applicationRepositoryRoot(t)) + "\n",
 		"app/application.go": source,
 	})

@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	compilercache "github.com/StevenBuglione/spice/compiler/cache"
-	"github.com/StevenBuglione/spice/compiler/configuration"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	runtimeconfig "github.com/StevenBuglione/spice/config"
+	"github.com/spice-framework/spice/annotation/sdk"
+	compilercache "github.com/spice-framework/spice/compiler/cache"
+	"github.com/spice-framework/spice/compiler/configuration"
+	"github.com/spice-framework/spice/compiler/provider"
+	runtimeconfig "github.com/spice-framework/spice/config"
 )
 
 func writeApplicationOptions(

@@ -1,14 +1,14 @@
-// @import { Application } from "github.com/StevenBuglione/spice/annotation/core"
-// @import { Module } from "github.com/StevenBuglione/spice/annotation/modulith"
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package spiceapp owns the generated production Spice CLI application graph.
 //
-// @Module(allowedDependencies=["github.com/StevenBuglione/spice/internal/cli"])
+// @Module(allowedDependencies=["github.com/spice-framework/spice/internal/cli"])
 package spiceapp
 
 import (
-	_ "github.com/StevenBuglione/spice/internal/autoconfigure"
-	"github.com/StevenBuglione/spice/internal/cli"
+	_ "github.com/spice-framework/spice/internal/autoconfigure"
+	"github.com/spice-framework/spice/internal/cli"
 )
 
 // Spice defines the production CLI root. Its body is never executed during

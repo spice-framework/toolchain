@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/modulith"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/modulith"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 type moduleArguments struct {

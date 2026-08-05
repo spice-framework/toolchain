@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 	"testing"
 
-	asyncannotation "github.com/StevenBuglione/spice/annotation/async"
-	cacheannotation "github.com/StevenBuglione/spice/annotation/cache"
-	coreannotation "github.com/StevenBuglione/spice/annotation/core"
-	dataannotation "github.com/StevenBuglione/spice/annotation/data"
-	eventannotation "github.com/StevenBuglione/spice/annotation/event"
-	lifecycleannotation "github.com/StevenBuglione/spice/annotation/lifecycle"
-	managementannotation "github.com/StevenBuglione/spice/annotation/management"
-	modulithannotation "github.com/StevenBuglione/spice/annotation/modulith"
-	observabilityannotation "github.com/StevenBuglione/spice/annotation/observability"
-	scheduleannotation "github.com/StevenBuglione/spice/annotation/schedule"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	securityannotation "github.com/StevenBuglione/spice/annotation/security"
-	webannotation "github.com/StevenBuglione/spice/annotation/web"
+	asyncannotation "github.com/spice-framework/spice/annotation/async"
+	cacheannotation "github.com/spice-framework/spice/annotation/cache"
+	coreannotation "github.com/spice-framework/spice/annotation/core"
+	dataannotation "github.com/spice-framework/spice/annotation/data"
+	eventannotation "github.com/spice-framework/spice/annotation/event"
+	lifecycleannotation "github.com/spice-framework/spice/annotation/lifecycle"
+	managementannotation "github.com/spice-framework/spice/annotation/management"
+	modulithannotation "github.com/spice-framework/spice/annotation/modulith"
+	observabilityannotation "github.com/spice-framework/spice/annotation/observability"
+	scheduleannotation "github.com/spice-framework/spice/annotation/schedule"
+	"github.com/spice-framework/spice/annotation/sdk"
+	securityannotation "github.com/spice-framework/spice/annotation/security"
+	webannotation "github.com/spice-framework/spice/annotation/web"
 )
 
 func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
@@ -177,7 +177,7 @@ func handlerFailureCase(
 }
 
 func annotationPackage(domain string) string {
-	return "github.com/StevenBuglione/spice/annotation/" + domain
+	return "github.com/spice-framework/spice/annotation/" + domain
 }
 
 func positionalToolArgument(value string) sdk.InvocationArgument {

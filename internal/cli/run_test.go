@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -440,51 +440,51 @@ func withTestAnnotationImports(
 				"SessionScope",
 				"Singleton",
 			},
-			path: "github.com/StevenBuglione/spice/annotation/core",
+			path: "github.com/spice-framework/spice/annotation/core",
 		},
 		{
 			symbols: []string{"OnStart", "OnStop"},
-			path:    "github.com/StevenBuglione/spice/annotation/lifecycle",
+			path:    "github.com/spice-framework/spice/annotation/lifecycle",
 		},
 		{
 			symbols: []string{"Module", "NamedInterface"},
-			path:    "github.com/StevenBuglione/spice/annotation/modulith",
+			path:    "github.com/spice-framework/spice/annotation/modulith",
 		},
 		{
 			symbols: []string{"Controller", "Get", "Post"},
-			path:    "github.com/StevenBuglione/spice/annotation/web",
+			path:    "github.com/spice-framework/spice/annotation/web",
 		},
 		{
 			namespace: "async",
-			path:      "github.com/StevenBuglione/spice/annotation/async",
+			path:      "github.com/spice-framework/spice/annotation/async",
 		},
 		{
 			namespace: "cache",
-			path:      "github.com/StevenBuglione/spice/annotation/cache",
+			path:      "github.com/spice-framework/spice/annotation/cache",
 		},
 		{
 			namespace: "data",
-			path:      "github.com/StevenBuglione/spice/annotation/data",
+			path:      "github.com/spice-framework/spice/annotation/data",
 		},
 		{
 			namespace: "event",
-			path:      "github.com/StevenBuglione/spice/annotation/event",
+			path:      "github.com/spice-framework/spice/annotation/event",
 		},
 		{
 			namespace: "management",
-			path:      "github.com/StevenBuglione/spice/annotation/management",
+			path:      "github.com/spice-framework/spice/annotation/management",
 		},
 		{
 			namespace: "observability",
-			path:      "github.com/StevenBuglione/spice/annotation/observability",
+			path:      "github.com/spice-framework/spice/annotation/observability",
 		},
 		{
 			namespace: "schedule",
-			path:      "github.com/StevenBuglione/spice/annotation/schedule",
+			path:      "github.com/spice-framework/spice/annotation/schedule",
 		},
 		{
 			namespace: "security",
-			path:      "github.com/StevenBuglione/spice/annotation/security",
+			path:      "github.com/spice-framework/spice/annotation/security",
 		},
 	}
 	var directives []string
@@ -535,31 +535,31 @@ func withTestAnnotationTool(t *testing.T, content string) string {
 	content = strings.Join(lines, "\n")
 	if !strings.Contains(
 		content,
-		"tool github.com/StevenBuglione/spice/cmd/spice-annotation-core",
+		"tool github.com/spice-framework/spice/cmd/spice-annotation-core",
 	) {
-		content += "\ntool github.com/StevenBuglione/spice/cmd/spice-annotation-core\n"
+		content += "\ntool github.com/spice-framework/spice/cmd/spice-annotation-core\n"
 	}
 	if strings.Contains(
 		content,
-		"module github.com/StevenBuglione/spice",
+		"module github.com/spice-framework/spice",
 	) {
 		return content
 	}
 	if !strings.Contains(
 		content,
-		"require github.com/StevenBuglione/spice ",
+		"require github.com/spice-framework/spice ",
 	) {
-		content += "\nrequire github.com/StevenBuglione/spice v0.0.0\n"
+		content += "\nrequire github.com/spice-framework/spice v0.0.0\n"
 	}
 	if !strings.Contains(
 		content,
-		"replace github.com/StevenBuglione/spice =>",
+		"replace github.com/spice-framework/spice =>",
 	) {
 		repository, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
 			t.Fatal(err)
 		}
-		content += "\nreplace github.com/StevenBuglione/spice => " +
+		content += "\nreplace github.com/spice-framework/spice => " +
 			filepath.ToSlash(repository) + "\n"
 	}
 	return content

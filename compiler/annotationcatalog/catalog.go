@@ -21,13 +21,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/annotationhost"
+	"github.com/spice-framework/spice/compiler/annotationhost"
 )
 
 const (
-	sdkPackagePath         = "github.com/StevenBuglione/spice/annotation/sdk"
-	coreToolPackagePath    = "github.com/StevenBuglione/spice/annotation/coretool"
-	coreToolPath           = "github.com/StevenBuglione/spice/cmd/spice-annotation-core"
+	sdkPackagePath         = "github.com/spice-framework/spice/annotation/sdk"
+	coreToolPackagePath    = "github.com/spice-framework/spice/annotation/coretool"
+	coreToolPath           = "github.com/spice-framework/spice/cmd/spice-annotation-core"
 	maximumCatalogModules  = 512
 	maximumCatalogFiles    = 100_000
 	maximumCatalogBytes    = 64 << 20

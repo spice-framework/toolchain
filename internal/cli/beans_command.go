@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 type beansArguments struct {

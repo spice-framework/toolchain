@@ -10,26 +10,26 @@ import (
 	"sort"
 	"strings"
 
-	asyncannotation "github.com/StevenBuglione/spice/annotation/async"
-	cacheannotation "github.com/StevenBuglione/spice/annotation/cache"
-	coreannotation "github.com/StevenBuglione/spice/annotation/core"
-	"github.com/StevenBuglione/spice/annotation/coretool"
-	dataannotation "github.com/StevenBuglione/spice/annotation/data"
-	eventannotation "github.com/StevenBuglione/spice/annotation/event"
-	lifecycleannotation "github.com/StevenBuglione/spice/annotation/lifecycle"
-	managementannotation "github.com/StevenBuglione/spice/annotation/management"
-	modulithannotation "github.com/StevenBuglione/spice/annotation/modulith"
-	observabilityannotation "github.com/StevenBuglione/spice/annotation/observability"
-	scheduleannotation "github.com/StevenBuglione/spice/annotation/schedule"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/annotation/sdk/protocol"
-	securityannotation "github.com/StevenBuglione/spice/annotation/security"
-	webannotation "github.com/StevenBuglione/spice/annotation/web"
+	asyncannotation "github.com/spice-framework/spice/annotation/async"
+	cacheannotation "github.com/spice-framework/spice/annotation/cache"
+	coreannotation "github.com/spice-framework/spice/annotation/core"
+	"github.com/spice-framework/spice/annotation/coretool"
+	dataannotation "github.com/spice-framework/spice/annotation/data"
+	eventannotation "github.com/spice-framework/spice/annotation/event"
+	lifecycleannotation "github.com/spice-framework/spice/annotation/lifecycle"
+	managementannotation "github.com/spice-framework/spice/annotation/management"
+	modulithannotation "github.com/spice-framework/spice/annotation/modulith"
+	observabilityannotation "github.com/spice-framework/spice/annotation/observability"
+	scheduleannotation "github.com/spice-framework/spice/annotation/schedule"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk/protocol"
+	securityannotation "github.com/spice-framework/spice/annotation/security"
+	webannotation "github.com/spice-framework/spice/annotation/web"
 )
 
 const (
 	toolPath   = coretool.Path
-	modulePath = "github.com/StevenBuglione/spice"
+	modulePath = "github.com/spice-framework/spice"
 )
 
 var descriptorPackages = []string{

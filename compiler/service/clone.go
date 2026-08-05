@@ -3,7 +3,7 @@ package service
 import (
 	"slices"
 
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
+	"github.com/spice-framework/spice/compiler/diagnostic"
 )
 
 func cloneProviderGraph(graph ProviderGraph) ProviderGraph {

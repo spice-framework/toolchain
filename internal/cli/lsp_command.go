@@ -5,9 +5,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/StevenBuglione/spice/compiler/load"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
-	"github.com/StevenBuglione/spice/internal/lsp"
+	"github.com/spice-framework/spice/compiler/load"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/spice/internal/lsp"
 )
 
 // NewLSPHandler constructs the editor-neutral language-server handler.

@@ -27,14 +27,14 @@ func TestCatalogTreatsFirstCleanupResultAsProvidedOutput(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := writeModule(t, map[string]string{
-				"go.mod": "module github.com/StevenBuglione/spice\n\ngo 1.23.0\n",
+				"go.mod": "module github.com/spice-framework/spice\n\ngo 1.23.0\n",
 				"lifecycle/cleanup.go": `package lifecycle
 import "context"
 type Cleanup func(context.Context) error
 `,
 				"app/providers.go": fmt.Sprintf(`package app
 
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 
 %s
 
@@ -80,10 +80,10 @@ func TestCatalogRejectsWrongShapeCanonicalCleanupReplacement(t *testing.T) {
 
 go 1.23.0
 
-require github.com/StevenBuglione/spice v0.0.0
-replace github.com/StevenBuglione/spice => ./fake-spice
+require github.com/spice-framework/spice v0.0.0
+replace github.com/spice-framework/spice => ./fake-spice
 `,
-				"fake-spice/go.mod": `module github.com/StevenBuglione/spice
+				"fake-spice/go.mod": `module github.com/spice-framework/spice
 
 
 go 1.23.0
@@ -91,7 +91,7 @@ go 1.23.0
 				"fake-spice/lifecycle/cleanup.go": test.declaration,
 				"app/providers.go": `package app
 
-import life "github.com/StevenBuglione/spice/lifecycle"
+import life "github.com/spice-framework/spice/lifecycle"
 
 type Value struct{}
 

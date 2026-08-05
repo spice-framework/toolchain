@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/application"
-	compilerasync "github.com/StevenBuglione/spice/compiler/async"
-	compilercache "github.com/StevenBuglione/spice/compiler/cache"
-	"github.com/StevenBuglione/spice/compiler/controller"
-	compilerevent "github.com/StevenBuglione/spice/compiler/event"
-	"github.com/StevenBuglione/spice/compiler/provider"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/application"
+	compilerasync "github.com/spice-framework/spice/compiler/async"
+	compilercache "github.com/spice-framework/spice/compiler/cache"
+	"github.com/spice-framework/spice/compiler/controller"
+	compilerevent "github.com/spice-framework/spice/compiler/event"
+	"github.com/spice-framework/spice/compiler/provider"
 )
 
 func importAliases(

@@ -9,19 +9,19 @@ import (
 	"go/types"
 	"sort"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/sdk"
-	"github.com/StevenBuglione/spice/compiler/controller"
-	"github.com/StevenBuglione/spice/compiler/load"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	"github.com/StevenBuglione/spice/compiler/resolve"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/controller"
+	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/spice/compiler/resolve"
 )
 
 const (
 	// Annotation identifies the built-in transaction-boundary annotation.
 	Annotation = "data.Transactional"
 
-	dataPackagePath = "github.com/StevenBuglione/spice/data"
+	dataPackagePath = "github.com/spice-framework/spice/data"
 )
 
 // Boundary is one immutable generated transaction boundary.

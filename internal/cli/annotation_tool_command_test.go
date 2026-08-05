@@ -17,9 +17,9 @@ func TestAnnotationsListAndDoctorAreReadOnlyAndFailClosed(t *testing.T) {
 
 go 1.26.0
 
-require github.com/StevenBuglione/spice v0.0.0
+require github.com/spice-framework/spice v0.0.0
 
-replace github.com/StevenBuglione/spice => `+filepath.ToSlash(repository)+"\n")
+replace github.com/spice-framework/spice => `+filepath.ToSlash(repository)+"\n")
 	writeAnnotationCommandFile(t, root, "app/app.go", `package app
 
 // @import { Echo } from "example.com/fixture/annotations"
@@ -35,7 +35,7 @@ type Value struct{}
 
 import (
 	"context"
-	"github.com/StevenBuglione/spice/annotation/sdk"
+	"github.com/spice-framework/spice/annotation/sdk"
 )
 
 // Echo documents the fixture annotation.

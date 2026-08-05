@@ -6,14 +6,14 @@
 package spicegen
 
 import (
-	autoconfigure "github.com/StevenBuglione/spice/internal/autoconfigure"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	autoconfigure "github.com/spice-framework/spice/internal/autoconfigure"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
-// ConstructRuntime_db45b3f3 performs the direct construction selected for bean "runtime".
-// Spice source identity: spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultRuntime.
-func ConstructRuntime_db45b3f3() (*cli.Runtime, spicelifecycle.Cleanup, error) {
+// ConstructRuntime_f87f17cd performs the direct construction selected for bean "runtime".
+// Spice source identity: spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultRuntime.
+func ConstructRuntime_f87f17cd() (*cli.Runtime, spicelifecycle.Cleanup, error) {
 	value := autoconfigure.DefaultRuntime()
 	return value, nil, nil
 }

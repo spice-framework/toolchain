@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/StevenBuglione/spice/compiler/application"
-	compilerasync "github.com/StevenBuglione/spice/compiler/async"
-	"github.com/StevenBuglione/spice/compiler/provider"
-	compilerschedule "github.com/StevenBuglione/spice/compiler/schedule"
+	"github.com/spice-framework/spice/compiler/application"
+	compilerasync "github.com/spice-framework/spice/compiler/async"
+	"github.com/spice-framework/spice/compiler/provider"
+	compilerschedule "github.com/spice-framework/spice/compiler/schedule"
 )
 
 func writeAsyncApplicationFields(

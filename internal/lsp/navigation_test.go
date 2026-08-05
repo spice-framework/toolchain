@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/StevenBuglione/spice/annotation"
-	"github.com/StevenBuglione/spice/annotation/builtin"
-	"github.com/StevenBuglione/spice/compiler/diagnostic"
-	compilerservice "github.com/StevenBuglione/spice/compiler/service"
+	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/spice/annotation/builtin"
+	"github.com/spice-framework/spice/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/spice/compiler/service"
 )
 
 func TestAnnotationOccurrencesSelectOnlyDeclarationComments(t *testing.T) {

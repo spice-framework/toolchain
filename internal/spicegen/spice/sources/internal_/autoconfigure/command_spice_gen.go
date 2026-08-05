@@ -8,18 +8,18 @@ package spicegen
 import (
 	fmt "fmt"
 
-	autoconfigure "github.com/StevenBuglione/spice/internal/autoconfigure"
-	cli "github.com/StevenBuglione/spice/internal/cli"
-	spicelifecycle "github.com/StevenBuglione/spice/lifecycle"
+	autoconfigure "github.com/spice-framework/spice/internal/autoconfigure"
+	cli "github.com/spice-framework/spice/internal/cli"
+	spicelifecycle "github.com/spice-framework/spice/lifecycle"
 )
 
-// ConstructCommand_ea2da0e1 performs the direct construction selected for bean "command".
-// Spice source identity: spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultCommand.
-func ConstructCommand_ea2da0e1(dependency0 []cli.Handler) (*cli.Command, spicelifecycle.Cleanup, error) {
+// ConstructCommand_183145f9 performs the direct construction selected for bean "command".
+// Spice source identity: spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultCommand.
+func ConstructCommand_183145f9(dependency0 []cli.Handler) (*cli.Command, spicelifecycle.Cleanup, error) {
 	value, err := autoconfigure.DefaultCommand(dependency0)
 	if err != nil {
 		var zero *cli.Command
-		return zero, nil, fmt.Errorf("construct bean command (*github.com/StevenBuglione/spice/internal/cli.Command, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err)
+		return zero, nil, fmt.Errorf("construct bean command (*github.com/spice-framework/spice/internal/cli.Command, source spice:symbol:v1|function|55:github.com/spice-framework/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err)
 	}
 	return value, nil, nil
 }

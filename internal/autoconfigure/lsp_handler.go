@@ -1,6 +1,6 @@
 package autoconfigure
 
-import "github.com/StevenBuglione/spice/internal/cli"
+import "github.com/spice-framework/spice/internal/cli"
 
 // DefaultLSPHandler constructs the language-server command.
 func DefaultLSPHandler(runtime *cli.Runtime) (cli.Handler, error) {

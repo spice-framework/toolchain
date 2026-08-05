@@ -1,6 +1,6 @@
 package autoconfigure
 
-import "github.com/StevenBuglione/spice/internal/cli"
+import "github.com/spice-framework/spice/internal/cli"
 
 // DefaultBuildHandler constructs the build command.
 func DefaultBuildHandler(runtime *cli.Runtime) (cli.Handler, error) {

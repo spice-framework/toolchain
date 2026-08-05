@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/StevenBuglione/spice/compiler/load"
+	"github.com/spice-framework/spice/compiler/load"
 )
 
 func TestRuntimeClonesMutableLoadOptions(t *testing.T) {
