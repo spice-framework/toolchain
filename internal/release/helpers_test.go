@@ -21,6 +21,7 @@ func TestReleaseEnvironmentReplacesBuildControls(t *testing.T) {
 		"CGO_ENABLED=0",
 		"GOPROXY=off",
 		"GOTOOLCHAIN=local",
+		"GOWORK=off",
 	} {
 		if strings.Count(joined, want) != 1 {
 			t.Errorf("environment has %d occurrences of %q", strings.Count(joined, want), want)

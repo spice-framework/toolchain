@@ -14,9 +14,10 @@ import (
 )
 
 type archiveEntry struct {
-	name string
-	mode os.FileMode
-	data []byte
+	name       string
+	mode       os.FileMode
+	data       []byte
+	linkTarget string
 }
 
 func writeArchive(
@@ -63,6 +64,13 @@ func writeZip(
 ) error {
 	writer := zip.NewWriter(output)
 	for _, entry := range entries {
+		if entry.linkTarget != "" {
+			closeErr := writer.Close()
+			return errors.Join(
+				fmt.Errorf("ZIP entry %q is a symlink", entry.name),
+				closeErr,
+			)
+		}
 		header := &zip.FileHeader{
 			Name:     path.Clean(entry.name),
 			Method:   zip.Deflate,
@@ -104,14 +112,21 @@ func writeTarGzip(
 	gzipWriter.OS = 255
 	tarWriter := tar.NewWriter(gzipWriter)
 	for _, entry := range entries {
+		typeFlag := byte(tar.TypeReg)
+		size := int64(len(entry.data))
+		if entry.linkTarget != "" {
+			typeFlag = tar.TypeSymlink
+			size = 0
+		}
 		header := &tar.Header{
 			Name:       path.Clean(entry.name),
 			Mode:       int64(entry.mode),
-			Size:       int64(len(entry.data)),
+			Size:       size,
 			ModTime:    epoch,
 			AccessTime: epoch,
 			ChangeTime: epoch,
-			Typeflag:   tar.TypeReg,
+			Typeflag:   typeFlag,
+			Linkname:   entry.linkTarget,
 			Format:     tar.FormatPAX,
 		}
 		if err := tarWriter.WriteHeader(header); err != nil {
@@ -120,6 +135,9 @@ func writeTarGzip(
 				tarWriter.Close(),
 				gzipWriter.Close(),
 			)
+		}
+		if entry.linkTarget != "" {
+			continue
 		}
 		if _, err := tarWriter.Write(entry.data); err != nil {
 			return errors.Join(

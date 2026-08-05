@@ -324,6 +324,15 @@ func TestGoVersionAndToolPathValidateCommandOutput(t *testing.T) {
 			},
 			want: `resolve pinned tool "gofumpt": empty path`,
 		},
+		{
+			name:   "multiple tool paths",
+			output: "first\nsecond\n",
+			call: func(gate verifier) error {
+				_, err := gate.toolPath(context.Background(), "gofumpt")
+				return err
+			},
+			want: `resolve pinned tool "gofumpt": expected one path, got 2`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -339,6 +348,48 @@ func TestGoVersionAndToolPathValidateCommandOutput(t *testing.T) {
 				t.Fatalf("call() error = %v, want containing %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestToolPathUsesOnlyStdoutFromCleanCacheResolution(t *testing.T) {
+	t.Parallel()
+	const executable = `C:\Program Files\Go Tools\goimports.exe`
+	gate := verifier{
+		root:   t.TempDir(),
+		output: io.Discard,
+		executeStreams: func(context.Context, string, map[string]string, string, ...string) ([]byte, []byte, error) {
+			return []byte(executable + "\r\n"), []byte("go: downloading golang.org/x/tools v0.48.0\n"), nil
+		},
+	}
+
+	got, err := gate.toolPath(context.Background(), "goimports")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != executable {
+		t.Fatalf("toolPath() = %q, want %q", got, executable)
+	}
+}
+
+func TestCommandFailureIncludesBoundedStdoutAndStderr(t *testing.T) {
+	t.Parallel()
+	gate := verifier{
+		root:   t.TempDir(),
+		output: io.Discard,
+		executeStreams: func(context.Context, string, map[string]string, string, ...string) ([]byte, []byte, error) {
+			return []byte("stdout detail"), bytes.Repeat([]byte("stderr detail"), maxCommandFailureOutput), errors.New("exit status 1")
+		},
+	}
+
+	_, err := gate.capture(context.Background(), gate.root, nil, "tool", "argument")
+	if err == nil {
+		t.Fatal("capture() error = nil")
+	}
+	if !strings.Contains(err.Error(), "[command output truncated]") || !strings.Contains(err.Error(), "stderr detail") {
+		t.Fatalf("capture() error = %q", err)
+	}
+	if len(err.Error()) > maxCommandFailureOutput+256 {
+		t.Fatalf("capture() error length = %d", len(err.Error()))
 	}
 }
 

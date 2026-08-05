@@ -60,12 +60,12 @@ is deliberately untracked and recreated by verification.
 ## Extraction provenance
 
 The repository retains the filtered history of the compiler/tooling boundary.
-Its initial public-core bridge is pinned to
-`github.com/spice-framework/spice@v0.0.0-20260805194120-5eb20b5026e9`
-(commit `5eb20b5026e92f690bab3c5745cb0dc562ff8d23`). The Apache-2.0 license and
-pinned quality-tool versions were carried from that source revision, then the
-module identities and standalone gate were adapted here. No migration script or
-machine-specific replacement is part of the published tree.
+Its public-core bridge is pinned to
+`github.com/spice-framework/spice@v0.0.0-20260805222830-a2ecd56df246`
+(commit `a2ecd56df246ad3a647b64b0585738a2495ecf5c`). The Apache-2.0 license and
+pinned quality-tool versions were carried from the extracted source history,
+then the module identities and standalone gate were adapted here. No migration
+script or machine-specific replacement is part of the published tree.
 
 ## Extraction status
 

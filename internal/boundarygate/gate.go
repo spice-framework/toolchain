@@ -24,6 +24,8 @@ import (
 
 const requiredGoVersion = "go1.26.5"
 
+const maxCommandFailureOutput = 32 * 1024
+
 var checkedPackages = []string{
 	"./cmd/spice",
 	"./cmd/spice-annotation-core",
@@ -64,9 +66,10 @@ func Run(ctx context.Context, root, mode string, output io.Writer) error {
 }
 
 type verifier struct {
-	root    string
-	output  io.Writer
-	execute commandExecutor
+	root           string
+	output         io.Writer
+	execute        commandExecutor
+	executeStreams commandStreamExecutor
 }
 
 type commandExecutor func(
@@ -76,6 +79,14 @@ type commandExecutor func(
 	string,
 	...string,
 ) ([]byte, error)
+
+type commandStreamExecutor func(
+	context.Context,
+	string,
+	map[string]string,
+	string,
+	...string,
+) ([]byte, []byte, error)
 
 func (gate verifier) fast(ctx context.Context) error {
 	if err := gate.goVersion(ctx); err != nil {
@@ -402,11 +413,19 @@ func (gate verifier) toolPath(ctx context.Context, name string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	path := strings.TrimSpace(string(output))
-	if path == "" {
+	var paths []string
+	for _, line := range strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n") {
+		if path := strings.TrimSpace(line); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	if len(paths) == 0 {
 		return "", fmt.Errorf("resolve pinned tool %q: empty path", name)
 	}
-	return path, nil
+	if len(paths) != 1 {
+		return "", fmt.Errorf("resolve pinned tool %q: expected one path, got %d", name, len(paths))
+	}
+	return paths[0], nil
 }
 
 func (gate verifier) identityBoundary() error {
@@ -611,21 +630,38 @@ func (gate verifier) command(
 	if _, err := fmt.Fprintf(gate.output, "    %s %s\n", executable, strings.Join(arguments, " ")); err != nil {
 		return nil, err
 	}
+	if gate.executeStreams != nil {
+		stdout, stderr, err := gate.executeStreams(ctx, directory, environment, executable, arguments...)
+		return commandResult(executable, arguments, stdout, stderr, err)
+	}
 	if gate.execute != nil {
-		return gate.execute(ctx, directory, environment, executable, arguments...)
+		output, err := gate.execute(ctx, directory, environment, executable, arguments...)
+		return commandResult(executable, arguments, output, nil, err)
 	}
 	command := exec.CommandContext(ctx, executable, arguments...) // #nosec G204 -- verifier commands are repository-owned constants.
 	command.Dir = directory
 	command.Env = mergedEnvironment(environment)
-	output, err := command.CombinedOutput()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	return commandResult(executable, arguments, stdout.Bytes(), stderr.Bytes(), err)
+}
+
+func commandResult(executable string, arguments []string, stdout, stderr []byte, err error) ([]byte, error) {
 	if err != nil {
-		text := strings.TrimSpace(string(output))
+		detail := bytes.TrimSpace(bytes.Join([][]byte{bytes.TrimSpace(stdout), bytes.TrimSpace(stderr)}, []byte("\n")))
+		if len(detail) > maxCommandFailureOutput {
+			detail = append([]byte("[command output truncated]\n"), detail[len(detail)-maxCommandFailureOutput:]...)
+		}
+		text := string(detail)
 		if text == "" {
 			return nil, fmt.Errorf("%s %s: %w", executable, strings.Join(arguments, " "), err)
 		}
 		return nil, fmt.Errorf("%s %s: %w\n%s", executable, strings.Join(arguments, " "), err, text)
 	}
-	return output, nil
+	return stdout, nil
 }
 
 func (gate verifier) removeTemporary(path string) {

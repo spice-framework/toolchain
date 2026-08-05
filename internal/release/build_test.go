@@ -278,7 +278,10 @@ func checkHostArchive(t *testing.T, directory string, files []string) {
 	target := HostTarget()
 	var archiveName string
 	for _, name := range files {
-		if strings.HasSuffix(name, target.ArchiveExtension()) {
+		if strings.Contains(
+			name,
+			"_"+target.GOOS+"_"+target.GOARCH,
+		) && strings.HasSuffix(name, target.ArchiveExtension()) {
 			archiveName = name
 			break
 		}

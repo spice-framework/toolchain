@@ -47,6 +47,28 @@ func Build(
 	if err != nil {
 		return Result{}, err
 	}
+	snapshot, err := captureSourceSnapshot(ctx, normalized.Root)
+	if err != nil {
+		return Result{}, err
+	}
+	if validationErr := validateRequiredSnapshotFiles(snapshot); validationErr != nil {
+		return Result{}, validationErr
+	}
+	buildRoot, err := os.MkdirTemp("", "spice-release-source-*")
+	if err != nil {
+		return Result{}, fmt.Errorf("create private release build root: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(buildRoot); cleanupErr != nil {
+			resultErr = errors.Join(
+				resultErr,
+				fmt.Errorf("remove private release build root: %w", cleanupErr),
+			)
+		}
+	}()
+	if materializeErr := snapshot.materialize(buildRoot); materializeErr != nil {
+		return Result{}, materializeErr
+	}
 	parent := filepath.Dir(normalized.OutputDir)
 	if mkdirErr := os.MkdirAll(parent, 0o750); mkdirErr != nil {
 		return Result{}, fmt.Errorf(
@@ -73,7 +95,13 @@ func Build(
 		}
 	}()
 
-	files, err := buildArtifacts(ctx, normalized, staging)
+	files, err := buildArtifacts(
+		ctx,
+		normalized,
+		staging,
+		buildRoot,
+		snapshot,
+	)
 	if err != nil {
 		return Result{}, err
 	}
@@ -100,7 +128,7 @@ func normalizeConfig(ctx context.Context, config Config) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("resolve release output directory: %w", err)
 	}
-	if pathErr := validateReleasePaths(root, output); pathErr != nil {
+	if pathErr := validateReleaseOutput(output); pathErr != nil {
 		return Config{}, pathErr
 	}
 	targets, err := normalizeTargets(config.Targets)
@@ -136,7 +164,7 @@ func validateConfig(ctx context.Context, config Config) error {
 	return nil
 }
 
-func validateReleasePaths(root, output string) error {
+func validateReleaseOutput(output string) error {
 	if _, err := os.Stat(output); err == nil {
 		return fmt.Errorf(
 			"build release: output directory %q already exists",
@@ -144,15 +172,6 @@ func validateReleasePaths(root, output string) error {
 		)
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect release output directory: %w", err)
-	}
-	for _, name := range []string{"go.mod", "LICENSE", "README.md"} {
-		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
-			return fmt.Errorf(
-				"build release: required root file %q: %w",
-				name,
-				err,
-			)
-		}
 	}
 	return nil
 }
@@ -188,19 +207,23 @@ func buildArtifacts(
 	ctx context.Context,
 	config Config,
 	staging string,
+	buildRoot string,
+	snapshot sourceSnapshot,
 ) ([]string, error) {
-	license, err := readScopedFile(config.Root, "LICENSE")
+	license, err := snapshot.file("LICENSE")
 	if err != nil {
 		return nil, fmt.Errorf("read release license: %w", err)
 	}
-	readme, err := readScopedFile(config.Root, "README.md")
+	readme, err := snapshot.file("README.md")
 	if err != nil {
 		return nil, fmt.Errorf("read release README: %w", err)
 	}
 	var files []string
 	versionName := strings.TrimPrefix(config.Version, "v")
+	buildConfig := config
+	buildConfig.Root = buildRoot
 	for _, target := range config.Targets {
-		binary, buildErr := buildBinary(ctx, config, staging, target)
+		binary, buildErr := buildBinary(ctx, buildConfig, staging, target)
 		if buildErr != nil {
 			return nil, buildErr
 		}
@@ -234,10 +257,20 @@ func buildArtifacts(
 		}
 		files = append(files, archiveName)
 	}
+	sourceArchiveName := "spice_" + versionName + "_source.tar.gz"
+	if sourceArchiveErr := writeArchive(
+		filepath.Join(staging, sourceArchiveName),
+		Target{GOOS: "linux", GOARCH: "source"},
+		config.Epoch,
+		snapshot.archiveEntries("spice-"+versionName),
+	); sourceArchiveErr != nil {
+		return nil, fmt.Errorf("write release source archive: %w", sourceArchiveErr)
+	}
+	files = append(files, sourceArchiveName)
 	sbomName := "spice_" + versionName + "_sbom.spdx.json"
 	sbom, err := buildSBOM(
 		ctx,
-		config.Root,
+		buildRoot,
 		config.Version,
 		config.Epoch,
 	)
@@ -345,11 +378,11 @@ func buildBinary(
 }
 
 func releaseEnvironment(goos, goarch string) []string {
-	environment := make([]string, 0, len(os.Environ())+5)
+	environment := make([]string, 0, len(os.Environ())+6)
 	for _, value := range os.Environ() {
 		name, _, _ := strings.Cut(value, "=")
 		switch strings.ToUpper(name) {
-		case "CGO_ENABLED", "GOARCH", "GOOS", "GOPROXY", "GOTOOLCHAIN":
+		case "CGO_ENABLED", "GOARCH", "GOOS", "GOPROXY", "GOTOOLCHAIN", "GOWORK":
 			continue
 		default:
 			environment = append(environment, value)
@@ -360,6 +393,7 @@ func releaseEnvironment(goos, goarch string) []string {
 		"CGO_ENABLED=0",
 		"GOPROXY=off",
 		"GOTOOLCHAIN=local",
+		"GOWORK=off",
 	)
 	if goos != "" {
 		environment = append(environment, "GOOS="+goos)

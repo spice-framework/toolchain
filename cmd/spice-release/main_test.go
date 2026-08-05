@@ -112,7 +112,7 @@ func TestRunBuildsHostRehearsal(t *testing.T) {
 		&stderr,
 	)
 	if code != 0 ||
-		!strings.Contains(stdout.String(), "created 5 artifact(s)") ||
+		!strings.Contains(stdout.String(), "created 6 artifact(s)") ||
 		stderr.Len() != 0 {
 		t.Fatalf(
 			"run() code=%d stdout=%q stderr=%q",
@@ -122,6 +122,9 @@ func TestRunBuildsHostRehearsal(t *testing.T) {
 		)
 	}
 	if _, err := os.Stat(filepath.Join(output, "checksums.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "spice_0.8.0-rc.1_source.tar.gz")); err != nil {
 		t.Fatal(err)
 	}
 }

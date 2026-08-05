@@ -10,7 +10,7 @@ tool (
 	github.com/spice-framework/toolchain/cmd/spice-annotation-core
 )
 
-require github.com/spice-framework/spice v0.0.0-20260805194120-5eb20b5026e9
+require github.com/spice-framework/spice v0.0.0-20260805222830-a2ecd56df246
 
 require (
 	example.com/spice-annotation-fixture v0.0.0 // indirect
