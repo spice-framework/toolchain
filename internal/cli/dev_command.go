@@ -104,7 +104,10 @@ func devCommandContext(
 		}
 	}()
 	watcher, err := devloop.NewPollingWatcher(
-		ctx,
+		// Engine.Run owns watcher shutdown. Detaching the polling resource from
+		// the caller's cancellation prevents its event channel from closing
+		// before the engine's derived run context observes the same cancellation.
+		developmentWatcherContext(ctx),
 		devloop.PollingConfig{
 			Root:     root,
 			Interval: parsed.poll,
@@ -169,6 +172,10 @@ func devCommandContext(
 		return 1
 	}
 	return 0
+}
+
+func developmentWatcherContext(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
 }
 
 func parseDevArguments(arguments []string) (devArguments, error) {

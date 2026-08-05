@@ -155,6 +155,25 @@ func TestBoundedOutputTruncatesWithoutShortWrites(t *testing.T) {
 	}
 }
 
+func TestDevelopmentWatcherContextIsEngineOwned(t *testing.T) {
+	t.Parallel()
+	type contextKey struct{}
+	key := contextKey{}
+	parent, cancel := context.WithCancel(context.WithValue(
+		context.Background(),
+		key,
+		"workspace",
+	))
+	watcherContext := developmentWatcherContext(parent)
+	cancel()
+	if watcherContext.Err() != nil || watcherContext.Done() != nil {
+		t.Fatalf("watcher context canceled with parent: %v", watcherContext.Err())
+	}
+	if got := watcherContext.Value(key); got != "workspace" {
+		t.Fatalf("watcher context value = %v, want workspace", got)
+	}
+}
+
 func TestDevCommandKeepsLastKnownGoodAndRecovers(t *testing.T) {
 	root := packageMainRunModule(t)
 	mainPath := filepath.Join(root, "main.go")
