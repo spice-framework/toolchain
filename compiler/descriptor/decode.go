@@ -19,7 +19,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/identity"
 )
 
 const sdkPackagePath = "github.com/spice-framework/spice/annotation/sdk"
@@ -134,6 +135,10 @@ func Decode(
 	if err != nil {
 		return Descriptor{}, descriptorError(symbol, "%v", err)
 	}
+	definition.Implementation.Tool = identity.NormalizeDescriptorTool(
+		packagePath,
+		definition.Implementation.Tool,
+	)
 	nameSuffix := definition.Name
 	if separator := strings.LastIndexByte(nameSuffix, '.'); separator >= 0 {
 		nameSuffix = nameSuffix[separator+1:]

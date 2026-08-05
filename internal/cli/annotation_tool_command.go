@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/spice-framework/spice/annotation"
-	"github.com/spice-framework/spice/compiler/annotationhost"
-	"github.com/spice-framework/spice/compiler/annotationimport"
-	"github.com/spice-framework/spice/compiler/descriptor"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/annotationhost"
+	"github.com/spice-framework/toolchain/compiler/annotationimport"
+	"github.com/spice-framework/toolchain/compiler/descriptor"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 // NewAnnotationsHandler constructs the annotation inspection command handler.

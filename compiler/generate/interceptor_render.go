@@ -7,7 +7,7 @@ import (
 	"path"
 	"strconv"
 
-	"github.com/spice-framework/spice/compiler/controller"
+	"github.com/spice-framework/toolchain/compiler/controller"
 )
 
 type generatedRouteInterceptorField struct {

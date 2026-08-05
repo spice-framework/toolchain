@@ -19,7 +19,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/internal/moduleenv"
+	"github.com/spice-framework/toolchain/compiler/internal/moduleenv"
+	"github.com/spice-framework/toolchain/internal/identity"
 )
 
 const (
@@ -347,12 +348,19 @@ func moduleIdentity(module *goListModule) ModuleIdentity {
 }
 
 // ValidateDescriptorToolModule requires descriptor and executable packages to
-// resolve from the same module version and replacement identity.
+// resolve from the same module version and replacement identity. The official
+// extracted annotation tool is the sole exception: it serves the descriptors
+// owned by the independently versioned public core module.
 func ValidateDescriptorToolModule(
 	descriptor annotation.ModuleProvenance,
 	tool PackageIdentity,
 ) error {
 	resolved := tool.Module
+	if descriptor.Path == identity.CoreModule &&
+		tool.Path == identity.AnnotationTool &&
+		resolved.Path == identity.ToolchainModule {
+		return nil
+	}
 	if descriptor.Path != resolved.Path ||
 		descriptor.Version != resolved.Version {
 		return fmt.Errorf(

@@ -17,9 +17,9 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	annotationparser "github.com/spice-framework/spice/compiler/parser"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
 )
 
 type textDocumentPositionParams struct {

@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestDiscoverAndDecodeSelectedTypedConfiguration(t *testing.T) {
@@ -375,10 +376,7 @@ func autoConfigurationModule(
 ) string {
 	t.Helper()
 	root := t.TempDir()
-	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
+	repository := testsupport.CoreDirectory(t)
 	files["go.mod"] = "module example.com/auto\n\ngo 1.26.0\n\n" +
 		"require github.com/spice-framework/spice v0.0.0\n\n" +
 		"replace github.com/spice-framework/spice => " +

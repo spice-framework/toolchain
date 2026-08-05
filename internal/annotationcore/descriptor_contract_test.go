@@ -18,7 +18,7 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
 	securityannotation "github.com/spice-framework/spice/annotation/security"
 	webannotation "github.com/spice-framework/spice/annotation/web"
-	"github.com/spice-framework/spice/internal/annotationcore"
+	"github.com/spice-framework/toolchain/internal/annotationcore"
 )
 
 func TestEveryOfficialDescriptorHasOneDeclaredToolHandler(t *testing.T) {

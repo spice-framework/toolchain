@@ -16,7 +16,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
-	"github.com/spice-framework/spice/compiler/internal/moduleenv"
+	"github.com/spice-framework/toolchain/compiler/internal/moduleenv"
+	"github.com/spice-framework/toolchain/internal/identity"
 	"golang.org/x/mod/module"
 )
 
@@ -264,6 +265,7 @@ func (client *Client) initialize(ctx context.Context) error {
 	descriptorPackages, err := validateDescriptorPackages(
 		described.DescriptorPackages,
 		client.provenance.Module.Path,
+		client.provenance.Path,
 	)
 	if err != nil {
 		return fmt.Errorf(
@@ -513,6 +515,7 @@ func boundedContext(
 func validateDescriptorPackages(
 	values []string,
 	modulePath string,
+	toolPath string,
 ) ([]string, error) {
 	if len(values) == 0 {
 		return nil, errors.New(
@@ -528,8 +531,11 @@ func validateDescriptorPackages(
 				packagePath,
 			)
 		}
-		if packagePath != modulePath &&
-			!strings.HasPrefix(packagePath, modulePath+"/") {
+		withinToolModule := packagePath == modulePath ||
+			strings.HasPrefix(packagePath, modulePath+"/")
+		officialCoreDescriptor := toolPath == identity.AnnotationTool &&
+			identity.OfficialDescriptorPackage(packagePath)
+		if !withinToolModule && !officialCoreDescriptor {
 			return nil, fmt.Errorf(
 				"descriptor package %q is outside tool module %q",
 				packagePath,

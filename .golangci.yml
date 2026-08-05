@@ -1,0 +1,134 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+  modules-download-mode: vendor
+  allow-serial-runners: true
+
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bidichk
+    - containedctx
+    - depguard
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forbidigo
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - gocritic
+    - godoclint
+    - govet
+    - ineffassign
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - predeclared
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
+    - staticcheck
+    - thelper
+    - unconvert
+    - unused
+  settings:
+    depguard:
+      rules:
+        compiler:
+          list-mode: lax
+          files:
+            - "compiler/**/*.go"
+          deny:
+            - pkg: "github.com/spice-framework/toolchain/internal/cli"
+              desc: "compiler packages must not depend on the CLI"
+            - pkg: "github.com/spice-framework/toolchain/cmd"
+              desc: "compiler packages must not depend on command entrypoints"
+            - pkg: "github.com/spice-framework/spice/starter"
+              desc: "compiler packages must not depend on opt-in runtime starters"
+        annotation-tool:
+          list-mode: lax
+          files:
+            - "internal/annotationcore/**/*.go"
+          deny:
+            - pkg: "github.com/spice-framework/toolchain/compiler"
+              desc: "the annotation protocol tool must use public SDK contributions"
+            - pkg: "github.com/spice-framework/toolchain/internal/cli"
+              desc: "the annotation protocol tool must not depend on the CLI"
+            - pkg: "github.com/spice-framework/toolchain/cmd"
+              desc: "the annotation protocol tool must not depend on entrypoints"
+        cli:
+          list-mode: lax
+          files:
+            - "cmd/**/*.go"
+            - "internal/cli/**/*.go"
+          deny:
+            - pkg: "github.com/spice-framework/spice/starter"
+              desc: "the CLI must not depend on opt-in runtime starters"
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - "(io.Closer).Close"
+    exhaustive:
+      default-signifies-exhaustive: false
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^fmt\.Print(f|ln)?$'
+          msg: "write through an injected io.Writer"
+        - pattern: '^log\.Fatal(f|ln)?$'
+          msg: "return an error to the entrypoint"
+        - pattern: '^os\.Exit$'
+          msg: "return a status and let the process entrypoint exit"
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+    sloglint:
+      no-global: all
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+    staticcheck:
+      checks:
+        - all
+  exclusions:
+    generated: strict
+    warn-unused: true
+    rules:
+      - path: "_test\\.go$"
+        linters:
+          - forbidigo
+          - noctx
+      - path: "(^|.*[/\\\\])(cmd[/\\\\](spice|spice-annotation-core|spice-bootstrap|spice-release)|internal[/\\\\]boundarygate[/\\\\]cmd)[/\\\\]main\\.go$"
+        text: 'use of `os\.Exit`'
+        linters:
+          - forbidigo
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: github.com/spice-framework/toolchain
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+
+output:
+  sort-order:
+    - file
+    - linter

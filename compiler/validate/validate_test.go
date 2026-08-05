@@ -8,8 +8,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/builtin"
-	annotationparser "github.com/spice-framework/spice/compiler/parser"
-	"github.com/spice-framework/spice/compiler/scan"
+	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
+	"github.com/spice-framework/toolchain/compiler/scan"
 )
 
 func TestOccurrencesAcceptsValidBuiltInsAndArguments(t *testing.T) {

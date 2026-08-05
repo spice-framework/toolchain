@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
-	"github.com/spice-framework/spice/internal/testannotation"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/internal/testannotation"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestRenderProducesDeterministicExecutableApplication(t *testing.T) {
@@ -4159,14 +4160,7 @@ func writeTestFile(tb testing.TB, root, relativePath, content string) {
 
 func repositoryRoot(tb testing.TB) string {
 	tb.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		tb.Fatalf("filepath.Abs() error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		tb.Fatalf("repository root %q: %v", root, err)
-	}
-	return root
+	return testsupport.CoreDirectory(tb)
 }
 
 func runGoTest(t *testing.T, root string, patterns ...string) {

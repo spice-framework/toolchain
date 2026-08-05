@@ -3,7 +3,7 @@
 // Package scaffold creates minimal, valid-Go Spice applications without
 // downloading dependencies or overwriting developer-owned files.
 //
-// @Module(allowedDependencies=["github.com/spice-framework/spice/compiler::targetid"])
+// @Module(allowedDependencies=["github.com/spice-framework/toolchain/compiler::targetid"])
 package scaffold
 
 import (
@@ -17,17 +17,22 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/spice-framework/spice/compiler/targetid"
+	"github.com/spice-framework/toolchain/compiler/targetid"
+	"github.com/spice-framework/toolchain/internal/identity"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 )
 
 const (
-	// FrameworkModule is the canonical Spice module used by this CLI line.
-	FrameworkModule = "github.com/spice-framework/spice"
-	// AnnotationTool is the canonical core annotation tool package.
-	AnnotationTool = FrameworkModule + "/cmd/spice-annotation-core"
+	// FrameworkModule is the canonical public Spice core module.
+	FrameworkModule = identity.CoreModule
+	// ToolchainModule is the independently versioned compiler and CLI module.
+	ToolchainModule = identity.ToolchainModule
+	// CLITool is the canonical Spice command package.
+	CLITool = identity.CLITool
+	// AnnotationTool is the canonical official annotation tool package.
+	AnnotationTool = identity.AnnotationTool
 	goVersion      = "1.26.0"
 	toolchain      = "go1.26.5"
 )
@@ -37,7 +42,12 @@ type Config struct {
 	Directory    string
 	Module       string
 	SpiceVersion string
-	Replace      string
+	// ToolchainVersion selects the independently released compiler/tool line.
+	ToolchainVersion string
+	Replace          string
+	// ToolchainReplace is an explicit local development replacement. Scaffold
+	// performs no implicit sibling or workspace discovery.
+	ToolchainReplace string
 }
 
 // Result identifies the created application and its deterministic files.
@@ -85,29 +95,55 @@ func validateConfig(config Config) (Config, error) {
 			config.SpiceVersion,
 		)
 	}
+	if !semver.IsValid(config.ToolchainVersion) {
+		return Config{}, fmt.Errorf(
+			"toolchain version %q must be an exact semantic version such as v0.2.0",
+			config.ToolchainVersion,
+		)
+	}
 	absolute, err := filepath.Abs(config.Directory)
 	if err != nil {
 		return Config{}, fmt.Errorf("resolve scaffold directory: %w", err)
 	}
 	config.Directory = filepath.Clean(absolute)
 	if config.Replace != "" {
-		replacement, replaceErr := filepath.Abs(config.Replace)
-		if replaceErr != nil {
-			return Config{}, fmt.Errorf("resolve local Spice replacement: %w", replaceErr)
+		config.Replace, err = validateReplacement("Spice", config.Replace)
+		if err != nil {
+			return Config{}, err
 		}
-		info, statErr := os.Stat(replacement)
-		if statErr != nil {
-			return Config{}, fmt.Errorf("inspect local Spice replacement: %w", statErr)
+	}
+	if config.ToolchainReplace != "" {
+		config.ToolchainReplace, err = validateReplacement(
+			"toolchain",
+			config.ToolchainReplace,
+		)
+		if err != nil {
+			return Config{}, err
 		}
-		if !info.IsDir() {
-			return Config{}, fmt.Errorf("local Spice replacement %q is not a directory", replacement)
-		}
-		if _, statErr = os.Stat(filepath.Join(replacement, "go.mod")); statErr != nil {
-			return Config{}, fmt.Errorf("inspect local Spice replacement go.mod: %w", statErr)
-		}
-		config.Replace = filepath.Clean(replacement)
 	}
 	return config, nil
+}
+
+func validateReplacement(name, value string) (string, error) {
+	replacement, err := filepath.Abs(value)
+	if err != nil {
+		return "", fmt.Errorf("resolve local %s replacement: %w", name, err)
+	}
+	info, err := os.Stat(replacement)
+	if err != nil {
+		return "", fmt.Errorf("inspect local %s replacement: %w", name, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf(
+			"local %s replacement %q is not a directory",
+			name,
+			replacement,
+		)
+	}
+	if _, err = os.Stat(filepath.Join(replacement, "go.mod")); err != nil {
+		return "", fmt.Errorf("inspect local %s replacement go.mod: %w", name, err)
+	}
+	return filepath.Clean(replacement), nil
 }
 
 func render(config Config) ([]plannedFile, error) {
@@ -144,11 +180,11 @@ then verify and generate the application:
 
 `+"```text"+`
 go mod download
-spice generate --target %s .
-spice verify .
-spice run --target %s .
+go tool %s generate --target %s .
+go tool %s verify .
+go tool %s run --target %s .
 `+"```"+`
-`, config.Module, targetName, targetName)
+`, config.Module, CLITool, targetName, CLITool, CLITool, targetName)
 	return []plannedFile{
 		{name: ".gitignore", content: []byte("/bin/\n"), mode: 0o600},
 		{name: "README.md", content: []byte(readme), mode: 0o600},
@@ -174,8 +210,22 @@ func renderModule(config Config) ([]byte, error) {
 		func() error { return file.AddModuleStmt(config.Module) },
 		func() error { return file.AddGoStmt(goVersion) },
 		func() error { return file.AddToolchainStmt(toolchain) },
+		func() error { return file.AddTool(CLITool) },
 		func() error { return file.AddTool(AnnotationTool) },
 		func() error { return file.AddRequire(FrameworkModule, config.SpiceVersion) },
+		func() error {
+			return file.AddRequire(ToolchainModule, config.ToolchainVersion)
+		},
+	}
+	if config.ToolchainReplace != "" {
+		operations = append(operations, func() error {
+			return file.AddReplace(
+				ToolchainModule,
+				"",
+				filepath.ToSlash(config.ToolchainReplace),
+				"",
+			)
+		})
 	}
 	if config.Replace != "" {
 		operations = append(operations, func() error {

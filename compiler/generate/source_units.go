@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/configuration"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/configuration"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 type providerSourceUnit struct {

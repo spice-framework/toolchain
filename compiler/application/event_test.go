@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 func TestBuildAddsGeneratedEventPublisherToApplicationGraph(t *testing.T) {

@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
-	"github.com/spice-framework/spice/compiler/lifecycle"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
 	runtimeconfig "github.com/spice-framework/spice/config"
-	"github.com/spice-framework/spice/internal/testannotation"
+	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
+	"github.com/spice-framework/toolchain/compiler/lifecycle"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/internal/testannotation"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestBuildAssemblesDeterministicApplicationIR(t *testing.T) {
@@ -1157,11 +1158,7 @@ func writeModule(tb testing.TB, files map[string]string) string {
 
 func applicationRepositoryRoot(tb testing.TB) string {
 	tb.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		tb.Fatal(err)
-	}
-	return root
+	return testsupport.CoreDirectory(tb)
 }
 
 func providerNames(providers []provider.Provider) []string {

@@ -3,12 +3,12 @@ package service
 import (
 	"sort"
 
-	compilerauto "github.com/spice-framework/spice/compiler/autoconfigure"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	diagnosticadapt "github.com/spice-framework/spice/compiler/diagnostic/adapt"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
+	compilerauto "github.com/spice-framework/toolchain/compiler/autoconfigure"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	diagnosticadapt "github.com/spice-framework/toolchain/compiler/diagnostic/adapt"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 func (service *Service) prepareProviderCatalogs(

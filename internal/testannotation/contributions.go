@@ -14,7 +14,7 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 // AttachOfficial adds typed capability markers for official annotations in a

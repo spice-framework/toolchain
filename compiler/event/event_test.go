@@ -5,17 +5,17 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/modulith"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
-	"github.com/spice-framework/spice/internal/testannotation"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/internal/testannotation"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestBuildCompilesTypedTopicsAndListeners(t *testing.T) {
@@ -476,11 +476,7 @@ func writeEventModule(t *testing.T, files map[string]string) string {
 
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve test source path")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
+	return testsupport.CoreDirectory(t)
 }
 
 func diagnosticStrings(diagnostics []Diagnostic) []string {

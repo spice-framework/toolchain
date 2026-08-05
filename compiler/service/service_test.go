@@ -16,9 +16,10 @@ import (
 
 	"github.com/spice-framework/spice/annotation/sdk"
 	publicstarter "github.com/spice-framework/spice/annotation/sdk/starter"
-	"github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
-	compilerstarter "github.com/spice-framework/spice/compiler/starter"
+	"github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
+	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestServiceAnalyzesOverlayWithoutFilesystemWrites(t *testing.T) {
@@ -379,7 +380,7 @@ func main() {
 		definition.DescriptorSymbol != imported.DefinitionSymbol ||
 		!definition.HasDescriptorLocation ||
 		definition.Implementation.Tool !=
-			"github.com/spice-framework/spice/cmd/spice-annotation-core" ||
+			"github.com/spice-framework/toolchain/cmd/spice-annotation-core" ||
 		definition.Implementation.Handler !=
 			"github.com/spice-framework/spice/annotation/core.ApplicationHandler" ||
 		!definition.Implementation.HasLocation ||
@@ -422,7 +423,7 @@ func main() {
 	content = bytes.Replace(
 		content,
 		[]byte(
-			"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n",
+			"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n",
 		),
 		nil,
 		1,
@@ -1484,11 +1485,16 @@ func writeServiceModule(tb testingTB) string {
 	if err != nil {
 		tb.Fatalf("Abs(repository) error = %v", err)
 	}
+	coreDirectory := testsupport.CoreDirectory(tb)
 	files := map[string]string{
 		"go.mod": "module example.com/servicefixture\n\ngo 1.26.0\n\n" +
-			"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n" +
-			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n" +
+			"require (\n" +
+			"\tgithub.com/spice-framework/spice v0.0.0\n" +
+			"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 			"replace github.com/spice-framework/spice => " +
+			filepath.ToSlash(coreDirectory) + "\n\n" +
+			"replace github.com/spice-framework/toolchain => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": `package main
 

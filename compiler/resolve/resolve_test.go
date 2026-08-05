@@ -11,7 +11,7 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 func TestAnnotationsResolveTypedDeclarationsAndBuildSelection(t *testing.T) {

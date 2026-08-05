@@ -3,7 +3,7 @@
 // Package lsp implements Spice's editor-neutral Language Server Protocol
 // transport over standard JSON-RPC streams.
 //
-// @Module(allowedDependencies=["github.com/spice-framework/spice/compiler::annotationinstall", "github.com/spice-framework/spice/compiler::diagnostic", "github.com/spice-framework/spice/compiler::parser", "github.com/spice-framework/spice/compiler::service"])
+// @Module(allowedDependencies=["github.com/spice-framework/toolchain/compiler::annotationinstall", "github.com/spice-framework/toolchain/compiler::diagnostic", "github.com/spice-framework/toolchain/compiler::parser", "github.com/spice-framework/toolchain/compiler::service"])
 package lsp
 
 import (
@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/annotationinstall"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/annotationinstall"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
 )
 
 const (

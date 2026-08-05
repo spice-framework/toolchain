@@ -12,11 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/resolve"
-	"github.com/spice-framework/spice/internal/testannotation"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/internal/testannotation"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestApplyCreatesChecksAndPreservesUnchangedFiles(t *testing.T) {
@@ -1153,10 +1154,7 @@ func Application(*API) {}
 func generationModule(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
+	repository := testsupport.CoreDirectory(t)
 	goMod := "module example.com/genfs\n\ngo 1.26.0\n\n" +
 		"require github.com/spice-framework/spice v0.0.0\n\n" +
 		"replace github.com/spice-framework/spice => " + filepath.ToSlash(repository) + "\n"

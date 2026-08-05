@@ -9,6 +9,7 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/toolchain/internal/identity"
 )
 
 func TestValidateDescriptorToolModule(t *testing.T) {
@@ -50,6 +51,30 @@ func TestValidateDescriptorToolModule(t *testing.T) {
 			!strings.Contains(err.Error(), "different replacements") {
 			t.Fatalf("ValidateDescriptorToolModule() error = %v", err)
 		}
+	}
+}
+
+func TestValidateDescriptorToolModuleAllowsOfficialExtractionBoundary(
+	t *testing.T,
+) {
+	t.Parallel()
+	descriptor := annotation.ModuleProvenance{
+		Path:    identity.CoreModule,
+		Version: identity.CoreVersion,
+	}
+	tool := PackageIdentity{
+		Path: identity.AnnotationTool,
+		Module: ModuleIdentity{
+			Path:    identity.ToolchainModule,
+			Version: "v0.1.0",
+		},
+	}
+	if err := ValidateDescriptorToolModule(descriptor, tool); err != nil {
+		t.Fatalf("ValidateDescriptorToolModule() error = %v", err)
+	}
+	tool.Path = identity.ToolchainModule + "/cmd/other"
+	if err := ValidateDescriptorToolModule(descriptor, tool); err == nil {
+		t.Fatal("non-official cross-module tool error = nil")
 	}
 }
 

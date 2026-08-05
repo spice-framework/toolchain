@@ -14,7 +14,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/spice-framework/spice/annotation"
-	annotationparser "github.com/spice-framework/spice/compiler/parser"
+	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
 )
 
 // Options configures one isolated package-loading operation.

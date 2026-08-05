@@ -16,10 +16,11 @@ func TestCreateWritesDeterministicValidGoApplication(t *testing.T) {
 	parent := t.TempDir()
 	destination := filepath.Join(parent, "orders")
 	result, err := Create(t.Context(), Config{
-		Directory:    destination,
-		Module:       "example.com/acme/orders",
-		SpiceVersion: "v0.2.0",
-		Replace:      repositoryRoot(t),
+		Directory:        destination,
+		Module:           "example.com/acme/orders",
+		SpiceVersion:     "v0.2.0",
+		ToolchainVersion: "v0.3.0",
+		ToolchainReplace: repositoryRoot(t),
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -34,9 +35,12 @@ func TestCreateWritesDeterministicValidGoApplication(t *testing.T) {
 		"module example.com/acme/orders",
 		"go 1.26.0",
 		"toolchain go1.26.5",
-		"tool " + AnnotationTool,
-		"require " + FrameworkModule + " v0.2.0",
-		"replace " + FrameworkModule + " => " + filepath.ToSlash(repositoryRoot(t)),
+		"tool (",
+		CLITool,
+		AnnotationTool,
+		FrameworkModule + " v0.2.0",
+		ToolchainModule + " v0.3.0",
+		"replace " + ToolchainModule + " => " + filepath.ToSlash(repositoryRoot(t)),
 	} {
 		if !strings.Contains(goMod, expected) {
 			t.Fatalf("go.mod missing %q:\n%s", expected, goMod)
@@ -51,6 +55,16 @@ func TestCreateWritesDeterministicValidGoApplication(t *testing.T) {
 	} {
 		if !strings.Contains(mainSource, expected) {
 			t.Fatalf("main.go missing %q:\n%s", expected, mainSource)
+		}
+	}
+	readme := readScaffoldFile(t, destination, "README.md")
+	for _, command := range []string{
+		"go tool " + CLITool + " generate",
+		"go tool " + CLITool + " verify",
+		"go tool " + CLITool + " run",
+	} {
+		if !strings.Contains(readme, command) {
+			t.Fatalf("README.md missing %q:\n%s", command, readme)
 		}
 	}
 }
@@ -68,16 +82,19 @@ func TestCreateRejectsInvalidOrOwnedDestinations(t *testing.T) {
 	}
 	tests := map[string]Config{
 		"invalid module": {
-			Directory: filepath.Join(parent, "module"), Module: "../app", SpiceVersion: "v0.2.0",
+			Directory: filepath.Join(parent, "module"), Module: "../app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
 		},
 		"invalid version": {
-			Directory: filepath.Join(parent, "version"), Module: "example.com/app", SpiceVersion: "latest",
+			Directory: filepath.Join(parent, "version"), Module: "example.com/app", SpiceVersion: "latest", ToolchainVersion: "v0.3.0",
+		},
+		"invalid toolchain version": {
+			Directory: filepath.Join(parent, "toolchain-version"), Module: "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "latest",
 		},
 		"nonempty": {
-			Directory: nonempty, Module: "example.com/app", SpiceVersion: "v0.2.0",
+			Directory: nonempty, Module: "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
 		},
 		"missing parent": {
-			Directory: filepath.Join(parent, "missing", "app"), Module: "example.com/app", SpiceVersion: "v0.2.0",
+			Directory: filepath.Join(parent, "missing", "app"), Module: "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
 		},
 	}
 	for name, test := range tests {
@@ -99,7 +116,7 @@ func TestCreateRejectsNilAndCanceledContexts(t *testing.T) {
 	t.Parallel()
 	config := Config{
 		Directory: filepath.Join(t.TempDir(), "app"),
-		Module:    "example.com/app", SpiceVersion: "v0.2.0",
+		Module:    "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
 	}
 	if _, err := Create(nil, config); err == nil { //nolint:staticcheck // Nil context is an intentional fail-closed public boundary case.
 		t.Fatal("Create(nil) error = nil")
@@ -115,9 +132,10 @@ func TestCreateAcceptsExistingEmptyDirectory(t *testing.T) {
 	t.Parallel()
 	destination := t.TempDir()
 	result, err := Create(t.Context(), Config{
-		Directory:    destination,
-		Module:       "example.com/app",
-		SpiceVersion: "v0.2.0",
+		Directory:        destination,
+		Module:           "example.com/app",
+		SpiceVersion:     "v0.2.0",
+		ToolchainVersion: "v0.3.0",
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -147,7 +165,7 @@ func TestValidateConfigRejectsUnsafeLocalReplacements(t *testing.T) {
 			t.Parallel()
 			_, err := validateConfig(Config{
 				Directory: filepath.Join(parent, name),
-				Module:    "example.com/app", SpiceVersion: "v0.2.0",
+				Module:    "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
 				Replace: replacement,
 			})
 			if err == nil {

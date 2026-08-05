@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
-	"github.com/spice-framework/spice/internal/testannotation"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/internal/testannotation"
 )
 
 func TestGraphResolvesOnlyExplicitInterfaceBindings(t *testing.T) {

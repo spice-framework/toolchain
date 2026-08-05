@@ -9,15 +9,15 @@ package adapt
 import (
 	"go/token"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	"github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/modulith"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
-	"github.com/spice-framework/spice/compiler/starter"
-	"github.com/spice-framework/spice/compiler/validate"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	"github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/compiler/starter"
+	"github.com/spice-framework/toolchain/compiler/validate"
 )
 
 // Application converts immutable application-model diagnostics.

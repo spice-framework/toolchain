@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/internal/devloop"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/devloop"
 )
 
 func TestParseDevArguments(t *testing.T) {

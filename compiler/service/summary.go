@@ -10,14 +10,14 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/application"
-	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
-	"github.com/spice-framework/spice/compiler/descriptor"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/modulith"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/toolchain/compiler/application"
+	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
+	"github.com/spice-framework/toolchain/compiler/descriptor"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 func summarizeAnnotations(

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	codegen "github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
+	codegen "github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 func TestGeneratedCommandLocatesSourceAndGeneratedRanges(t *testing.T) {

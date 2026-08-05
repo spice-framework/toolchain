@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	codegen "github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
-	"github.com/spice-framework/spice/internal/genfs"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	codegen "github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
+	"github.com/spice-framework/toolchain/internal/genfs"
 )
 
 type generationArguments struct {

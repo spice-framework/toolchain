@@ -11,8 +11,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/spice-framework/spice/compiler/load"
-	compilerstarter "github.com/spice-framework/spice/compiler/starter"
+	"github.com/spice-framework/toolchain/compiler/load"
+	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
 )
 
 const (

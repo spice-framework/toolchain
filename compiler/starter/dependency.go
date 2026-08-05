@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 // DependencyRequirement identifies one exact reviewed module version required

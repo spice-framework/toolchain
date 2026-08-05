@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/spice-framework/spice/internal/cli"
+	"github.com/spice-framework/toolchain/internal/cli"
 )
 
 func main() {

@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/annotationinstall"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/internal/scaffold"
+	"github.com/spice-framework/toolchain/compiler/annotationinstall"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/scaffold"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 )
@@ -19,10 +20,12 @@ import (
 const moduleChangeTimeout = 2 * time.Minute
 
 type scaffoldArguments struct {
-	directory    string
-	module       string
-	spiceVersion string
-	replace      string
+	directory        string
+	module           string
+	spiceVersion     string
+	toolchainVersion string
+	replace          string
+	toolchainReplace string
 }
 
 type addArguments struct {
@@ -73,10 +76,12 @@ func scaffoldCommand(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	result, err := scaffold.Create(context.Background(), scaffold.Config{
-		Directory:    parsed.directory,
-		Module:       parsed.module,
-		SpiceVersion: parsed.spiceVersion,
-		Replace:      parsed.replace,
+		Directory:        parsed.directory,
+		Module:           parsed.module,
+		SpiceVersion:     parsed.spiceVersion,
+		ToolchainVersion: parsed.toolchainVersion,
+		Replace:          parsed.replace,
+		ToolchainReplace: parsed.toolchainReplace,
 	})
 	if err != nil {
 		if writeErr := writef(stderr, "Spice new failed: %v\n", err); writeErr != nil {
@@ -103,11 +108,14 @@ func scaffoldCommand(arguments []string, stdout, stderr io.Writer) int {
 }
 
 func parseScaffoldArguments(arguments []string) (scaffoldArguments, error) {
-	result := scaffoldArguments{spiceVersion: currentSpiceModuleVersion()}
+	result := scaffoldArguments{
+		spiceVersion:     identity.CoreVersion,
+		toolchainVersion: currentToolchainModuleVersion(),
+	}
 	for index := 0; index < len(arguments); index++ {
 		name := arguments[index]
 		switch name {
-		case "--module", "--directory", "--spice-version", "--replace":
+		case "--module", "--directory", "--spice-version", "--toolchain-version", "--replace", "--toolchain-replace":
 		default:
 			return scaffoldArguments{}, fmt.Errorf("unknown new argument %q", name)
 		}
@@ -123,8 +131,12 @@ func parseScaffoldArguments(arguments []string) (scaffoldArguments, error) {
 			result.directory = value
 		case "--spice-version":
 			result.spiceVersion = value
+		case "--toolchain-version":
+			result.toolchainVersion = value
 		case "--replace":
 			result.replace = value
+		case "--toolchain-replace":
+			result.toolchainReplace = value
 		}
 	}
 	if result.module == "" {
@@ -133,15 +145,15 @@ func parseScaffoldArguments(arguments []string) (scaffoldArguments, error) {
 	if result.directory == "" {
 		result.directory = filepath.Base(result.module)
 	}
-	if result.spiceVersion == "" {
+	if result.toolchainVersion == "" {
 		return scaffoldArguments{}, errors.New(
-			"the CLI version cannot select a module version; pass --spice-version",
+			"the CLI version cannot select a toolchain module version; pass --toolchain-version",
 		)
 	}
 	return result, nil
 }
 
-func currentSpiceModuleVersion() string {
+func currentToolchainModuleVersion() string {
 	value := strings.TrimSpace(Version)
 	if !strings.HasPrefix(value, "v") {
 		value = "v" + value

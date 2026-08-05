@@ -8,8 +8,8 @@ import (
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
 	publicstarter "github.com/spice-framework/spice/annotation/sdk/starter"
-	"github.com/spice-framework/spice/compiler/resolve"
-	compilerstarter "github.com/spice-framework/spice/compiler/starter"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
 )
 
 func TestCatalogValidatesExactReviewedModuleVersions(t *testing.T) {

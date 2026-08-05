@@ -11,6 +11,7 @@ import (
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 const fixtureTool = "example.com/annotationfixture/cmd/annotations"
@@ -88,12 +89,34 @@ func TestValidateDescriptorPackagesRejectsMissingDuplicateAndForeign(
 		if _, err := validateDescriptorPackages(
 			values,
 			"example.com/tool",
+			"example.com/tool/cmd/annotations",
 		); err == nil {
 			t.Fatalf(
 				"validateDescriptorPackages(%q) error = nil",
 				values,
 			)
 		}
+	}
+}
+
+func TestValidateDescriptorPackagesAllowsOnlyOfficialCrossModuleDescriptors(
+	t *testing.T,
+) {
+	t.Parallel()
+	packages, err := validateDescriptorPackages(
+		[]string{"github.com/spice-framework/spice/annotation/core"},
+		"github.com/spice-framework/toolchain",
+		"github.com/spice-framework/toolchain/cmd/spice-annotation-core",
+	)
+	if err != nil || len(packages) != 1 {
+		t.Fatalf("validateDescriptorPackages() = %v, %v", packages, err)
+	}
+	if _, err := validateDescriptorPackages(
+		[]string{"github.com/spice-framework/spice/annotation/core"},
+		"example.com/toolchain",
+		"example.com/toolchain/cmd/annotations",
+	); err == nil {
+		t.Fatal("third-party cross-module descriptor error = nil")
 	}
 }
 
@@ -214,10 +237,6 @@ func TestClientCancelsHungAnalysisAndDoesNotReplay(t *testing.T) {
 func writeToolFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
 	writeToolFile(t, root, "go.mod", `module example.com/annotationfixture
 
 go 1.26.0
@@ -226,7 +245,7 @@ tool example.com/annotationfixture/cmd/annotations
 
 require github.com/spice-framework/spice v0.0.0
 
-replace github.com/spice-framework/spice => `+filepath.ToSlash(repository)+"\n")
+replace github.com/spice-framework/spice => `+filepath.ToSlash(testsupport.CoreDirectory(t))+"\n")
 	writeToolFile(t, root, "cmd/annotations/main.go", toolFixtureSource)
 	return root
 }

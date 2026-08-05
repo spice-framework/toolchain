@@ -13,7 +13,6 @@ import (
 	asyncannotation "github.com/spice-framework/spice/annotation/async"
 	cacheannotation "github.com/spice-framework/spice/annotation/cache"
 	coreannotation "github.com/spice-framework/spice/annotation/core"
-	"github.com/spice-framework/spice/annotation/coretool"
 	dataannotation "github.com/spice-framework/spice/annotation/data"
 	eventannotation "github.com/spice-framework/spice/annotation/event"
 	lifecycleannotation "github.com/spice-framework/spice/annotation/lifecycle"
@@ -25,26 +24,28 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
 	securityannotation "github.com/spice-framework/spice/annotation/security"
 	webannotation "github.com/spice-framework/spice/annotation/web"
+	"github.com/spice-framework/toolchain/internal/identity"
 )
 
 const (
-	toolPath   = coretool.Path
-	modulePath = "github.com/spice-framework/spice"
+	toolPath             = identity.AnnotationTool
+	modulePath           = identity.ToolchainModule
+	descriptorModulePath = identity.CoreModule
 )
 
 var descriptorPackages = []string{
-	modulePath + "/annotation/async",
-	modulePath + "/annotation/cache",
-	modulePath + "/annotation/core",
-	modulePath + "/annotation/data",
-	modulePath + "/annotation/event",
-	modulePath + "/annotation/lifecycle",
-	modulePath + "/annotation/management",
-	modulePath + "/annotation/modulith",
-	modulePath + "/annotation/observability",
-	modulePath + "/annotation/schedule",
-	modulePath + "/annotation/security",
-	modulePath + "/annotation/web",
+	descriptorModulePath + "/annotation/async",
+	descriptorModulePath + "/annotation/cache",
+	descriptorModulePath + "/annotation/core",
+	descriptorModulePath + "/annotation/data",
+	descriptorModulePath + "/annotation/event",
+	descriptorModulePath + "/annotation/lifecycle",
+	descriptorModulePath + "/annotation/management",
+	descriptorModulePath + "/annotation/modulith",
+	descriptorModulePath + "/annotation/observability",
+	descriptorModulePath + "/annotation/schedule",
+	descriptorModulePath + "/annotation/security",
+	descriptorModulePath + "/annotation/web",
 }
 
 // Tool is the official deterministic annotation protocol implementation.
@@ -179,153 +180,153 @@ type handlerRegistration struct {
 func handlerRegistrations() []handlerRegistration {
 	return []handlerRegistration{
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Application"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Application"},
 			sdk.ContributionApplication,
 			coreannotation.Application,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Service"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Service"},
 			sdk.ContributionStereotype,
 			coreannotation.Service,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Repository"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Repository"},
 			sdk.ContributionStereotype,
 			coreannotation.Repository,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Implements"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Implements"},
 			sdk.ContributionInterface,
 			coreannotation.Implements,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Bean"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Bean"},
 			sdk.ContributionProvider,
 			coreannotation.Bean,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Qualifier"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Qualifier"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.Qualifier,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Primary"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Primary"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.Primary,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Fallback"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Fallback"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.Fallback,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Order"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Order"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.Order,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Singleton"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Singleton"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.Singleton,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Prototype"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Prototype"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.Prototype,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "RequestScope"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "RequestScope"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.RequestScope,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "SessionScope"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "SessionScope"},
 			sdk.ContributionBeanMetadata,
 			coreannotation.SessionScope,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/core", Name: "Configuration"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Configuration"},
 			sdk.ContributionConfiguration,
 			coreannotation.Configuration,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Controller"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/web", Name: "Controller"},
 			sdk.ContributionController,
 			webannotation.Controller,
 			sdk.ContributionStereotype,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Get"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/web", Name: "Get"},
 			sdk.ContributionRoute,
 			webannotation.Get,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/web", Name: "Post"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/web", Name: "Post"},
 			sdk.ContributionRoute,
 			webannotation.Post,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/modulith", Name: "Module"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/modulith", Name: "Module"},
 			sdk.ContributionModule,
 			modulithannotation.Module,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/modulith", Name: "NamedInterface"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/modulith", Name: "NamedInterface"},
 			sdk.ContributionNamedInterface,
 			modulithannotation.NamedInterface,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/lifecycle", Name: "OnStart"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/lifecycle", Name: "OnStart"},
 			sdk.ContributionLifecycle,
 			lifecycleannotation.OnStart,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/lifecycle", Name: "OnStop"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/lifecycle", Name: "OnStop"},
 			sdk.ContributionLifecycle,
 			lifecycleannotation.OnStop,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/async", Name: "Execute"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/async", Name: "Execute"},
 			sdk.ContributionAsync,
 			asyncannotation.Execute,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/cache", Name: "Cacheable"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/cache", Name: "Cacheable"},
 			sdk.ContributionCache,
 			cacheannotation.Cacheable,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/data", Name: "Transactional"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/data", Name: "Transactional"},
 			sdk.ContributionTransaction,
 			dataannotation.Transactional,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/event", Name: "Topic"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/event", Name: "Topic"},
 			sdk.ContributionEventTopic,
 			eventannotation.Topic,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/event", Name: "Listener"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/event", Name: "Listener"},
 			sdk.ContributionEventListener,
 			eventannotation.Listener,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/schedule", Name: "FixedDelay"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/schedule", Name: "FixedDelay"},
 			sdk.ContributionSchedule,
 			scheduleannotation.FixedDelay,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/security", Name: "Authorize"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/security", Name: "Authorize"},
 			sdk.ContributionAuthorization,
 			securityannotation.Authorize,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/management", Name: "Enable"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/management", Name: "Enable"},
 			sdk.ContributionBootstrap,
 			managementannotation.Enable,
 		),
 		newHandlerRegistration(
-			sdk.Symbol{Package: modulePath + "/annotation/observability", Name: "Logging"},
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/observability", Name: "Logging"},
 			sdk.ContributionBootstrap,
 			observabilityannotation.Logging,
 		),

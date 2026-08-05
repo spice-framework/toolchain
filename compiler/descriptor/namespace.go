@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/spice-framework/spice/annotation"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 // NamespaceReferences discovers every exported descriptor function from

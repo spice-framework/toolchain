@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/annotationinstall"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/annotationinstall"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
 )
 
 const lspFixtureTool = "example.com/spice-annotation-fixture/cmd/spice-annotations"
@@ -211,9 +211,7 @@ func writeAnnotationInstallModule(t *testing.T) (string, string) {
 	goMod := "module example.com/lsp-install-app\n\ngo 1.26.0\n\n" +
 		"require example.com/spice-annotation-fixture v0.0.0\n\n" +
 		"replace example.com/spice-annotation-fixture => " +
-		filepath.ToSlash(fixture) + "\n\n" +
-		"replace github.com/spice-framework/spice => " +
-		filepath.ToSlash(repository) + "\n"
+		filepath.ToSlash(fixture) + "\n"
 	source := `package main
 
 // @import { Factory } from "example.com/spice-annotation-fixture/annotation/wiring"

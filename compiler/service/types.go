@@ -13,14 +13,14 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/application"
-	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	"github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/modulith"
-	"github.com/spice-framework/spice/compiler/provider"
-	compilerstarter "github.com/spice-framework/spice/compiler/starter"
+	"github.com/spice-framework/toolchain/compiler/application"
+	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	"github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
 )
 
 const (

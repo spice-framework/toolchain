@@ -11,8 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestRunGenerateApplyCheckAndDiff(t *testing.T) {
@@ -148,10 +149,7 @@ func TestRunBuildGeneratesAndExecutesTrimpathBuild(t *testing.T) {
 }
 
 func TestRunGenerateBuildsPreferredPackageMainWithExplicitGeneratedImport(t *testing.T) {
-	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
+	repository := testsupport.CoreDirectory(t)
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/package-main\n\ngo 1.26.0\n\n" +
 			"require github.com/spice-framework/spice v0.0.0\n\n" +

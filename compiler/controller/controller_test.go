@@ -9,11 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/modulith"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
-	"github.com/spice-framework/spice/internal/testannotation"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	"github.com/spice-framework/toolchain/internal/testannotation"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestBuildCreatesTypedControllerRouteMetadata(t *testing.T) {
@@ -750,11 +751,7 @@ func writeModule(t *testing.T, files map[string]string) string {
 
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root
+	return testsupport.CoreDirectory(t)
 }
 
 func routeSummaries(routes []Route) []string {

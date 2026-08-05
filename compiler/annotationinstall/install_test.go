@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spice-framework/toolchain/internal/identity"
 )
 
 const fixtureTool = "example.com/spice-annotation-fixture/cmd/spice-annotations"
@@ -20,16 +22,16 @@ func TestPreviewAndApplyDependencyUsesStandardGoGet(t *testing.T) {
 		t.Context(),
 		root,
 		dependency,
-		"v0.0.0",
+		identity.CoreVersion,
 		append(os.Environ(), "GOPROXY=off"),
 	)
 	if err != nil {
 		t.Fatalf("PreviewDependency() error = %v", err)
 	}
-	if preview.Command() != "go get "+dependency+"@v0.0.0" ||
+	if preview.Command() != "go get "+dependency+"@"+identity.CoreVersion ||
 		preview.Dependency() != dependency ||
 		preview.Tool() != "" ||
-		!strings.Contains(preview.Diff(), "github.com/spice-framework/spice v0.0.0") {
+		!strings.Contains(preview.Diff(), identity.CoreModule+" "+identity.CoreVersion) {
 		t.Fatalf(
 			"PreviewDependency() = command %q, dependency %q, diff:\n%s",
 			preview.Command(),
@@ -42,7 +44,7 @@ func TestPreviewAndApplyDependencyUsesStandardGoGet(t *testing.T) {
 	}
 	if content := readInstallGoMod(t, root); !strings.Contains(
 		content,
-		"github.com/spice-framework/spice v0.0.0",
+		identity.CoreModule+" "+identity.CoreVersion,
 	) {
 		t.Fatalf("applied go.mod:\n%s", content)
 	}
@@ -384,9 +386,7 @@ func writeInstallFixture(t *testing.T) string {
 	content := "module example.com/install-app\n\ngo 1.26.0\n\n" +
 		"require example.com/spice-annotation-fixture v0.0.0\n\n" +
 		"replace example.com/spice-annotation-fixture => " +
-		filepath.ToSlash(fixture) + "\n\n" +
-		"replace github.com/spice-framework/spice => " +
-		filepath.ToSlash(repository) + "\n"
+		filepath.ToSlash(fixture) + "\n"
 	if err := os.WriteFile(
 		filepath.Join(root, "go.mod"),
 		[]byte(content),

@@ -3,7 +3,7 @@ package cli
 import (
 	"errors"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 // Runtime owns the explicit compiler and Go command seams used by production

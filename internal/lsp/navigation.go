@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
 )
 
 const (

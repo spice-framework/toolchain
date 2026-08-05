@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/modulith"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
 )
 
 type moduleTestArguments struct {

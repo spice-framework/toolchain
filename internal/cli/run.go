@@ -2,7 +2,7 @@
 
 // Package cli implements the Spice command-line interface.
 //
-// @Module(allowedDependencies=["github.com/spice-framework/spice/compiler::annotationhost", "github.com/spice-framework/spice/compiler::annotationimport", "github.com/spice-framework/spice/compiler::annotationinstall", "github.com/spice-framework/spice/compiler::application", "github.com/spice-framework/spice/compiler::descriptor", "github.com/spice-framework/spice/compiler::diagnostic", "github.com/spice-framework/spice/compiler::diagnostic-adapt", "github.com/spice-framework/spice/compiler::generate", "github.com/spice-framework/spice/compiler::load", "github.com/spice-framework/spice/compiler::modulith", "github.com/spice-framework/spice/compiler::resolve", "github.com/spice-framework/spice/compiler::service", "github.com/spice-framework/spice/compiler::starter", "github.com/spice-framework/spice/internal/devloop", "github.com/spice-framework/spice/internal/genfs", "github.com/spice-framework/spice/internal/lsp", "github.com/spice-framework/spice/internal/scaffold"])
+// @Module(allowedDependencies=["github.com/spice-framework/toolchain/compiler::annotationhost", "github.com/spice-framework/toolchain/compiler::annotationimport", "github.com/spice-framework/toolchain/compiler::annotationinstall", "github.com/spice-framework/toolchain/compiler::application", "github.com/spice-framework/toolchain/compiler::descriptor", "github.com/spice-framework/toolchain/compiler::diagnostic", "github.com/spice-framework/toolchain/compiler::diagnostic-adapt", "github.com/spice-framework/toolchain/compiler::generate", "github.com/spice-framework/toolchain/compiler::load", "github.com/spice-framework/toolchain/compiler::modulith", "github.com/spice-framework/toolchain/compiler::resolve", "github.com/spice-framework/toolchain/compiler::service", "github.com/spice-framework/toolchain/compiler::starter", "github.com/spice-framework/toolchain/internal/devloop", "github.com/spice-framework/toolchain/internal/genfs", "github.com/spice-framework/toolchain/internal/lsp", "github.com/spice-framework/toolchain/internal/scaffold"])
 package cli
 
 import (
@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 
-	codegen "github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/resolve"
+	codegen "github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 // Version is the version reported by the Spice CLI. Release builds replace the
@@ -294,7 +294,7 @@ func printHelp(writer io.Writer) error {
 
 Usage:
   spice version
-  spice new --module path [--directory path] [--spice-version version] [--replace path]
+  spice new --module path [--directory path] [--spice-version version] [--toolchain-version version] [--replace path] [--toolchain-replace path]
   spice add [--tool] [--apply] [--directory path] package@version
   spice verify [--format text|json] [package-pattern ...]
   spice annotations [package-pattern ...]

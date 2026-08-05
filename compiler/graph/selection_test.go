@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 func TestGraphSelectsQualifiersPrimaryFallbackAndParameterNames(

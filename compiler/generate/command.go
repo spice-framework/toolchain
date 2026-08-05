@@ -7,9 +7,9 @@ import (
 	"strconv"
 
 	"github.com/spice-framework/spice/annotation"
-	"github.com/spice-framework/spice/compiler/application"
-	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/application"
+	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 type modelHashBootstrapOption struct {

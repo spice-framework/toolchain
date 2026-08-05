@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 func TestLSPCommandServesProtocolOnlyOnStdout(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/spice-framework/spice/compiler/diagnostic"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
 )
 
 const (

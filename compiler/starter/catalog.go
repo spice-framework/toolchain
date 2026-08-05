@@ -14,9 +14,9 @@ import (
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
 	startersdk "github.com/spice-framework/spice/annotation/sdk/starter"
-	compilerbootstrap "github.com/spice-framework/spice/compiler/bootstrap"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
+	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 // Catalog is an immutable, deterministic set of compatible starter manifests

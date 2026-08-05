@@ -7,9 +7,8 @@ import (
 	"testing"
 
 	"github.com/spice-framework/spice/annotation"
-	"github.com/spice-framework/spice/annotation/builtin"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
 )
 
 func TestAnnotationOccurrencesSelectOnlyDeclarationComments(t *testing.T) {
@@ -76,30 +75,6 @@ func TestKnownAnnotationUsesCompilerDefinitions(t *testing.T) {
 	if !knownAnnotation(definitions, "Application") ||
 		knownAnnotation(definitions, "Unknown") {
 		t.Fatalf("knownAnnotation() accepted the wrong definition")
-	}
-}
-
-func TestBuiltInDefinitionsHaveExactReferenceRows(t *testing.T) {
-	t.Parallel()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatalf("Abs(repository root) error = %v", err)
-	}
-	for _, definition := range builtin.Registry().Definitions() {
-		reference, found := localAnnotationReference(root, definition.Name)
-		if !found {
-			t.Errorf(
-				"localAnnotationReference(%q) found = false",
-				definition.Name,
-			)
-			continue
-		}
-		if reference.rangeItem.Start == reference.rangeItem.End {
-			t.Errorf(
-				"localAnnotationReference(%q) has an empty range",
-				definition.Name,
-			)
-		}
 	}
 }
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 func TestApplicationAndLoadAdapters(t *testing.T) {

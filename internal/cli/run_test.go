@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/testsupport"
+	"golang.org/x/mod/modfile"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -525,44 +528,55 @@ func withTestAnnotationImports(
 
 func withTestAnnotationTool(t *testing.T, content string) string {
 	t.Helper()
-	lines := strings.Split(content, "\n")
-	for index, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "go ") {
-			lines[index] = "go 1.26.0"
-			break
+	file, parseErr := modfile.Parse("go.mod", []byte(content), nil)
+	if parseErr != nil {
+		t.Fatalf("parse fixture go.mod: %v", parseErr)
+	}
+	if err := file.AddGoStmt("1.26.0"); err != nil {
+		t.Fatalf("set fixture Go version: %v", err)
+	}
+	if err := file.AddTool(identity.AnnotationTool); err != nil {
+		t.Fatalf("authorize fixture annotation tool: %v", err)
+	}
+	if file.Module == nil || file.Module.Mod.Path != identity.ToolchainModule {
+		if err := file.AddRequire(identity.CoreModule, identity.CoreVersion); err != nil {
+			t.Fatalf("require fixture Spice core: %v", err)
+		}
+		if err := file.AddRequire(identity.ToolchainModule, "v0.0.0"); err != nil {
+			t.Fatalf("require fixture toolchain: %v", err)
+		}
+		if err := file.DropReplace(identity.CoreModule, ""); err != nil {
+			t.Fatalf("drop fixture core replacement: %v", err)
+		}
+		if err := file.AddReplace(
+			identity.CoreModule,
+			"",
+			filepath.ToSlash(testsupport.CoreDirectory(t)),
+			"",
+		); err != nil {
+			t.Fatalf("replace fixture Spice core: %v", err)
+		}
+		repository, resolveErr := filepath.Abs(filepath.Join("..", ".."))
+		if resolveErr != nil {
+			t.Fatal(resolveErr)
+		}
+		if err := file.DropReplace(identity.ToolchainModule, ""); err != nil {
+			t.Fatalf("drop fixture toolchain replacement: %v", err)
+		}
+		if err := file.AddReplace(
+			identity.ToolchainModule,
+			"",
+			filepath.ToSlash(repository),
+			"",
+		); err != nil {
+			t.Fatalf("replace fixture toolchain: %v", err)
 		}
 	}
-	content = strings.Join(lines, "\n")
-	if !strings.Contains(
-		content,
-		"tool github.com/spice-framework/spice/cmd/spice-annotation-core",
-	) {
-		content += "\ntool github.com/spice-framework/spice/cmd/spice-annotation-core\n"
+	formatted, formatErr := file.Format()
+	if formatErr != nil {
+		t.Fatalf("format fixture go.mod: %v", formatErr)
 	}
-	if strings.Contains(
-		content,
-		"module github.com/spice-framework/spice",
-	) {
-		return content
-	}
-	if !strings.Contains(
-		content,
-		"require github.com/spice-framework/spice ",
-	) {
-		content += "\nrequire github.com/spice-framework/spice v0.0.0\n"
-	}
-	if !strings.Contains(
-		content,
-		"replace github.com/spice-framework/spice =>",
-	) {
-		repository, err := filepath.Abs(filepath.Join("..", ".."))
-		if err != nil {
-			t.Fatal(err)
-		}
-		content += "\nreplace github.com/spice-framework/spice => " +
-			filepath.ToSlash(repository) + "\n"
-	}
-	return content
+	return string(formatted)
 }
 
 type errorWriter struct{}

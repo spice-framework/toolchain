@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/spice-framework/spice/annotation"
-	annotationparser "github.com/spice-framework/spice/compiler/parser"
+	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
 )
 
 // Target identifies the Go declaration associated with an annotation.

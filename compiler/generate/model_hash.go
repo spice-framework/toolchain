@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/application"
-	compilerasync "github.com/spice-framework/spice/compiler/async"
-	compilercache "github.com/spice-framework/spice/compiler/cache"
-	"github.com/spice-framework/spice/compiler/controller"
-	compilerevent "github.com/spice-framework/spice/compiler/event"
-	"github.com/spice-framework/spice/compiler/provider"
-	compilerschedule "github.com/spice-framework/spice/compiler/schedule"
-	compilertransaction "github.com/spice-framework/spice/compiler/transaction"
 	runtimeconfig "github.com/spice-framework/spice/config"
+	"github.com/spice-framework/toolchain/compiler/application"
+	compilerasync "github.com/spice-framework/toolchain/compiler/async"
+	compilercache "github.com/spice-framework/toolchain/compiler/cache"
+	"github.com/spice-framework/toolchain/compiler/controller"
+	compilerevent "github.com/spice-framework/toolchain/compiler/event"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	compilerschedule "github.com/spice-framework/toolchain/compiler/schedule"
+	compilertransaction "github.com/spice-framework/toolchain/compiler/transaction"
 )
 
 type modelHashScheduleJob struct {

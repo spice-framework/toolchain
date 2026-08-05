@@ -17,8 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spice-framework/spice/compiler/load"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/load"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 // The end-to-end client starts the complete typed compiler pipeline. Under the
@@ -587,7 +588,7 @@ func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
 	hover := client.waitForID("4")
 	for _, expected := range []string{
 		"Application marks",
-		"go tool github.com/spice-framework/spice/cmd/spice-annotation-core",
+		"go tool github.com/spice-framework/toolchain/cmd/spice-annotation-core",
 		"annotation/core.ApplicationHandler",
 		"spice.annotation/v1alpha2",
 		"local",
@@ -1084,6 +1085,7 @@ func writeLSPModule(t *testing.T) (string, string, string) {
 	if err != nil {
 		t.Fatalf("Abs(repository) error = %v", err)
 	}
+	coreDirectory := testsupport.CoreDirectory(t)
 	original := `package main
 
 import (
@@ -1101,9 +1103,13 @@ func main() {
 `
 	files := map[string]string{
 		"go.mod": "module example.com/lspfixture\n\ngo 1.26.0\n\n" +
-			"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n" +
-			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n" +
+			"require (\n" +
+			"\tgithub.com/spice-framework/spice v0.0.0\n" +
+			"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 			"replace github.com/spice-framework/spice => " +
+			filepath.ToSlash(coreDirectory) + "\n\n" +
+			"replace github.com/spice-framework/toolchain => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": original,
 		"internal/spicegen/lspfixture/spice_command_gen.go": `//go:build !spice_generate
@@ -1147,6 +1153,7 @@ func writeImportedLSPModule(t *testing.T) (string, string, string) {
 	if err != nil {
 		t.Fatalf("Abs(repository) error = %v", err)
 	}
+	coreDirectory := testsupport.CoreDirectory(t)
 	source := `package main
 
 import (
@@ -1163,9 +1170,13 @@ func main() {
 }
 `
 	mod := "module example.com/importedlsp\n\ngo 1.26.0\n\n" +
-		"tool github.com/spice-framework/spice/cmd/spice-annotation-core\n\n" +
-		"require github.com/spice-framework/spice v0.0.0\n\n" +
+		"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n" +
+		"require (\n" +
+		"\tgithub.com/spice-framework/spice v0.0.0\n" +
+		"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 		"replace github.com/spice-framework/spice => " +
+		filepath.ToSlash(coreDirectory) + "\n\n" +
+		"replace github.com/spice-framework/toolchain => " +
 		filepath.ToSlash(repository) + "\n"
 	for relative, content := range map[string]string{
 		"go.mod":  mod,

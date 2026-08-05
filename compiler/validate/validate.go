@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/spice-framework/spice/annotation"
-	"github.com/spice-framework/spice/compiler/scan"
+	"github.com/spice-framework/toolchain/compiler/scan"
 )
 
 type diagnosticKind uint8

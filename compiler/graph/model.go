@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"go/token"
 
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 // Node represents one active bootstrap provider.

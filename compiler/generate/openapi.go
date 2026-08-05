@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/controller"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/controller"
 )
 
 const openAPIFilename = "openapi.json"

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 func TestAttachOfficialMapsEverySupportedCapability(t *testing.T) {

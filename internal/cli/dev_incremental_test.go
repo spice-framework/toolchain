@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	codegen "github.com/spice-framework/spice/compiler/generate"
-	"github.com/spice-framework/spice/internal/devloop"
+	codegen "github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/internal/devloop"
 )
 
 func TestDevelopmentPipelineReusesBodyOnlyGeneration(t *testing.T) {

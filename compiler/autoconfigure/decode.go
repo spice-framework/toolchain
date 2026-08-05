@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 const (

@@ -8,12 +8,12 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	publicstarter "github.com/spice-framework/spice/annotation/sdk/starter"
-	"github.com/spice-framework/spice/compiler/application"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
-	compilerstarter "github.com/spice-framework/spice/compiler/starter"
-	"github.com/spice-framework/spice/internal/testannotation"
+	"github.com/spice-framework/toolchain/compiler/application"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
+	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
+	"github.com/spice-framework/toolchain/internal/testannotation"
 )
 
 func TestRenderCallsSelectedStarterEntrypointAndHashesProvenance(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/configuration"
-	compilerevent "github.com/spice-framework/spice/compiler/event"
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/configuration"
+	compilerevent "github.com/spice-framework/toolchain/compiler/event"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 func writeProviders(

@@ -6,12 +6,11 @@ import (
 	"os"
 
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
-	"github.com/spice-framework/spice/internal/annotationcore"
+	"github.com/spice-framework/toolchain/internal/annotationcore"
 )
 
 func main() {
 	// Entrypoints must translate the protocol result to a process exit status.
-	//nolint:forbidigo // This package-main boundary alone owns the process status.
 	os.Exit(run(os.Args, os.Stdin, os.Stdout, os.Stderr))
 }
 

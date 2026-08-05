@@ -121,7 +121,7 @@ func buildSBOM(
 			Created: epoch.UTC().Format(time.RFC3339),
 			Creators: []string{
 				"Organization: Spice Authors",
-				"Tool: github.com/spice-framework/spice/cmd/spice-release",
+				"Tool: github.com/spice-framework/toolchain/cmd/spice-release",
 			},
 		},
 		Packages:      packages,

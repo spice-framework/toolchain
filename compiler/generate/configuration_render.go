@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/spice-framework/spice/annotation/sdk"
-	compilercache "github.com/spice-framework/spice/compiler/cache"
-	"github.com/spice-framework/spice/compiler/configuration"
-	"github.com/spice-framework/spice/compiler/provider"
 	runtimeconfig "github.com/spice-framework/spice/config"
+	compilercache "github.com/spice-framework/toolchain/compiler/cache"
+	"github.com/spice-framework/toolchain/compiler/configuration"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 func writeApplicationOptions(

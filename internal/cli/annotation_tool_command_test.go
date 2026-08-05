@@ -5,21 +5,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestAnnotationsListAndDoctorAreReadOnlyAndFailClosed(t *testing.T) {
 	root := t.TempDir()
-	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
 	writeAnnotationCommandFile(t, root, "go.mod", `module example.com/fixture
 
 go 1.26.0
 
 require github.com/spice-framework/spice v0.0.0
 
-replace github.com/spice-framework/spice => `+filepath.ToSlash(repository)+"\n")
+replace github.com/spice-framework/spice => `+filepath.ToSlash(testsupport.CoreDirectory(t))+"\n")
+
 	writeAnnotationCommandFile(t, root, "app/app.go", `package app
 
 // @import { Echo } from "example.com/fixture/annotations"

@@ -11,12 +11,12 @@ import (
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
-	"github.com/spice-framework/spice/compiler/annotationhost"
-	"github.com/spice-framework/spice/compiler/descriptor"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
-	"github.com/spice-framework/spice/compiler/resolve"
+	"github.com/spice-framework/toolchain/compiler/annotationhost"
+	"github.com/spice-framework/toolchain/compiler/descriptor"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
 func (service *Service) applyToolContributions(

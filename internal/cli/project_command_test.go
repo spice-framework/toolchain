@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestScaffoldCommandCreatesApplicationWithoutResolvingModules(t *testing.T) {
@@ -19,7 +21,7 @@ func TestScaffoldCommandCreatesApplicationWithoutResolvingModules(t *testing.T) 
 			"--module", "example.com/acme/catalog",
 			"--directory", destination,
 			"--spice-version", "v0.2.0",
-			"--replace", cliRepositoryRoot(t),
+			"--toolchain-replace", cliRepositoryRoot(t),
 		},
 		&stdout,
 		&stderr,
@@ -41,7 +43,7 @@ func TestAddCommandPreviewsThenAppliesExactDependency(t *testing.T) {
 	root := t.TempDir()
 	goMod := "module example.com/add-app\n\ngo 1.26.0\n\n" +
 		"replace github.com/spice-framework/spice => " +
-		filepath.ToSlash(cliRepositoryRoot(t)) + "\n"
+		filepath.ToSlash(testsupport.CoreDirectory(t)) + "\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -124,15 +126,28 @@ func TestProjectCommandsRejectAmbiguousInputs(t *testing.T) {
 
 func TestProjectArgumentDefaultsAndOptions(t *testing.T) {
 	t.Parallel()
-	scaffoldArguments, err := parseScaffoldArguments([]string{
-		"--module", "example.com/acme/catalog",
-		"--spice-version", "v0.2.0",
+	defaults, err := parseScaffoldArguments([]string{
+		"--module", "example.com/acme/defaults",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scaffoldArguments.directory != "catalog" {
-		t.Fatalf("default scaffold directory = %q", scaffoldArguments.directory)
+	if defaults.spiceVersion != identity.CoreVersion ||
+		defaults.toolchainVersion != currentToolchainModuleVersion() {
+		t.Fatalf("default module versions = %#v", defaults)
+	}
+	scaffoldArguments, err := parseScaffoldArguments([]string{
+		"--module", "example.com/acme/catalog",
+		"--spice-version", "v0.2.0",
+		"--toolchain-version", "v0.3.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scaffoldArguments.directory != "catalog" ||
+		scaffoldArguments.spiceVersion != "v0.2.0" ||
+		scaffoldArguments.toolchainVersion != "v0.3.0" {
+		t.Fatalf("parseScaffoldArguments() = %#v", scaffoldArguments)
 	}
 	addArguments, err := parseAddArguments([]string{
 		"--tool", "--apply", "--directory", "application",

@@ -9,7 +9,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestDecodeStaticDescriptor(t *testing.T) {
@@ -125,7 +126,7 @@ func TestDecodeAllOfficialDescriptors(t *testing.T) {
 	for _, item := range descriptors {
 		if item.Documentation == "" ||
 			item.Definition.Implementation.Tool !=
-				"github.com/spice-framework/spice/cmd/spice-annotation-core" ||
+				"github.com/spice-framework/toolchain/cmd/spice-annotation-core" ||
 			item.Handler.Package != item.Package {
 			t.Fatalf("official descriptor = %+v", item)
 		}
@@ -424,14 +425,10 @@ func loadDescriptorProgram(
 ) *load.Program {
 	t.Helper()
 	root := t.TempDir()
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatalf("repository root: %v", err)
-	}
 	module := "module example.com/plugin\n\ngo 1.26.0\n\n" +
 		"require github.com/spice-framework/spice v0.0.0\n\n" +
 		"replace github.com/spice-framework/spice => " +
-		filepath.ToSlash(repositoryRoot) + "\n"
+		filepath.ToSlash(testsupport.CoreDirectory(t)) + "\n"
 	writeDescriptorFile(t, root, "go.mod", module)
 	writeDescriptorFile(t, root, "app/app.go", "package app\n")
 	auxiliary := make(map[string]struct{})

@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/spice-framework/spice/annotation"
-	annotationparser "github.com/spice-framework/spice/compiler/parser"
+	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
 )
 
 // Discovery is the deterministic lexical preload input for one typed compiler

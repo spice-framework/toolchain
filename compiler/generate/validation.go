@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"go/token"
 
-	"github.com/spice-framework/spice/compiler/application"
-	compilerlifecycle "github.com/spice-framework/spice/compiler/lifecycle"
-	"github.com/spice-framework/spice/compiler/load"
-	"github.com/spice-framework/spice/compiler/provider"
+	"github.com/spice-framework/toolchain/compiler/application"
+	compilerlifecycle "github.com/spice-framework/toolchain/compiler/lifecycle"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/provider"
 )
 
 func validateTarget(target Target, applicationTarget application.Target) []Diagnostic {

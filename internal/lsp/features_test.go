@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/spice-framework/spice/annotation"
-	"github.com/spice-framework/spice/compiler/diagnostic"
-	compilerservice "github.com/spice-framework/spice/compiler/service"
+	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	compilerservice "github.com/spice-framework/toolchain/compiler/service"
+	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestCompletionProducesValidGoCommentsAndTypedValues(t *testing.T) {
@@ -591,6 +593,7 @@ func TestGoInterfaceCompletionUsesRealCompilerAuthoringMetadata(
 	if absolutePathErr != nil {
 		t.Fatalf("Abs(repository) error = %v", absolutePathErr)
 	}
+	coreDirectory := testsupport.CoreDirectory(t)
 	source := []byte(`package main
 
 // @import { Implements, Service } from "github.com/spice-framework/spice/annotation/core"
@@ -602,10 +605,13 @@ type Stripe struct{}
 	files := map[string]string{
 		"go.mod": "module example.com/interfacecompletion\n\n" +
 			"go 1.26.0\n\n" +
-			"tool github.com/spice-framework/spice/cmd/" +
-			"spice-annotation-core\n\n" +
-			"require github.com/spice-framework/spice v0.0.0\n\n" +
+			"tool " + identity.AnnotationTool + "\n\n" +
+			"require (\n" +
+			"\tgithub.com/spice-framework/spice v0.0.0\n" +
+			"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 			"replace github.com/spice-framework/spice => " +
+			filepath.ToSlash(coreDirectory) + "\n\n" +
+			"replace github.com/spice-framework/toolchain => " +
 			filepath.ToSlash(repository) + "\n",
 		"main.go": string(source),
 		"payments/payments.go": `package payments

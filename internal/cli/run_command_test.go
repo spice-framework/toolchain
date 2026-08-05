@@ -11,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spice-framework/spice/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
 func TestRunCommandBuildsAndExecutesPreferredApplication(t *testing.T) {
@@ -353,10 +354,7 @@ func TestValidateApplicationPackagePath(t *testing.T) {
 
 func packageMainRunModule(t *testing.T) string {
 	t.Helper()
-	repository, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
+	repository := testsupport.CoreDirectory(t)
 	return writeModule(t, map[string]string{
 		"go.mod": "module example.com/runfixture\n\ngo 1.26.0\n\n" +
 			"require github.com/spice-framework/spice v0.0.0\n\n" +
