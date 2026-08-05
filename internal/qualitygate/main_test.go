@@ -795,7 +795,7 @@ func TestQualityGateFailurePaths(t *testing.T) {
 	}
 }
 
-func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
+func TestTestAndCoverageCombinesRaceAndCoverage(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "sample.go", "package sample\n")
 	originalRun, originalCapture := runExternal, captureExternal
@@ -840,16 +840,18 @@ func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 	if err := testAndCoverage(context.Background(), root); err != nil {
 		t.Fatalf("testAndCoverage() error = %v", err)
 	}
-	if len(calls) != 2 {
-		t.Fatalf("testAndCoverage() made %d commands, want 2: %v", len(calls), calls)
+	if len(calls) != 1 {
+		t.Fatalf("testAndCoverage() made %d commands, want 1: %v", len(calls), calls)
 	}
 	if !slices.ContainsFunc(calls[0], func(argument string) bool {
 		return strings.HasPrefix(argument, "-coverprofile=")
 	}) {
-		t.Fatalf("first test command does not emit coverage: %v", calls[0])
+		t.Fatalf("test command does not emit coverage: %v", calls[0])
 	}
-	if !slices.Contains(calls[1], "-race") {
-		t.Fatalf("race command = %v", calls[1])
+	if !slices.Contains(calls[0], "-race") ||
+		!slices.Contains(calls[0], "-shuffle=on") ||
+		!slices.Contains(calls[0], "-covermode=atomic") {
+		t.Fatalf("combined race and coverage command = %v", calls[0])
 	}
 }
 

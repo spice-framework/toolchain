@@ -173,9 +173,10 @@ func verify(ctx context.Context, root string, release bool) error {
 			return err
 		}
 	}
-	// The shuffled pass emits the repository coverage profile, so coverage does
-	// not compile the product graph a second time. The remaining broad stages
-	// stay sequential to avoid oversubscribing compiler processes.
+	// One shuffled, race-enabled pass emits the repository coverage profile, so
+	// the complete product graph is compiled and executed only once here. The
+	// remaining broad stages stay sequential; executable smoke owns its own
+	// bounded concurrency because its scenarios use independent workspaces.
 	if err := runSequential([]verificationStep{
 		{"tests and coverage", func() error {
 			return testAndCoverage(ctx, root)
@@ -830,10 +831,18 @@ func testAndCoverage(
 	}()
 	const profileName = "coverage.out"
 	profile := filepath.Join(temp, profileName)
-	if err := runTestCommands(
+	if err := runExternal(
 		ctx,
 		root,
-		[]string{"-covermode=atomic", "-coverprofile=" + profile},
+		nil,
+		"go",
+		"test",
+		"-race",
+		"-shuffle=on",
+		"-count=1",
+		"-covermode=atomic",
+		"-coverprofile="+profile,
+		"./...",
 	); err != nil {
 		return err
 	}
@@ -1080,21 +1089,30 @@ func offline(ctx context.Context, root string) error {
 }
 
 func smoke(ctx context.Context, root string) error {
-	if err := scaffoldSmoke(ctx, root); err != nil {
-		return err
-	}
-	if err := dogfoodRuntime(ctx, root); err != nil {
-		return err
-	}
-	commands := [][]string{
-		{"go", "run", "./cmd/spice", "modules", "--format=json", "./..."},
-	}
-	for _, args := range commands {
-		if err := runExternal(ctx, root, nil, args[0], args[1:]...); err != nil {
-			return err
-		}
-	}
-	return thirdPartyAnnotationSmoke(ctx, root)
+	return runParallel([]verificationStep{
+		{name: "clean-room application", run: func() error {
+			return scaffoldSmoke(ctx, root)
+		}},
+		{name: "dogfood runtime", run: func() error {
+			return dogfoodRuntime(ctx, root)
+		}},
+		{name: "module report", run: func() error {
+			return runExternal(
+				ctx,
+				root,
+				nil,
+				"go",
+				"run",
+				"./cmd/spice",
+				"modules",
+				"--format=json",
+				"./...",
+			)
+		}},
+		{name: "third-party annotations", run: func() error {
+			return thirdPartyAnnotationSmoke(ctx, root)
+		}},
+	}, 2)
 }
 
 func scaffoldSmoke(ctx context.Context, root string) error {
