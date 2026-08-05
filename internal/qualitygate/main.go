@@ -29,7 +29,6 @@ import (
 
 const (
 	requiredGoVersion           = "go1.26.5"
-	requiredRustVersion         = "1.93.0"
 	minimumCoverage             = 85.0
 	maximumGeneratedTargetLines = fastgate.MaximumGeneratedTargetLines
 	fuzzSmokeExecutions         = "100x"
@@ -40,10 +39,9 @@ const (
 var output = log.New(os.Stdout, "", 0)
 
 var (
-	runExternal        = command
-	captureExternal    = capture
-	runBootstrapCheck  = bootstrapcheck.Run
-	zedTargetDirectory = defaultZedTargetDirectory
+	runExternal       = command
+	captureExternal   = capture
+	runBootstrapCheck = bootstrapcheck.Run
 )
 
 func main() {
@@ -51,7 +49,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fmt, fuzz, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fmt, fuzz, lint, security, smoke, test, vet, offline, verify, or verify-release")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -92,7 +90,6 @@ func run(ctx context.Context, mode string) error {
 		"test":           func() error { return test(ctx, root) },
 		"vet":            func() error { return vet(ctx, root) },
 		"offline":        func() error { return offline(ctx, root) },
-		"zed":            func() error { return zed(ctx, root) },
 		"verify":         func() error { return verify(ctx, root, false) },
 		"verify-release": func() error { return verify(ctx, root, true) },
 	}
@@ -164,7 +161,6 @@ func verify(ctx context.Context, root string, release bool) error {
 		{"go vet", func() error { return vet(ctx, root) }},
 		{"lint and nil safety", func() error { return lint(ctx, root) }},
 		{"security", func() error { return security(ctx, root) }},
-		{"Zed extension", func() error { return zed(ctx, root) }},
 	}
 	if err := runParallel(parallelSteps, 4); err != nil {
 		return err
@@ -560,109 +556,6 @@ func checkGoVersion(ctx context.Context, root string) error {
 	return nil
 }
 
-func checkRustVersion(ctx context.Context, root string) error {
-	stdout, err := captureExternal(ctx, root, "rustc", "--version")
-	if err != nil {
-		return err
-	}
-	fields := strings.Fields(stdout)
-	if len(fields) < 2 || fields[1] != requiredRustVersion {
-		return fmt.Errorf(
-			"rustc version is %q, require %s",
-			strings.TrimSpace(stdout),
-			requiredRustVersion,
-		)
-	}
-	return nil
-}
-
-func zed(ctx context.Context, root string) error {
-	zedRoot := filepath.Join(root, "editors", "zed")
-	if err := checkRustVersion(ctx, zedRoot); err != nil {
-		return err
-	}
-	targetRoot, targetErr := zedTargetDirectory()
-	if targetErr != nil {
-		return targetErr
-	}
-	cargoEnvironment := map[string]string{"CARGO_TARGET_DIR": targetRoot}
-	commands := [][]string{
-		{"fmt", "--check"},
-		{"test", "--locked"},
-		{"clippy", "--locked", "--all-targets", "--", "-D", "warnings"},
-		{"build", "--locked", "--release", "--target", "wasm32-wasip2"},
-	}
-	for _, arguments := range commands {
-		if err := runExternal(
-			ctx,
-			zedRoot,
-			cargoEnvironment,
-			"cargo",
-			arguments...,
-		); err != nil {
-			return err
-		}
-	}
-	fixtureRoot := filepath.Join(zedRoot, "fixture")
-	if err := runExternal(
-		ctx,
-		fixtureRoot,
-		nil,
-		"go",
-		"mod",
-		"tidy",
-		"-diff",
-	); err != nil {
-		return err
-	}
-	temp, tempErr := os.MkdirTemp("", "spice-zed-*")
-	if tempErr != nil {
-		return fmt.Errorf("create Zed fixture directory: %w", tempErr)
-	}
-	defer removeTemporaryDirectory(temp)
-	executable := filepath.Join(temp, "spice")
-	if runtime.GOOS == "windows" {
-		executable += ".exe"
-	}
-	if err := runExternal(
-		ctx,
-		root,
-		nil,
-		"go",
-		"build",
-		"-trimpath",
-		"-o",
-		executable,
-		"./cmd/spice",
-	); err != nil {
-		return err
-	}
-	if err := runExternal(
-		ctx,
-		fixtureRoot,
-		nil,
-		executable,
-		"verify",
-		"--format=json",
-		"./...",
-	); err != nil {
-		return err
-	}
-	return nil
-}
-
-func defaultZedTargetDirectory() (string, error) {
-	cacheRoot, cacheErr := os.UserCacheDir()
-	if cacheErr != nil {
-		return "", fmt.Errorf("resolve user cache for Zed target: %w", cacheErr)
-	}
-	targetRoot := filepath.Join(cacheRoot, "spice", "qualitygate", "zed-target")
-	if mkdirErr := os.MkdirAll(targetRoot, 0o700); mkdirErr != nil {
-		return "", fmt.Errorf("create isolated Zed target directory: %w", mkdirErr)
-	}
-	return targetRoot, nil
-}
-
 func format(ctx context.Context, root string, write bool) error {
 	files, err := goFiles(root)
 	if err != nil {
@@ -717,7 +610,6 @@ func goFiles(root string) ([]string, error) {
 					"bin",
 					"dist",
 					"out",
-					filepath.Join("editors", "zed", "target"),
 				}, relative) {
 					return filepath.SkipDir
 				}
@@ -1667,7 +1559,7 @@ func capture(
 func validateExecutable(executable string) error {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(executable)), ".exe")
 	switch name {
-	case "cargo", "git", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice", "xvfb-run":
+	case "git", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "spice", "xvfb-run":
 		return nil
 	default:
 		return fmt.Errorf("executable %q is not an approved quality tool", executable)

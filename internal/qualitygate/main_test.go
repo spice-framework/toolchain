@@ -90,9 +90,6 @@ func TestVerifyOrchestration(t *testing.T) {
 		case executable == "go" &&
 			slices.Equal(arguments, []string{"version"}):
 			return "go version " + requiredGoVersion + " test/arch\n", nil
-		case executable == "rustc" &&
-			slices.Equal(arguments, []string{"--version"}):
-			return "rustc " + requiredRustVersion + " (test)\n", nil
 		case executable == "go" && slices.Equal(arguments, []string{
 			"list", "-mod=vendor", "-f", "{{.ImportPath}}", "./...",
 		}):
@@ -134,7 +131,6 @@ func TestVerifyOrchestration(t *testing.T) {
 		"-coverprofile=",
 		"-fuzztime=" + fuzzSmokeExecutions,
 		"-mod=vendor -count=1",
-		"cargo build --locked --release --target wasm32-wasip2",
 		"generate --check --target Spice ./compiler/...",
 		"bootstrap recovery",
 	} {
@@ -170,59 +166,6 @@ func TestCheckCanonicalNamespaceRejectsLegacySourceAndSkipsLocalArtifacts(
 			"checkCanonicalNamespace(legacy) error = %v, want path and namespace",
 			err,
 		)
-	}
-}
-
-func TestZedUsesIsolatedCargoTargetDirectory(t *testing.T) {
-	silenceOutput(t)
-	root := t.TempDir()
-	externalTarget := t.TempDir()
-	originalRun, originalCapture := runExternal, captureExternal
-	originalTargetDirectory := zedTargetDirectory
-	var cargoTargets []string
-	runExternal = func(
-		_ context.Context,
-		_ string,
-		environment map[string]string,
-		executable string,
-		_ ...string,
-	) error {
-		if executable == "cargo" {
-			cargoTargets = append(cargoTargets, environment["CARGO_TARGET_DIR"])
-		}
-		return nil
-	}
-	captureExternal = func(
-		_ context.Context,
-		_ string,
-		executable string,
-		arguments ...string,
-	) (string, error) {
-		if executable == "rustc" && slices.Equal(arguments, []string{"--version"}) {
-			return "rustc " + requiredRustVersion + " (test)\n", nil
-		}
-		return "", nil
-	}
-	zedTargetDirectory = func() (string, error) { return externalTarget, nil }
-	t.Cleanup(func() {
-		runExternal = originalRun
-		captureExternal = originalCapture
-		zedTargetDirectory = originalTargetDirectory
-	})
-
-	if err := zed(context.Background(), root); err != nil {
-		t.Fatalf("zed() error = %v", err)
-	}
-	if len(cargoTargets) != 4 {
-		t.Fatalf("cargo target count = %d, want 4", len(cargoTargets))
-	}
-	for _, target := range cargoTargets {
-		if target != externalTarget || !filepath.IsAbs(target) || strings.HasPrefix(target, root) {
-			t.Fatalf("CARGO_TARGET_DIR = %q, want isolated absolute path", target)
-		}
-		if info, err := os.Stat(target); err != nil || !info.IsDir() {
-			t.Fatalf("persistent Cargo target %q unavailable: %v", target, err)
-		}
 	}
 }
 
@@ -364,7 +307,6 @@ func TestRepositoryAndFilesystemHelpers(t *testing.T) {
 	writeTestFile(t, tree, "nested/b.go", "package nested\n")
 	writeTestFile(t, tree, "vendor/ignored.go", "package ignored\n")
 	writeTestFile(t, tree, ".git/ignored.go", "package ignored\n")
-	writeTestFile(t, tree, "editors/zed/target/ignored.go", "not valid Go\n")
 	writeTestFile(t, tree, "out/ignored.go", "not valid Go\n")
 	writeTestFile(t, tree, "dist/ignored.go", "not valid Go\n")
 	writeTestFile(t, tree, "bin/ignored.go", "not valid Go\n")
@@ -401,7 +343,7 @@ func TestCoverageAndExecutableHelpers(t *testing.T) {
 	if _, coverageErr := totalCoverage("no total"); coverageErr == nil {
 		t.Fatal("totalCoverage() error = nil")
 	}
-	for _, executable := range []string{"cargo", "go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "rustc", "spice", "xvfb-run"} {
+	for _, executable := range []string{"go", "gofumpt", "goimports", "golangci-lint", "gosec", "govulncheck", "gradlew", "gradlew.bat", "nilaway", "spice", "xvfb-run"} {
 		if executableErr := validateExecutable(executable); executableErr != nil {
 			t.Fatalf("validateExecutable(%q) error = %v", executable, executableErr)
 		}
@@ -660,9 +602,6 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		case executable == "go" &&
 			slices.Equal(arguments, []string{"version"}):
 			return "go version " + requiredGoVersion + " test/arch", nil
-		case executable == "rustc" &&
-			slices.Equal(arguments, []string{"--version"}):
-			return "rustc " + requiredRustVersion + " (test)", nil
 		case executable == "go" && slices.Equal(arguments, []string{
 			"list", "-mod=vendor", "-f", "{{.ImportPath}}", "./...",
 		}):
@@ -682,7 +621,7 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
+	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "lint", "security", "smoke", "test", "vet", "offline", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}

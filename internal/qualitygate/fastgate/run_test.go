@@ -66,7 +66,6 @@ func TestRunDocumentationAndEditorInputs(t *testing.T) {
 				Changed:        []string{"docs/spring-coverage.md"},
 				Reasons:        []string{"global contract changed"},
 				SpringCoverage: true,
-				Zed:            true,
 			}, nil
 		},
 	})
@@ -76,7 +75,6 @@ func TestRunDocumentationAndEditorInputs(t *testing.T) {
 	for _, fragment := range []string{
 		"Spring coverage resolution",
 		"generated target boundaries",
-		"Zed inputs changed",
 		"affected verification passed",
 	} {
 		if !strings.Contains(output.String(), fragment) {

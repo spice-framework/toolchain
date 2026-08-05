@@ -107,9 +107,6 @@ func runPlan(
 			return err
 		}
 	}
-	if plan.Zed {
-		reporter.Print("==> Zed inputs changed; make zed remains the extension gate")
-	}
 	reporter.Print("==> affected verification passed")
 	return nil
 }

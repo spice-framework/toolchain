@@ -123,12 +123,10 @@ func TestSelectClassifiesDocumentationEditorAndWorkspaceArtifacts(
 	plan := Select(root, "base", []string{
 		".tmp/private.txt",
 		"docs/spring-coverage.md",
-		"editors/zed/src/lib.rs",
 	}, graph)
 	if len(plan.Modules) != 0 ||
 		slices.Contains(plan.Changed, ".tmp/private.txt") ||
-		!plan.SpringCoverage ||
-		!plan.Zed {
+		!plan.SpringCoverage {
 		t.Fatalf("plan = %+v", plan)
 	}
 }

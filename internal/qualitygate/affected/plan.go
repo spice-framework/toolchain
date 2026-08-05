@@ -32,7 +32,6 @@ type Plan struct {
 	Reasons        []string
 	Full           bool
 	SpringCoverage bool
-	Zed            bool
 }
 
 // Empty reports whether the worktree contains no relevant change.
@@ -196,10 +195,6 @@ func requiresPackageSelection(name string, plan *Plan) bool {
 	if name == "docs/spring-coverage.md" {
 		plan.SpringCoverage = true
 	}
-	if strings.HasPrefix(name, "editors/zed/") {
-		plan.Zed = true
-		return false
-	}
 	if strings.HasSuffix(name, ".go") {
 		plan.GoFiles = append(plan.GoFiles, name)
 	}
@@ -333,7 +328,6 @@ func ignoredWorkspacePath(name string) bool {
 		"bin/",
 		"dist/",
 		"out/",
-		"editors/zed/target/",
 	} {
 		if strings.HasPrefix(name, prefix) {
 			return true
