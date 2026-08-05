@@ -2155,17 +2155,25 @@ func capture(
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Dir = directory
 	cmd.Env = os.Environ()
-	output, err := cmd.CombinedOutput()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
+		detail := strings.TrimSpace(strings.Join(
+			[]string{stdout.String(), stderr.String()},
+			"\n",
+		))
 		return "", fmt.Errorf(
 			"%s %s: %w\n%s",
 			executable,
 			strings.Join(args, " "),
 			err,
-			strings.TrimSpace(string(output)),
+			detail,
 		)
 	}
-	return string(output), nil
+	return stdout.String(), nil
 }
 
 func validateExecutable(executable string) error {
