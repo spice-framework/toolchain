@@ -144,6 +144,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		"-include-pkgs=" + modulePath,
 		"-race -shuffle=on",
 		"-coverprofile=",
+		"-fuzztime=" + fuzzSmokeExecutions,
 		"-mod=vendor -count=1",
 		"cargo build --locked --release --target wasm32-wasip2",
 		"generate --check --target Spice ./compiler/...",

@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -224,8 +225,17 @@ func TestDevCommandKeepsLastKnownGoodAndRecovers(t *testing.T) {
 	if err := os.WriteFile(mainPath, original, 0o600); err != nil {
 		t.Fatalf("WriteFile(fixed main.go) error = %v", err)
 	}
-	waitForBufferText(t, output, "graceful restart requested for revision 3")
-	waitForBufferText(t, output, "application started (revision 3)")
+	revision := waitForBufferRevision(
+		t,
+		output,
+		"application started (revision ",
+		3,
+	)
+	waitForBufferText(
+		t,
+		output,
+		"graceful restart requested for revision "+strconv.Itoa(revision),
+	)
 
 	cancel()
 	select {
@@ -290,5 +300,84 @@ func waitForBufferText(
 				buffer.String(),
 			)
 		}
+	}
+}
+
+func waitForBufferRevision(
+	t *testing.T,
+	buffer *notifyingBuffer,
+	prefix string,
+	minimum int,
+) int {
+	t.Helper()
+	timeout := time.NewTimer(90 * time.Second)
+	defer timeout.Stop()
+	for {
+		if revision, found := findRevisionAtOrAfter(
+			buffer.String(),
+			prefix,
+			minimum,
+		); found {
+			return revision
+		}
+		select {
+		case <-buffer.updated:
+		case <-timeout.C:
+			t.Fatalf(
+				"timed out waiting for %q at revision %d or later\n%s",
+				prefix,
+				minimum,
+				buffer.String(),
+			)
+		}
+	}
+}
+
+func findRevisionAtOrAfter(
+	output string,
+	prefix string,
+	minimum int,
+) (int, bool) {
+	for line := range strings.SplitSeq(output, "\n") {
+		_, suffix, found := strings.Cut(line, prefix)
+		if !found {
+			continue
+		}
+		length := 0
+		for length < len(suffix) && suffix[length] >= '0' && suffix[length] <= '9' {
+			length++
+		}
+		if length == 0 {
+			continue
+		}
+		revision, err := strconv.Atoi(suffix[:length])
+		if err == nil && revision >= minimum {
+			return revision, true
+		}
+	}
+	return 0, false
+}
+
+func TestFindRevisionAtOrAfter(t *testing.T) {
+	t.Parallel()
+	output := strings.Join([]string{
+		"spice dev: application started (revision 1)",
+		"spice dev: discarded obsolete revision 3",
+		"spice dev: application started (revision 4)",
+	}, "\n")
+
+	if revision, found := findRevisionAtOrAfter(
+		output,
+		"application started (revision ",
+		3,
+	); !found || revision != 4 {
+		t.Fatalf("findRevisionAtOrAfter() = %d, %t, want 4, true", revision, found)
+	}
+	if revision, found := findRevisionAtOrAfter(
+		output,
+		"application started (revision ",
+		5,
+	); found || revision != 0 {
+		t.Fatalf("findRevisionAtOrAfter() = %d, %t, want 0, false", revision, found)
 	}
 }

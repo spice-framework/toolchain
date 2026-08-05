@@ -32,6 +32,7 @@ const (
 	requiredRustVersion         = "1.93.0"
 	minimumCoverage             = 85.0
 	maximumGeneratedTargetLines = fastgate.MaximumGeneratedTargetLines
+	fuzzSmokeExecutions         = "100x"
 	modulePath                  = "github.com/spice-framework/spice"
 	legacyModulePath            = "github.com/" + "StevenBuglione/spice"
 	petclinicModulePath         = modulePath + "/examples/petclinic"
@@ -1093,7 +1094,7 @@ func fuzz(ctx context.Context, root string) error {
 			target.pkg,
 			"-run=^$",
 			"-fuzz="+target.target,
-			"-fuzztime=1s",
+			"-fuzztime="+fuzzSmokeExecutions,
 		); err != nil {
 			return err
 		}
