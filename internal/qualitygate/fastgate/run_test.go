@@ -136,6 +136,13 @@ func TestCheckGeneratedTargetBoundaries(t *testing.T) {
 			wantError: "retired generated target monolith",
 		},
 		{
+			name:     "Commerce module source unit",
+			path:     "examples/commerce/internal/spicegen/app/spice_orders_gen.go",
+			content:  "package app\n",
+			manifest: true,
+			owned:    true,
+		},
+		{
 			name:      "oversized unit",
 			path:      "examples/petclinic/internal/spicegen/app/spice_orders_gen.go",
 			content:   strings.Repeat("// generated\n", maximumGeneratedTargetLines+1),
@@ -410,6 +417,7 @@ func repositoryRoot(t *testing.T) string {
 
 func generatedTestModule(root, file string) (string, string) {
 	for _, prefix := range []string{
+		"examples/commerce/",
 		"examples/petclinic/",
 		"testdata/annotationapp/",
 	} {

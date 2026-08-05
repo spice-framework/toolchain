@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -349,9 +350,13 @@ func ignoredWorkspacePath(name string) bool {
 }
 
 func isGlobalInput(name string) bool {
+	base := path.Base(name)
+	switch base {
+	case "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	}
 	switch name {
-	case "go.mod", "go.sum", "go.work", "go.work.sum", "Makefile",
-		".golangci.yml":
+	case "Makefile", ".golangci.yml":
 		return true
 	}
 	for _, prefix := range []string{"vendor/", "tools/"} {
@@ -359,7 +364,7 @@ func isGlobalInput(name string) bool {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(name, "/vendor/")
 }
 
 func documentationOnly(name string) bool {
@@ -455,6 +460,7 @@ func loadGraphs(
 ) (Graph, error) {
 	roots := []string{
 		repositoryRoot,
+		filepath.Join(repositoryRoot, "examples", "commerce"),
 		filepath.Join(repositoryRoot, "examples", "petclinic"),
 	}
 	roots = append(roots, configured...)
