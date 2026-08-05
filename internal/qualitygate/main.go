@@ -1473,6 +1473,9 @@ func offline(ctx context.Context, root string) error {
 }
 
 func smoke(ctx context.Context, root string) error {
+	if err := scaffoldSmoke(ctx, root); err != nil {
+		return err
+	}
 	if err := dogfoodRuntime(ctx, root); err != nil {
 		return err
 	}
@@ -1491,6 +1494,175 @@ func smoke(ctx context.Context, root string) error {
 		return err
 	}
 	return thirdPartyAnnotationSmoke(ctx, root)
+}
+
+func scaffoldSmoke(ctx context.Context, root string) error {
+	temp, tempErr := os.MkdirTemp("", "spice-clean-room-*")
+	if tempErr != nil {
+		return fmt.Errorf("create clean-room smoke directory: %w", tempErr)
+	}
+	defer removeTemporaryDirectory(temp)
+	executable := filepath.Join(temp, "spice")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	offline := map[string]string{"GOPROXY": "off"}
+	if buildErr := runExternal(
+		ctx,
+		root,
+		offline,
+		"go",
+		"build",
+		"-mod=vendor",
+		"-trimpath",
+		"-o",
+		executable,
+		"./cmd/spice",
+	); buildErr != nil {
+		return buildErr
+	}
+	applicationRoot := filepath.Join(temp, "application")
+	if createErr := runExternal(
+		ctx,
+		root,
+		offline,
+		executable,
+		"new",
+		"--module",
+		"example.com/spice-clean-room",
+		"--directory",
+		applicationRoot,
+		"--spice-version",
+		"v0.0.0",
+		"--replace",
+		root,
+	); createErr != nil {
+		return createErr
+	}
+	dependencySource := []byte("package main\n\n" +
+		"import \"golang.org/x/sync/errgroup\"\n\n" +
+		"var _ errgroup.Group\n")
+	if writeErr := os.WriteFile(
+		filepath.Join(applicationRoot, "dependency.go"),
+		dependencySource,
+		0o600,
+	); writeErr != nil {
+		return fmt.Errorf("write clean-room dependency source: %w", writeErr)
+	}
+	if err := cleanRoomDependencySmoke(
+		ctx,
+		applicationRoot,
+		offline,
+		executable,
+	); err != nil {
+		return err
+	}
+	return runCleanRoomCommands(ctx, applicationRoot, offline, executable)
+}
+
+func cleanRoomDependencySmoke(
+	ctx context.Context,
+	applicationRoot string,
+	offline map[string]string,
+	executable string,
+) error {
+	application, openErr := os.OpenRoot(applicationRoot)
+	if openErr != nil {
+		return fmt.Errorf("open clean-room application: %w", openErr)
+	}
+	smokeErr := cleanRoomDependencySmokeInRoot(
+		ctx,
+		applicationRoot,
+		application,
+		offline,
+		executable,
+	)
+	return errors.Join(smokeErr, application.Close())
+}
+
+func cleanRoomDependencySmokeInRoot(
+	ctx context.Context,
+	applicationRoot string,
+	application *os.Root,
+	offline map[string]string,
+	executable string,
+) error {
+	before, readErr := application.ReadFile("go.mod")
+	if readErr != nil {
+		return fmt.Errorf("read clean-room go.mod before preview: %w", readErr)
+	}
+	selector := "golang.org/x/sync/errgroup@v0.22.0"
+	if previewErr := runExternal(
+		ctx,
+		applicationRoot,
+		offline,
+		executable,
+		"add",
+		selector,
+	); previewErr != nil {
+		return previewErr
+	}
+	afterPreview, readPreviewErr := application.ReadFile("go.mod")
+	if readPreviewErr != nil {
+		return fmt.Errorf("read clean-room go.mod after preview: %w", readPreviewErr)
+	}
+	if !bytes.Equal(before, afterPreview) {
+		return errors.New("spice add preview changed the clean-room go.mod")
+	}
+	if applyErr := runExternal(
+		ctx,
+		applicationRoot,
+		offline,
+		executable,
+		"add",
+		"--apply",
+		selector,
+	); applyErr != nil {
+		return applyErr
+	}
+	afterApply, readApplyErr := application.ReadFile("go.mod")
+	if readApplyErr != nil {
+		return fmt.Errorf("read clean-room go.mod after apply: %w", readApplyErr)
+	}
+	if bytes.Equal(before, afterApply) ||
+		!bytes.Contains(afterApply, []byte("golang.org/x/sync v0.22.0")) {
+		return errors.New("spice add did not apply the previewed clean-room dependency")
+	}
+	return nil
+}
+
+func runCleanRoomCommands(
+	ctx context.Context,
+	applicationRoot string,
+	offline map[string]string,
+	executable string,
+) error {
+	commands := []struct {
+		executable string
+		arguments  []string
+	}{
+		{executable: "go", arguments: []string{"mod", "download"}},
+		{executable: executable, arguments: []string{"generate", "--target", "Spice-clean-room", "."}},
+		{executable: executable, arguments: []string{"verify", "."}},
+		{executable: "go", arguments: []string{"mod", "tidy"}},
+		{executable: "go", arguments: []string{"mod", "vendor"}},
+		{executable: executable, arguments: []string{"generate", "--check", "--target", "Spice-clean-room", "."}},
+		{executable: "go", arguments: []string{"test", "-mod=vendor", "./..."}},
+		{executable: executable, arguments: []string{"build", "--target", "Spice-clean-room", "."}},
+		{executable: executable, arguments: []string{"run", "--target", "Spice-clean-room", ".", "--", "-check"}},
+	}
+	for _, command := range commands {
+		if runErr := runExternal(
+			ctx,
+			applicationRoot,
+			offline,
+			command.executable,
+			command.arguments...,
+		); runErr != nil {
+			return runErr
+		}
+	}
+	return nil
 }
 
 func commerceSmoke(ctx context.Context, root string) error {
@@ -1598,6 +1770,7 @@ func dogfoodRuntime(ctx context.Context, root string) error {
 		"./internal/genfs",
 		"./internal/lsp",
 		"./internal/cli",
+		"./internal/scaffold",
 		"./internal/spiceapp",
 	}
 	applicationPatterns := append(

@@ -268,6 +268,7 @@ func productionPatterns() []string {
 		"./internal/genfs",
 		"./internal/lsp",
 		"./internal/cli",
+		"./internal/scaffold",
 		"./internal/spiceapp",
 		"./internal/autoconfigure",
 	}

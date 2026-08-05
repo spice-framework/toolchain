@@ -2,7 +2,7 @@
 
 // Package cli implements the Spice command-line interface.
 //
-// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::annotationhost", "github.com/StevenBuglione/spice/compiler::annotationimport", "github.com/StevenBuglione/spice/compiler::application", "github.com/StevenBuglione/spice/compiler::descriptor", "github.com/StevenBuglione/spice/compiler::diagnostic", "github.com/StevenBuglione/spice/compiler::diagnostic-adapt", "github.com/StevenBuglione/spice/compiler::generate", "github.com/StevenBuglione/spice/compiler::load", "github.com/StevenBuglione/spice/compiler::modulith", "github.com/StevenBuglione/spice/compiler::resolve", "github.com/StevenBuglione/spice/compiler::service", "github.com/StevenBuglione/spice/compiler::starter", "github.com/StevenBuglione/spice/internal/devloop", "github.com/StevenBuglione/spice/internal/genfs", "github.com/StevenBuglione/spice/internal/lsp"])
+// @Module(allowedDependencies=["github.com/StevenBuglione/spice/compiler::annotationhost", "github.com/StevenBuglione/spice/compiler::annotationimport", "github.com/StevenBuglione/spice/compiler::annotationinstall", "github.com/StevenBuglione/spice/compiler::application", "github.com/StevenBuglione/spice/compiler::descriptor", "github.com/StevenBuglione/spice/compiler::diagnostic", "github.com/StevenBuglione/spice/compiler::diagnostic-adapt", "github.com/StevenBuglione/spice/compiler::generate", "github.com/StevenBuglione/spice/compiler::load", "github.com/StevenBuglione/spice/compiler::modulith", "github.com/StevenBuglione/spice/compiler::resolve", "github.com/StevenBuglione/spice/compiler::service", "github.com/StevenBuglione/spice/compiler::starter", "github.com/StevenBuglione/spice/internal/devloop", "github.com/StevenBuglione/spice/internal/genfs", "github.com/StevenBuglione/spice/internal/lsp", "github.com/StevenBuglione/spice/internal/scaffold"])
 package cli
 
 import (
@@ -294,6 +294,8 @@ func printHelp(writer io.Writer) error {
 
 Usage:
   spice version
+  spice new --module path [--directory path] [--spice-version version] [--replace path]
+  spice add [--tool] [--apply] [--directory path] package@version
   spice verify [--format text|json] [package-pattern ...]
   spice annotations [package-pattern ...]
   spice annotations list [package-pattern ...]
@@ -310,6 +312,8 @@ Usage:
 
 Commands:
   version      Print the Spice version.
+  new          Create a valid-Go application without downloading dependencies.
+  add          Preview or apply exact standard Go module-file changes.
   verify       Load, resolve, and validate Spice annotations for Go packages.
   annotations  List occurrences, inspect descriptors, or verify annotation tools.
   modules      Validate and render application-module documentation.

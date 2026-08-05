@@ -80,6 +80,7 @@ func TestVerifyOrchestration(t *testing.T) {
 		arguments ...string,
 	) error {
 		recordCall(executable + " " + strings.Join(arguments, " "))
+		simulateCleanRoomCommand(t, directory, executable, arguments)
 		for index, argument := range arguments {
 			if profile, found := strings.CutPrefix(
 				argument,
@@ -686,9 +687,10 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		_ context.Context,
 		directory string,
 		_ map[string]string,
-		_ string,
+		executable string,
 		arguments ...string,
 	) error {
+		simulateCleanRoomCommand(t, directory, executable, arguments)
 		for index, argument := range arguments {
 			if profile, found := strings.CutPrefix(
 				argument,
@@ -747,6 +749,49 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
+		}
+	}
+}
+
+func simulateCleanRoomCommand(
+	t *testing.T,
+	directory string,
+	executable string,
+	arguments []string,
+) {
+	t.Helper()
+	name := strings.TrimSuffix(strings.ToLower(filepath.Base(executable)), ".exe")
+	if name != "spice" || len(arguments) == 0 {
+		return
+	}
+	switch arguments[0] {
+	case "new":
+		index := slices.Index(arguments, "--directory")
+		if index < 0 || index+1 >= len(arguments) {
+			t.Fatal("simulated spice new is missing --directory")
+		}
+		root := arguments[index+1]
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(
+			t,
+			root,
+			"go.mod",
+			"module example.com/spice-clean-room\n\ngo 1.26.0\n",
+		)
+	case "add":
+		if !slices.Contains(arguments, "--apply") {
+			return
+		}
+		path := filepath.Join(directory, "go.mod")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content = append(content, []byte("\nrequire golang.org/x/sync v0.22.0\n")...)
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

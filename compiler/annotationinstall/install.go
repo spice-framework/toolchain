@@ -1,7 +1,8 @@
 // @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
 
-// Package annotationinstall plans and applies explicit Go annotation-tool
-// authorization through the target application's ordinary module files.
+// Package annotationinstall plans and applies hash-guarded Go module changes.
+// It supports both explicit annotation-tool authorization and ordinary module
+// dependencies through temporary modfiles and standard Go commands.
 //
 // @NamedInterface("annotationinstall")
 package annotationinstall
@@ -37,21 +38,29 @@ const (
 
 // ErrStalePreview reports that a module file changed after the preview.
 var ErrStalePreview = errors.New(
-	"annotation tool installation preview is stale",
+	"module change preview is stale",
 )
 
-// Preview is an immutable guarded go get -tool result. Its exact after-images
-// are private so callers can apply only a plan produced by this package.
+// Preview is an immutable guarded standard Go module change. Its exact
+// after-images are private so callers can apply only a plan produced here.
 type Preview struct {
 	root    string
-	tool    string
+	path    string
 	version string
+	kind    previewKind
 	command string
 	diff    string
 	token   string
 	guards  []fileGuard
 	changes []fileChange
 }
+
+type previewKind string
+
+const (
+	previewTool       previewKind = "tool"
+	previewDependency previewKind = "dependency"
+)
 
 type fileGuard struct {
 	name  string
@@ -78,7 +87,19 @@ func (preview Preview) Root() string {
 
 // Tool returns the fully qualified Go tool package path.
 func (preview Preview) Tool() string {
-	return preview.tool
+	if preview.kind != previewTool {
+		return ""
+	}
+	return preview.path
+}
+
+// Dependency returns the ordinary package or module path selected by this
+// preview, or an empty string for annotation-tool previews.
+func (preview Preview) Dependency() string {
+	if preview.kind != previewDependency {
+		return ""
+	}
+	return preview.path
 }
 
 // Version returns the selected module version, when one was required.
@@ -111,57 +132,101 @@ func PreviewTool(
 	version string,
 	environment []string,
 ) (Preview, error) {
+	return previewModuleChange(
+		ctx,
+		root,
+		toolPath,
+		version,
+		environment,
+		previewTool,
+	)
+}
+
+// PreviewDependency runs go get against a temporary sibling modfile. It never
+// changes the application's go.mod or go.sum.
+func PreviewDependency(
+	ctx context.Context,
+	root string,
+	dependencyPath string,
+	version string,
+	environment []string,
+) (Preview, error) {
+	return previewModuleChange(
+		ctx,
+		root,
+		dependencyPath,
+		version,
+		environment,
+		previewDependency,
+	)
+}
+
+func previewModuleChange(
+	ctx context.Context,
+	root string,
+	selectedPath string,
+	version string,
+	environment []string,
+	kind previewKind,
+) (Preview, error) {
 	if ctx == nil {
 		return Preview{}, errors.New(
-			"annotation tool preview context must not be nil",
+			"module change preview context must not be nil",
 		)
 	}
-	if err := module.CheckImportPath(toolPath); err != nil {
+	if kind != previewTool && kind != previewDependency {
+		return Preview{}, errors.New("module change preview kind is invalid")
+	}
+	if err := module.CheckImportPath(selectedPath); err != nil {
 		return Preview{}, fmt.Errorf(
-			"validate annotation tool package %q: %w",
-			toolPath,
+			"validate %s package %q: %w",
+			previewLabel(kind),
+			selectedPath,
 			err,
 		)
 	}
 	if version != "" && !semver.IsValid(version) {
 		return Preview{}, fmt.Errorf(
-			"annotation tool version %q is not a valid semantic version",
+			"%s version %q is not a valid semantic version",
+			previewLabel(kind),
 			version,
 		)
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return Preview{}, fmt.Errorf(
-			"resolve annotation tool preview root: %w",
+			"resolve module change preview root: %w",
 			err,
 		)
 	}
 	directory, err := os.OpenRoot(absolute)
 	if err != nil {
 		return Preview{}, fmt.Errorf(
-			"open annotation tool preview root: %w",
+			"open module change preview root: %w",
 			err,
 		)
 	}
-	preview, previewErr := previewToolInRoot(
+	preview, previewErr := previewInRoot(
 		ctx,
 		absolute,
 		directory,
-		toolPath,
+		selectedPath,
 		version,
 		environment,
+		kind,
 	)
 	closeErr := directory.Close()
 	return preview, errors.Join(previewErr, closeErr)
 }
 
-func previewToolInRoot(
+func previewInRoot(
 	ctx context.Context,
 	absolute string,
 	directory *os.Root,
-	toolPath string,
+	selectedPath string,
 	version string,
 	environment []string,
+	kind previewKind,
 ) (Preview, error) {
 	before, err := readModuleStates(directory)
 	if err != nil {
@@ -181,9 +246,10 @@ func previewToolInRoot(
 		directory,
 		temporary,
 		before,
-		toolPath,
+		selectedPath,
 		version,
 		environment,
+		kind,
 	)
 	cleanupErr := temporary.cleanup(directory)
 	return preview, errors.Join(previewErr, cleanupErr)
@@ -195,21 +261,24 @@ func runPreviewCommand(
 	directory *os.Root,
 	temporary temporaryModfile,
 	before map[string]fileChange,
-	toolPath string,
+	selectedPath string,
 	version string,
 	environment []string,
+	kind previewKind,
 ) (Preview, error) {
-	selector := toolPath
+	selector := selectedPath
 	if version != "" {
 		selector += "@" + version
 	}
+	arguments := []string{"get"}
+	if kind == previewTool {
+		arguments = append(arguments, "-tool")
+	}
+	arguments = append(arguments, "-modfile="+temporary.modName, selector)
 	command := exec.CommandContext( // #nosec G204 -- the executable and flags are fixed; the validated package/version is one argument.
 		ctx,
 		"go",
-		"get",
-		"-tool",
-		"-modfile="+temporary.modName,
-		selector,
+		arguments...,
 	)
 	command.Dir = absolute
 	command.Env = installEnvironment(environment)
@@ -224,41 +293,42 @@ func runPreviewCommand(
 	if runErr != nil {
 		return Preview{}, fmt.Errorf(
 			"preview %s: %w%s",
-			developerCommand(selector),
+			developerCommand(kind, selector),
 			runErr,
 			commandFailureDetail(stdout, stderr),
 		)
 	}
 	if stdout.overflow || stderr.overflow {
 		return Preview{}, errors.New(
-			"annotation tool preview command output exceeded 256 KiB",
+			"module change preview command output exceeded 256 KiB",
 		)
 	}
 	after, err := temporary.readStates(directory)
 	if err != nil {
 		return Preview{}, err
 	}
-	if !moduleAuthorizesTool(
+	if kind == previewTool && !moduleAuthorizesTool(
 		after["go.mod"].after.content,
-		toolPath,
+		selectedPath,
 	) {
 		return Preview{}, fmt.Errorf(
 			"%s did not add the exact tool directive",
-			developerCommand(selector),
+			developerCommand(kind, selector),
 		)
 	}
 	changes := changedModuleFiles(before, after)
 	if len(changes) == 0 {
 		return Preview{}, fmt.Errorf(
 			"%s produced no module-file changes",
-			developerCommand(selector),
+			developerCommand(kind, selector),
 		)
 	}
 	preview := Preview{
 		root:    filepath.Clean(absolute),
-		tool:    toolPath,
+		path:    selectedPath,
 		version: version,
-		command: developerCommand(selector),
+		kind:    kind,
+		command: developerCommand(kind, selector),
 		guards:  moduleFileGuards(before),
 		changes: changes,
 	}
@@ -286,12 +356,13 @@ func Apply(ctx context.Context, preview Preview) error {
 		return err
 	}
 	if preview.root == "" ||
-		preview.tool == "" ||
+		preview.path == "" ||
+		preview.kind != previewTool && preview.kind != previewDependency ||
 		len(preview.guards) != 2 ||
 		len(preview.changes) == 0 ||
 		preview.token == "" ||
 		preview.token != previewToken(preview) {
-		return errors.New("annotation tool installation preview is invalid")
+		return errors.New("module change preview is invalid")
 	}
 	root, err := os.OpenRoot(preview.root)
 	if err != nil {
@@ -529,8 +600,18 @@ func moduleFileGuards(before map[string]fileChange) []fileGuard {
 	}
 }
 
-func developerCommand(selector string) string {
-	return "go get -tool " + selector
+func developerCommand(kind previewKind, selector string) string {
+	if kind == previewTool {
+		return "go get -tool " + selector
+	}
+	return "go get " + selector
+}
+
+func previewLabel(kind previewKind) string {
+	if kind == previewTool {
+		return "annotation tool"
+	}
+	return "module dependency"
 }
 
 func moduleAuthorizesTool(content []byte, toolPath string) bool {
@@ -550,7 +631,9 @@ func previewToken(preview Preview) string {
 	var content []byte
 	content = append(content, filepath.Clean(preview.root)...)
 	content = append(content, 0)
-	content = append(content, preview.tool...)
+	content = append(content, preview.kind...)
+	content = append(content, 0)
+	content = append(content, preview.path...)
 	content = append(content, 0)
 	content = append(content, preview.version...)
 	for _, guard := range preview.guards {

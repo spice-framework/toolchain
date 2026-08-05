@@ -29,6 +29,8 @@ const (
 type Components struct {
 	// Runtime is bean "runtime".
 	Runtime *cli.Runtime
+	// AddHandler is bean "addHandler".
+	AddHandler cli.Handler
 	// DevHandler is bean "devHandler".
 	DevHandler cli.Handler
 	// LspHandler is bean "lspHandler".
@@ -51,6 +53,8 @@ type Components struct {
 	VersionHandler cli.Handler
 	// GenerateHandler is bean "generateHandler".
 	GenerateHandler cli.Handler
+	// ScaffoldHandler is bean "scaffoldHandler".
+	ScaffoldHandler cli.Handler
 	// GeneratedHandler is bean "generatedHandler".
 	GeneratedHandler cli.Handler
 	// AnnotationsHandler is bean "annotationsHandler".
@@ -64,6 +68,8 @@ type Components struct {
 type BeanOverrides struct {
 	// Runtime replaces bean "runtime".
 	Runtime spicebean.Override[*cli.Runtime]
+	// AddHandler replaces bean "addHandler".
+	AddHandler spicebean.Override[cli.Handler]
 	// DevHandler replaces bean "devHandler".
 	DevHandler spicebean.Override[cli.Handler]
 	// LspHandler replaces bean "lspHandler".
@@ -86,6 +92,8 @@ type BeanOverrides struct {
 	VersionHandler spicebean.Override[cli.Handler]
 	// GenerateHandler replaces bean "generateHandler".
 	GenerateHandler spicebean.Override[cli.Handler]
+	// ScaffoldHandler replaces bean "scaffoldHandler".
+	ScaffoldHandler spicebean.Override[cli.Handler]
 	// GeneratedHandler replaces bean "generatedHandler".
 	GeneratedHandler spicebean.Override[cli.Handler]
 	// AnnotationsHandler replaces bean "annotationsHandler".
@@ -116,6 +124,9 @@ func ComposeBeanOverrides(layers ...BeanOverrideLayer) (BeanOverrides, error) {
 		seen[layer.Name] = index
 		if layer.Overrides.Runtime.Enabled() {
 			result.Runtime = layer.Overrides.Runtime
+		}
+		if layer.Overrides.AddHandler.Enabled() {
+			result.AddHandler = layer.Overrides.AddHandler
 		}
 		if layer.Overrides.DevHandler.Enabled() {
 			result.DevHandler = layer.Overrides.DevHandler
@@ -149,6 +160,9 @@ func ComposeBeanOverrides(layers ...BeanOverrideLayer) (BeanOverrides, error) {
 		}
 		if layer.Overrides.GenerateHandler.Enabled() {
 			result.GenerateHandler = layer.Overrides.GenerateHandler
+		}
+		if layer.Overrides.ScaffoldHandler.Enabled() {
+			result.ScaffoldHandler = layer.Overrides.ScaffoldHandler
 		}
 		if layer.Overrides.GeneratedHandler.Enabled() {
 			result.GeneratedHandler = layer.Overrides.GeneratedHandler

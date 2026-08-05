@@ -12,6 +12,43 @@ import (
 
 const fixtureTool = "example.com/spice-annotation-fixture/cmd/spice-annotations"
 
+func TestPreviewAndApplyDependencyUsesStandardGoGet(t *testing.T) {
+	t.Parallel()
+	root := writeInstallFixture(t)
+	dependency := "github.com/StevenBuglione/spice/bean"
+	preview, err := PreviewDependency(
+		t.Context(),
+		root,
+		dependency,
+		"v0.0.0",
+		append(os.Environ(), "GOPROXY=off"),
+	)
+	if err != nil {
+		t.Fatalf("PreviewDependency() error = %v", err)
+	}
+	if preview.Command() != "go get "+dependency+"@v0.0.0" ||
+		preview.Dependency() != dependency ||
+		preview.Tool() != "" ||
+		!strings.Contains(preview.Diff(), "github.com/StevenBuglione/spice v0.0.0") {
+		t.Fatalf(
+			"PreviewDependency() = command %q, dependency %q, diff:\n%s",
+			preview.Command(),
+			preview.Dependency(),
+			preview.Diff(),
+		)
+	}
+	if err := Apply(t.Context(), preview); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if content := readInstallGoMod(t, root); !strings.Contains(
+		content,
+		"github.com/StevenBuglione/spice v0.0.0",
+	) {
+		t.Fatalf("applied go.mod:\n%s", content)
+	}
+	assertNoInstallTemporaryFiles(t, root)
+}
+
 func TestPreviewAndApplyToolUsesTemporaryModfileAndHashGuard(
 	t *testing.T,
 ) {

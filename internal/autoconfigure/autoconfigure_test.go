@@ -35,7 +35,7 @@ func TestDescriptorDocumentsFallbackProvenance(t *testing.T) {
 
 	descriptor := SpiceAutoConfiguration()
 	if descriptor.Review != "docs/dogfooding-readiness.md" ||
-		len(descriptor.Beans) != 15 {
+		len(descriptor.Beans) != 17 {
 		t.Fatalf("SpiceAutoConfiguration() = %#v", descriptor)
 	}
 	if descriptor.Beans[0].Name != "runtime" ||
@@ -64,7 +64,7 @@ func TestDescriptorDocumentsFallbackProvenance(t *testing.T) {
 			descriptor.Beans[len(descriptor.Beans)-1].Factory,
 		)
 	}
-	for index, bean := range descriptor.Beans[1:14] {
+	for index, bean := range descriptor.Beans[1:16] {
 		if !bean.Fallback || bean.Order != int64(index*10) {
 			t.Fatalf("handler bean %d = %#v", index, bean)
 		}
@@ -75,6 +75,8 @@ func defaultHandlerFactories() []func(*cli.Runtime) (cli.Handler, error) {
 	return []func(*cli.Runtime) (cli.Handler, error){
 		DefaultHelpHandler,
 		DefaultVersionHandler,
+		DefaultScaffoldHandler,
+		DefaultAddHandler,
 		DefaultVerifyHandler,
 		DefaultAnnotationsHandler,
 		DefaultModulesHandler,

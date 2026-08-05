@@ -10,6 +10,8 @@ func newBootstrapCommand(runtime *Runtime) (*Command, error) {
 	factories := []handlerFactory{
 		NewHelpHandler,
 		NewVersionHandler,
+		NewScaffoldHandler,
+		NewAddHandler,
 		NewVerifyHandler,
 		NewAnnotationsHandler,
 		NewModulesHandler,

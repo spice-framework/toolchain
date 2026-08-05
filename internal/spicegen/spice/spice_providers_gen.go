@@ -16,6 +16,7 @@ import (
 
 type applicationDependencies struct {
 	runtime            *cli.Runtime
+	addHandler         cli.Handler
 	devHandler         cli.Handler
 	lspHandler         cli.Handler
 	runHandler         cli.Handler
@@ -27,6 +28,7 @@ type applicationDependencies struct {
 	modulesHandler     cli.Handler
 	versionHandler     cli.Handler
 	generateHandler    cli.Handler
+	scaffoldHandler    cli.Handler
 	generatedHandler   cli.Handler
 	annotationsHandler cli.Handler
 	command            *cli.Command
@@ -57,6 +59,21 @@ func constructApplicationDependencies(
 		}
 	}
 	_ = runtime
+	addHandler, addHandlerCleanup, err := func() (cli.Handler, spicelifecycle.Cleanup, error) {
+		if options.Overrides.AddHandler.Enabled() {
+			return options.Overrides.AddHandler.Acquire(ctx)
+		}
+		return spiceAutoconfigure.ConstructAddHandler_34e0a0a6(runtime)
+	}()
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean addHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultAddHandler): %w", err))
+	}
+	if addHandlerCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultAddHandler", addHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean addHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|17:DefaultAddHandler): %w", err))
+		}
+	}
+	_ = addHandler
 	devHandler, devHandlerCleanup, err := func() (cli.Handler, spicelifecycle.Cleanup, error) {
 		if options.Overrides.DevHandler.Enabled() {
 			return options.Overrides.DevHandler.Acquire(ctx)
@@ -222,6 +239,21 @@ func constructApplicationDependencies(
 		}
 	}
 	_ = generateHandler
+	scaffoldHandler, scaffoldHandlerCleanup, err := func() (cli.Handler, spicelifecycle.Cleanup, error) {
+		if options.Overrides.ScaffoldHandler.Enabled() {
+			return options.Overrides.ScaffoldHandler.Acquire(ctx)
+		}
+		return spiceAutoconfigure.ConstructScaffoldHandler_d072b7cb(runtime)
+	}()
+	if err != nil {
+		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean scaffoldHandler (github.com/StevenBuglione/spice/internal/cli.Handler, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler): %w", err))
+	}
+	if scaffoldHandlerCleanup != nil {
+		if err := application.coordinator.RegisterModuleCleanup("", "spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler", scaffoldHandlerCleanup); err != nil {
+			return nil, application.coordinator.Abort(ctx, fmt.Errorf("register cleanup for bean scaffoldHandler (source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|22:DefaultScaffoldHandler): %w", err))
+		}
+	}
+	_ = scaffoldHandler
 	generatedHandler, generatedHandlerCleanup, err := func() (cli.Handler, spicelifecycle.Cleanup, error) {
 		if options.Overrides.GeneratedHandler.Enabled() {
 			return options.Overrides.GeneratedHandler.Acquire(ctx)
@@ -256,7 +288,7 @@ func constructApplicationDependencies(
 		if options.Overrides.Command.Enabled() {
 			return options.Overrides.Command.Acquire(ctx)
 		}
-		return spiceAutoconfigure.ConstructCommand_ea2da0e1([]cli.Handler{helpHandler, versionHandler, verifyHandler, annotationsHandler, modulesHandler, beansHandler, generatedHandler, testHandler, generateHandler, buildHandler, runHandler, devHandler, lspHandler})
+		return spiceAutoconfigure.ConstructCommand_ea2da0e1([]cli.Handler{helpHandler, versionHandler, scaffoldHandler, addHandler, verifyHandler, annotationsHandler, modulesHandler, beansHandler, generatedHandler, testHandler, generateHandler, buildHandler, runHandler, devHandler, lspHandler})
 	}()
 	if err != nil {
 		return nil, application.coordinator.Abort(ctx, fmt.Errorf("construct bean command (*github.com/StevenBuglione/spice/internal/cli.Command, source spice:symbol:v1|function|54:github.com/StevenBuglione/spice/internal/autoconfigure|0:|14:DefaultCommand): %w", err))
@@ -269,6 +301,7 @@ func constructApplicationDependencies(
 	_ = command
 	return &applicationDependencies{
 		runtime:            runtime,
+		addHandler:         addHandler,
 		devHandler:         devHandler,
 		lspHandler:         lspHandler,
 		runHandler:         runHandler,
@@ -280,6 +313,7 @@ func constructApplicationDependencies(
 		modulesHandler:     modulesHandler,
 		versionHandler:     versionHandler,
 		generateHandler:    generateHandler,
+		scaffoldHandler:    scaffoldHandler,
 		generatedHandler:   generatedHandler,
 		annotationsHandler: annotationsHandler,
 		command:            command,

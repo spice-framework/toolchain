@@ -1,5 +1,9 @@
+// @import { NamedInterface } from "github.com/StevenBuglione/spice/annotation/modulith"
+
 // Package targetid defines the stable generated-package identity shared by
 // lexical entrypoint preparation and typed generation.
+//
+// @NamedInterface("targetid")
 package targetid
 
 import "strings"

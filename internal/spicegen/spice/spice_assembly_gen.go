@@ -57,6 +57,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 	_ = dependencies
 	application.components = Components{
 		Runtime:            dependencies.runtime,
+		AddHandler:         dependencies.addHandler,
 		DevHandler:         dependencies.devHandler,
 		LspHandler:         dependencies.lspHandler,
 		RunHandler:         dependencies.runHandler,
@@ -68,6 +69,7 @@ func NewApplicationWithOptions(ctx context.Context, options ApplicationOptions) 
 		ModulesHandler:     dependencies.modulesHandler,
 		VersionHandler:     dependencies.versionHandler,
 		GenerateHandler:    dependencies.generateHandler,
+		ScaffoldHandler:    dependencies.scaffoldHandler,
 		GeneratedHandler:   dependencies.generatedHandler,
 		AnnotationsHandler: dependencies.annotationsHandler,
 		Command:            dependencies.command,
