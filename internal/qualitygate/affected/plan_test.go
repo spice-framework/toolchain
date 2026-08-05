@@ -90,9 +90,9 @@ func TestSelectWidensGlobalAndAmbiguousInputs(t *testing.T) {
 	}}
 	for name, changed := range map[string][]string{
 		"module":        {"go.mod"},
-		"nested module": {"examples/commerce/go.mod"},
+		"nested module": {"examples/petclinic/go.mod"},
 		"vendor":        {"vendor/modules.txt"},
-		"nested vendor": {"examples/commerce/vendor/dependency/source.go"},
+		"nested vendor": {"examples/petclinic/vendor/dependency/source.go"},
 		"newpackage":    {"newpkg/new.go"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -185,21 +185,6 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 	writeFile(
 		t,
 		root,
-		"examples/commerce/go.mod",
-		"module example.com/spice/examples/commerce\n\n"+
-			"go 1.26.0\n\n"+
-			"require example.com/spice v0.0.0\n\n"+
-			"replace example.com/spice => ../..\n",
-	)
-	writeFile(
-		t,
-		root,
-		"examples/commerce/app/app.go",
-		"package app\n\nimport \"example.com/spice/alpha\"\n\nvar Value = alpha.Value\n",
-	)
-	writeFile(
-		t,
-		root,
 		"examples/petclinic/go.mod",
 		"module example.com/spice/examples/petclinic\n\n"+
 			"go 1.26.0\n\n"+
@@ -229,7 +214,7 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if plan.Empty() || plan.Full || len(plan.Modules) != 3 {
+	if plan.Empty() || plan.Full || len(plan.Modules) != 2 {
 		t.Fatalf("Build() = %+v", plan)
 	}
 	assertPackages(t, plan.Modules[0].Packages, []string{
@@ -237,9 +222,6 @@ func TestBuildLoadsCrossModuleGoGraph(t *testing.T) {
 		"example.com/spice/beta",
 	})
 	assertPackages(t, plan.Modules[1].Packages, []string{
-		"example.com/spice/examples/commerce/app",
-	})
-	assertPackages(t, plan.Modules[2].Packages, []string{
 		"example.com/spice/examples/petclinic/app",
 	})
 }

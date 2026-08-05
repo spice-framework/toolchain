@@ -296,7 +296,6 @@ func capture(
 func CheckGeneratedTargetBoundaries(root string) error {
 	for _, moduleRoot := range []string{
 		root,
-		filepath.Join(root, "examples", "commerce"),
 		filepath.Join(root, "examples", "petclinic"),
 		filepath.Join(root, "testdata", "annotationapp"),
 	} {

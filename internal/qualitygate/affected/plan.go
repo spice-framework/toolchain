@@ -453,7 +453,6 @@ func loadGraphs(
 ) (Graph, error) {
 	roots := []string{
 		repositoryRoot,
-		filepath.Join(repositoryRoot, "examples", "commerce"),
 		filepath.Join(repositoryRoot, "examples", "petclinic"),
 	}
 	roots = append(roots, configured...)

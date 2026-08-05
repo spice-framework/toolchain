@@ -23,12 +23,6 @@ func TestVerifyOrchestration(t *testing.T) {
 	writeTestFile(
 		t,
 		root,
-		"examples/commerce/go.mod",
-		"module "+commerceModulePath+"\n\ngo 1.26.0\n",
-	)
-	writeTestFile(
-		t,
-		root,
 		"examples/petclinic/go.mod",
 		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
 	)
@@ -48,12 +42,6 @@ func TestVerifyOrchestration(t *testing.T) {
 		`{"schema":"spice.api-maturity/v1","module":"`+modulePath+`","classifications":[{"prefix":"sample","maturity":"preview-stable","reason":"test fixture"}]}`,
 	)
 	writeTestFile(t, root, "vendor/modules.txt", "# test vendor tree\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/commerce/vendor/modules.txt",
-		"# test Commerce vendor tree\n",
-	)
 	writeTestFile(
 		t,
 		root,
@@ -800,23 +788,11 @@ func TestQualityGateFailurePaths(t *testing.T) {
 	writeTestFile(
 		t,
 		root,
-		"examples/commerce/go.mod",
-		"module "+commerceModulePath+"\n\ngo 1.26.0\n",
-	)
-	writeTestFile(
-		t,
-		root,
 		"examples/petclinic/go.mod",
 		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
 	)
 	writeTestFile(t, root, "main.go", "package main\n")
 	writeTestFile(t, root, "vendor/modules.txt", "# committed\n")
-	writeTestFile(
-		t,
-		root,
-		"examples/commerce/vendor/modules.txt",
-		"# committed\n",
-	)
 	writeTestFile(
 		t,
 		root,
@@ -909,12 +885,6 @@ func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 	writeTestFile(
 		t,
 		root,
-		"examples/commerce/go.mod",
-		"module "+commerceModulePath+"\n\ngo 1.26.0\n",
-	)
-	writeTestFile(
-		t,
-		root,
 		"examples/petclinic/go.mod",
 		"module "+modulePath+"/examples/petclinic\n\ngo 1.26.0\n",
 	)
@@ -961,8 +931,8 @@ func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 	if err := testAndCoverage(context.Background(), root); err != nil {
 		t.Fatalf("testAndCoverage() error = %v", err)
 	}
-	if len(calls) != 6 {
-		t.Fatalf("testAndCoverage() made %d commands, want 6: %v", len(calls), calls)
+	if len(calls) != 4 {
+		t.Fatalf("testAndCoverage() made %d commands, want 4: %v", len(calls), calls)
 	}
 	if !slices.ContainsFunc(calls[0], func(argument string) bool {
 		return strings.HasPrefix(argument, "-coverprofile=")
@@ -970,9 +940,8 @@ func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 		t.Fatalf("first test command does not emit coverage: %v", calls[0])
 	}
 	if !slices.Contains(calls[1], "-race") ||
-		!slices.Contains(calls[3], "-race") ||
-		!slices.Contains(calls[5], "-race") {
-		t.Fatalf("race commands = %v, %v, %v", calls[1], calls[3], calls[5])
+		!slices.Contains(calls[3], "-race") {
+		t.Fatalf("race commands = %v, %v", calls[1], calls[3])
 	}
 }
 

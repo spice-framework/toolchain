@@ -30,7 +30,7 @@ func TestPathFilterAppliesDefaultsAndCustomRules(t *testing.T) {
 		{path: "generated/spice_http_route_deadbeef_gen.go", want: false},
 		{path: "cmd/shop/zz_spice_bridge_gen.go", want: false},
 		{path: "payments/stripe_shop_spice_gen.go", want: false},
-		{path: "examples/commerce/openapi.json", want: false},
+		{path: "examples/application/openapi.json", want: false},
 		{path: ".spice/commerce.manifest.json", want: false},
 	}
 	for _, test := range tests {

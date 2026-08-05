@@ -299,7 +299,7 @@ func BenchmarkParseRunArguments(b *testing.B) {
 	arguments := []string{
 		"--target",
 		"Commerce",
-		"./examples/commerce/...",
+		"./examples/application/...",
 		"--",
 		"-check",
 	}

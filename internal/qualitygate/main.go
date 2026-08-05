@@ -34,7 +34,6 @@ const (
 	maximumGeneratedTargetLines = fastgate.MaximumGeneratedTargetLines
 	modulePath                  = "github.com/spice-framework/spice"
 	legacyModulePath            = "github.com/" + "StevenBuglione/spice"
-	commerceModulePath          = modulePath + "/examples/commerce"
 	petclinicModulePath         = modulePath + "/examples/petclinic"
 )
 
@@ -137,10 +136,6 @@ func petclinicRoot(root string) string {
 	return filepath.Join(root, "examples", "petclinic")
 }
 
-func commerceRoot(root string) string {
-	return filepath.Join(root, "examples", "commerce")
-}
-
 type productModule struct {
 	root string
 	path string
@@ -149,7 +144,6 @@ type productModule struct {
 func productModules(root string) []productModule {
 	return []productModule{
 		{root: root, path: modulePath},
-		{root: commerceRoot(root), path: commerceModulePath},
 		{root: petclinicRoot(root), path: petclinicModulePath},
 	}
 }
@@ -1309,9 +1303,6 @@ func smoke(ctx context.Context, root string) error {
 			return err
 		}
 	}
-	if err := commerceSmoke(ctx, root); err != nil {
-		return err
-	}
 	if err := petclinicSmoke(ctx, root); err != nil {
 		return err
 	}
@@ -1482,55 +1473,6 @@ func runCleanRoomCommands(
 			command.arguments...,
 		); runErr != nil {
 			return runErr
-		}
-	}
-	return nil
-}
-
-func commerceSmoke(ctx context.Context, root string) error {
-	temp, err := os.MkdirTemp("", "spice-commerce-*")
-	if err != nil {
-		return fmt.Errorf("create Commerce smoke directory: %w", err)
-	}
-	defer removeTemporaryDirectory(temp)
-	executable := filepath.Join(temp, "spice")
-	if runtime.GOOS == "windows" {
-		executable += ".exe"
-	}
-	offline := map[string]string{"GOPROXY": "off"}
-	if err := runExternal(
-		ctx,
-		root,
-		offline,
-		"go",
-		"build",
-		"-mod=vendor",
-		"-trimpath",
-		"-o",
-		executable,
-		"./cmd/spice",
-	); err != nil {
-		return err
-	}
-	commands := [][]string{
-		{"verify", "--format=json", "./..."},
-		{"modules", "--format=json", "./..."},
-		{
-			"test", "--module", commerceModulePath + "/orders",
-			"--count=1", "./...",
-		},
-		{"generate", "--check", "--target", "Commerce", "."},
-		{"run", "--target", "Commerce", ".", "--", "-check"},
-	}
-	for _, arguments := range commands {
-		if err := runExternal(
-			ctx,
-			commerceRoot(root),
-			offline,
-			executable,
-			arguments...,
-		); err != nil {
-			return err
 		}
 	}
 	return nil
