@@ -304,7 +304,7 @@ Usage:
   spice beans --explain [--format text|json] [package-pattern ...]
   spice generated (--source path | --generated path) [--line n] [--target name] [--format text|json]
   spice test --module module [--race] [--count n] [--run regexp] [--timeout duration] [package-pattern ...]
-  spice generate [--target name] [--check] [--diff] [package-pattern ...]
+  spice generate [--target name] [--check] [--diff] [--relocate-module-from path] [package-pattern ...]
   spice build [--target name] [package-pattern ...]
   spice run [--target name] [package-pattern ...] [-- application-argument ...]
   spice dev [--target name] [dev-option ...] [package-pattern ...] [-- application-argument ...]

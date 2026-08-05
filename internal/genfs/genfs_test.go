@@ -92,6 +92,108 @@ func TestApplyCreatesChecksAndPreservesUnchangedFiles(t *testing.T) {
 	}
 }
 
+func TestApplyWithOptionsRelocatesVerifiedModuleOwnership(t *testing.T) {
+	root := generationModule(t)
+	previousPlan := renderPlan(t, root, applicationSource)
+	if _, err := Apply(previousPlan); err != nil {
+		t.Fatalf("Apply(previous) error = %v", err)
+	}
+	goModPath := filepath.Join(root, "go.mod")
+	goMod := strings.Replace(
+		string(mustRead(t, goModPath)),
+		"module example.com/genfs",
+		"module example.com/relocated",
+		1,
+	)
+	writeFile(t, goModPath, []byte(goMod))
+	currentPlan := renderPlan(t, root, applicationSource)
+
+	if _, err := Apply(currentPlan); err == nil ||
+		!strings.Contains(err.Error(), "target does not match") {
+		t.Fatalf("Apply(current) error = %v", err)
+	}
+	result, err := ApplyWithOptions(
+		currentPlan,
+		ApplyOptions{RelocateModuleFrom: "example.com/genfs"},
+	)
+	if err != nil {
+		t.Fatalf("ApplyWithOptions() error = %v", err)
+	}
+	if !result.Changed() || !result.ManifestUpdated {
+		t.Fatalf("ApplyWithOptions() = %#v", result)
+	}
+	status, err := Check(currentPlan)
+	if err != nil || !status.Current {
+		t.Fatalf("Check(current) = %#v, %v", status, err)
+	}
+	manifest := string(mustRead(t, filepath.Join(
+		root,
+		filepath.FromSlash(currentPlan.Target().ManifestPath),
+	)))
+	if strings.Contains(manifest, "example.com/genfs") ||
+		!strings.Contains(manifest, "example.com/relocated") {
+		t.Fatalf("relocated manifest = %s", manifest)
+	}
+}
+
+func TestApplyWithOptionsRejectsUnsafeRelocation(t *testing.T) {
+	tests := []struct {
+		name     string
+		previous string
+	}{
+		{name: "same module", previous: "example.com/genfs"},
+		{name: "parent", previous: ".."},
+		{name: "traversal", previous: "example.com/../outside"},
+		{name: "backslash", previous: `example.com\outside`},
+		{name: "surrounding whitespace", previous: " example.com/old"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := generationModule(t)
+			plan := renderPlan(t, root, applicationSource)
+			if _, err := ApplyWithOptions(
+				plan,
+				ApplyOptions{RelocateModuleFrom: test.previous},
+			); err == nil {
+				t.Fatalf("ApplyWithOptions(%q) error = nil", test.previous)
+			}
+		})
+	}
+}
+
+func TestApplyWithOptionsPreservesManualEditsDuringRelocation(t *testing.T) {
+	root := generationModule(t)
+	previousPlan := renderPlan(t, root, applicationSource)
+	if _, err := Apply(previousPlan); err != nil {
+		t.Fatalf("Apply(previous) error = %v", err)
+	}
+	generatedPath := filepath.Join(
+		root,
+		filepath.FromSlash(previousPlan.Files()[0].Path),
+	)
+	writeFile(t, generatedPath, append(mustRead(t, generatedPath), []byte("// manual\n")...))
+	goModPath := filepath.Join(root, "go.mod")
+	writeFile(t, goModPath, []byte(strings.Replace(
+		string(mustRead(t, goModPath)),
+		"module example.com/genfs",
+		"module example.com/relocated",
+		1,
+	)))
+	currentPlan := renderPlan(t, root, applicationSource)
+
+	_, err := ApplyWithOptions(
+		currentPlan,
+		ApplyOptions{RelocateModuleFrom: "example.com/genfs"},
+	)
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) ||
+		!slices.ContainsFunc(conflict.Differences, func(difference Difference) bool {
+			return difference.Kind == DifferenceManualEdit
+		}) {
+		t.Fatalf("ApplyWithOptions(manual edit) error = %v", err)
+	}
+}
+
 func TestApplyApplicationPackagePreservesHandwrittenSource(t *testing.T) {
 	tests := []struct {
 		name       string

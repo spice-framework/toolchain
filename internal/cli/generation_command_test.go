@@ -322,6 +322,47 @@ func Beta() {}
 	}
 }
 
+func TestRunGenerateRelocatesVerifiedModuleOwnership(t *testing.T) {
+	root := generationCLIModule(t, generationApplicationSource)
+	code, stdout, stderr := runModule(root, "generate", "./app")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "generated target Application") {
+		t.Fatalf("initial generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	goModPath := filepath.Join(root, "go.mod")
+	content, err := os.ReadFile(goModPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = []byte(strings.Replace(
+		string(content),
+		"module example.com/cli-generation",
+		"module example.com/cli-relocated",
+		1,
+	))
+	if err := os.WriteFile(goModPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr = runModule(root, "generate", "./app")
+	if code != 1 || !strings.Contains(stderr, "target does not match") {
+		t.Fatalf("unapproved relocation: code=%d stderr=%q", code, stderr)
+	}
+	code, stdout, stderr = runModule(
+		root,
+		"generate",
+		"--relocate-module-from",
+		"example.com/cli-generation",
+		"./app",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "generated target Application") {
+		t.Fatalf("approved relocation: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	code, stdout, stderr = runModule(root, "generate", "--check", "./app")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "is current") {
+		t.Fatalf("relocated check: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
 func TestRunGenerateRequiresApplicationAndValidOptions(t *testing.T) {
 	root := generationCLIModule(t, "package app\n")
 	code, stdout, stderr := runModule(root, "generate", "./...")
@@ -333,8 +374,14 @@ func TestRunGenerateRequiresApplicationAndValidOptions(t *testing.T) {
 		{"generate", "--unknown"},
 		{"generate", "--target"},
 		{"generate", "--target=First", "--target=Second"},
+		{"generate", "--relocate-module-from"},
+		{"generate", "--relocate-module-from="},
+		{"generate", "--relocate-module-from=example.com/old", "--relocate-module-from", "example.com/older"},
+		{"generate", "--check", "--relocate-module-from", "example.com/old"},
+		{"generate", "--diff", "--relocate-module-from=example.com/old"},
 		{"build", "--check"},
 		{"build", "--diff"},
+		{"build", "--relocate-module-from", "example.com/old"},
 	}
 	for _, arguments := range tests {
 		code, _, stderr := runModule(root, arguments...)

@@ -19,10 +19,11 @@ import (
 )
 
 type generationArguments struct {
-	check    bool
-	diff     bool
-	target   string
-	patterns []string
+	check              bool
+	diff               bool
+	target             string
+	relocateModuleFrom string
+	patterns           []string
 }
 
 // NewGenerateHandler constructs the guarded generation command handler.
@@ -81,7 +82,10 @@ func generateCommand(
 	if parsed.check || parsed.diff {
 		return checkGeneration(plan, targetName, parsed.diff, stdout, stderr)
 	}
-	result, err := genfs.Apply(plan)
+	result, err := genfs.ApplyWithOptions(
+		plan,
+		genfs.ApplyOptions{RelocateModuleFrom: parsed.relocateModuleFrom},
+	)
 	if err != nil {
 		if writeErr := writef(stderr, "Spice generation failed for target %s: %v\n", targetName, err); writeErr != nil {
 			return 1
@@ -372,41 +376,140 @@ func parseGenerationArguments(arguments []string, allowReadOnly bool) (generatio
 	result := generationArguments{}
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
-		switch {
-		case argument == "--check":
-			if !allowReadOnly {
-				return generationArguments{}, errors.New("--check is supported by spice generate, not spice build")
-			}
-			result.check = true
-		case argument == "--diff":
-			if !allowReadOnly {
-				return generationArguments{}, errors.New("--diff is supported by spice generate, not spice build")
-			}
-			result.diff = true
-		case argument == "--target":
-			index++
-			if index >= len(arguments) || strings.HasPrefix(arguments[index], "--") {
-				return generationArguments{}, errors.New("--target requires an application name")
-			}
-			if result.target != "" {
-				return generationArguments{}, errors.New("--target may be specified only once")
-			}
-			result.target = arguments[index]
-		case strings.HasPrefix(argument, "--target="):
-			if result.target != "" {
-				return generationArguments{}, errors.New("--target may be specified only once")
-			}
-			result.target = strings.TrimPrefix(argument, "--target=")
-			if result.target == "" {
-				return generationArguments{}, errors.New("--target requires an application name")
-			}
-		case strings.HasPrefix(argument, "-"):
-			return generationArguments{}, fmt.Errorf("unknown generation option %q", argument)
-		default:
+		if !strings.HasPrefix(argument, "-") {
 			result.patterns = append(result.patterns, argument)
+			continue
+		}
+		name, inlineValue, hasInlineValue := strings.Cut(argument, "=")
+		var err error
+		switch name {
+		case "--check", "--diff":
+			err = parseGenerationReadOnlyFlag(
+				name,
+				hasInlineValue,
+				allowReadOnly,
+				&result,
+			)
+		case "--target":
+			index, err = parseGenerationTarget(
+				arguments,
+				index,
+				inlineValue,
+				hasInlineValue,
+				&result,
+			)
+		case "--relocate-module-from":
+			index, err = parseGenerationRelocation(
+				arguments,
+				index,
+				inlineValue,
+				hasInlineValue,
+				allowReadOnly,
+				&result,
+			)
+		default:
+			return generationArguments{}, fmt.Errorf("unknown generation option %q", argument)
+		}
+		if err != nil {
+			return generationArguments{}, err
 		}
 	}
+	if result.relocateModuleFrom != "" && (result.check || result.diff) {
+		return generationArguments{}, errors.New("--relocate-module-from performs a guarded write and cannot be combined with --check or --diff")
+	}
 	return result, nil
+}
+
+func parseGenerationReadOnlyFlag(
+	name string,
+	hasInlineValue bool,
+	allowReadOnly bool,
+	result *generationArguments,
+) error {
+	if hasInlineValue {
+		return fmt.Errorf("unknown generation option %q", name+"=")
+	}
+	if !allowReadOnly {
+		return fmt.Errorf("%s is supported by spice generate, not spice build", name)
+	}
+	if name == "--check" {
+		result.check = true
+	} else {
+		result.diff = true
+	}
+	return nil
+}
+
+func parseGenerationTarget(
+	arguments []string,
+	index int,
+	inlineValue string,
+	hasInlineValue bool,
+	result *generationArguments,
+) (int, error) {
+	if result.target != "" {
+		return index, errors.New("--target may be specified only once")
+	}
+	value, next, err := generationOptionValue(
+		arguments,
+		index,
+		inlineValue,
+		hasInlineValue,
+		"--target requires an application name",
+	)
+	if err != nil {
+		return index, err
+	}
+	result.target = value
+	return next, nil
+}
+
+func parseGenerationRelocation(
+	arguments []string,
+	index int,
+	inlineValue string,
+	hasInlineValue bool,
+	allow bool,
+	result *generationArguments,
+) (int, error) {
+	if !allow {
+		return index, errors.New("--relocate-module-from is supported by spice generate")
+	}
+	if result.relocateModuleFrom != "" {
+		return index, errors.New("--relocate-module-from may be specified only once")
+	}
+	value, next, err := generationOptionValue(
+		arguments,
+		index,
+		inlineValue,
+		hasInlineValue,
+		"--relocate-module-from requires a previous Go module path",
+	)
+	if err != nil {
+		return index, err
+	}
+	result.relocateModuleFrom = value
+	return next, nil
+}
+
+func generationOptionValue(
+	arguments []string,
+	index int,
+	inlineValue string,
+	hasInlineValue bool,
+	missingMessage string,
+) (string, int, error) {
+	if hasInlineValue {
+		if inlineValue == "" {
+			return "", index, errors.New(missingMessage)
+		}
+		return inlineValue, index, nil
+	}
+	next := index + 1
+	if next >= len(arguments) || strings.HasPrefix(arguments[next], "--") {
+		return "", index, errors.New(missingMessage)
+	}
+	return arguments[next], next, nil
 }
 
 func selectApplicationTarget(

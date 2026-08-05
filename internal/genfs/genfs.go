@@ -78,6 +78,14 @@ type Result struct {
 	ManifestUpdated bool
 }
 
+// ApplyOptions controls narrowly scoped guarded generation migrations.
+type ApplyOptions struct {
+	// RelocateModuleFrom authorizes one generation pass to accept an otherwise
+	// identical ownership target written under this previous Go module path.
+	// Existing owned-file hashes are still verified before any write occurs.
+	RelocateModuleFrom string
+}
+
 // Changed reports whether Apply changed generated state.
 func (r Result) Changed() bool {
 	return len(r.Written) != 0 || len(r.Removed) != 0 || r.ManifestUpdated
@@ -123,7 +131,7 @@ func Check(plan generate.Plan) (Status, error) {
 	if err != nil {
 		return Status{}, fmt.Errorf("open generation module root: %w", err)
 	}
-	state, inspectErr := inspect(root, plan)
+	state, inspectErr := inspect(root, plan, ApplyOptions{})
 	closeErr := root.Close()
 	if err := errors.Join(inspectErr, closeErr); err != nil {
 		return Status{}, err
@@ -134,7 +142,19 @@ func Check(plan generate.Plan) (Status, error) {
 // Apply writes a plan using guarded ownership checks, target locking,
 // same-directory temporary files, and manifest-last replacement.
 func Apply(plan generate.Plan) (result Result, resultErr error) {
+	return ApplyWithOptions(plan, ApplyOptions{})
+}
+
+// ApplyWithOptions writes a plan using the same guarded ownership checks as
+// Apply, with explicit support for safe module-path relocation.
+func ApplyWithOptions(
+	plan generate.Plan,
+	options ApplyOptions,
+) (result Result, resultErr error) {
 	if err := validatePlan(plan); err != nil {
+		return Result{}, err
+	}
+	if err := validateApplyOptions(plan.Target(), options); err != nil {
 		return Result{}, err
 	}
 	root, err := os.OpenRoot(plan.Target().ModuleRoot)
@@ -153,7 +173,7 @@ func Apply(plan generate.Plan) (result Result, resultErr error) {
 		resultErr = errors.Join(resultErr, release())
 	}()
 
-	state, err := inspect(root, plan)
+	state, err := inspect(root, plan, options)
 	if err != nil {
 		return Result{}, err
 	}
@@ -203,7 +223,7 @@ func Diff(plan generate.Plan) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open generation module root: %w", err)
 	}
-	state, inspectErr := inspect(root, plan)
+	state, inspectErr := inspect(root, plan, ApplyOptions{})
 	closeErr := root.Close()
 	if err := errors.Join(inspectErr, closeErr); err != nil {
 		return "", err
@@ -244,7 +264,11 @@ func Diff(plan generate.Plan) (string, error) {
 	return builder.String(), nil
 }
 
-func inspect(root *os.Root, plan generate.Plan) (inspection, error) {
+func inspect(
+	root *os.Root,
+	plan generate.Plan,
+	options ApplyOptions,
+) (inspection, error) {
 	state := inspection{
 		current:      make(map[string][]byte),
 		expected:     make(map[string][]byte),
@@ -271,7 +295,7 @@ func inspect(root *os.Root, plan generate.Plan) (inspection, error) {
 	}
 	if exists {
 		state.current[manifestPath] = manifestBytes
-		prior, decodeErr := decodeManifest(manifestBytes, plan)
+		prior, decodeErr := decodeManifest(manifestBytes, plan, options)
 		if decodeErr != nil {
 			return inspection{}, decodeErr
 		}
@@ -567,12 +591,16 @@ func inspectUnexpectedGeneratedEntry(
 	return nil
 }
 
-func decodeManifest(content []byte, plan generate.Plan) (generate.Manifest, error) {
+func decodeManifest(
+	content []byte,
+	plan generate.Plan,
+	options ApplyOptions,
+) (generate.Manifest, error) {
 	var manifest generate.Manifest
 	if err := json.Unmarshal(content, &manifest); err != nil {
 		return generate.Manifest{}, fmt.Errorf("decode ownership manifest: %w", err)
 	}
-	if err := normalizeManifestTarget(&manifest, plan); err != nil {
+	if err := normalizeManifestTarget(&manifest, plan, options); err != nil {
 		return generate.Manifest{}, err
 	}
 	ownedTarget := manifestTarget(manifest, plan.Target())
@@ -604,6 +632,7 @@ func decodeManifest(content []byte, plan generate.Plan) (generate.Manifest, erro
 func normalizeManifestTarget(
 	manifest *generate.Manifest,
 	plan generate.Plan,
+	options ApplyOptions,
 ) error {
 	switch manifest.Schema {
 	case generate.SchemaVersion:
@@ -612,7 +641,12 @@ func normalizeManifestTarget(
 		if compatiblePreEntrypoint.EntrypointPackagePath == "" {
 			compatiblePreEntrypoint.EntrypointPackagePath = expected.EntrypointPackagePath
 		}
-		if compatiblePreEntrypoint != expected {
+		if compatiblePreEntrypoint != expected &&
+			!compatibleRelocatedTarget(
+				compatiblePreEntrypoint,
+				expected,
+				options.RelocateModuleFrom,
+			) {
 			return errors.New(
 				"ownership manifest target does not match the selected generation target",
 			)
@@ -650,6 +684,73 @@ func normalizeManifestTarget(
 		)
 	}
 	return nil
+}
+
+func validateApplyOptions(target generate.Target, options ApplyOptions) error {
+	previous := options.RelocateModuleFrom
+	if previous == "" {
+		return nil
+	}
+	if previous != strings.TrimSpace(previous) ||
+		previous == "." ||
+		previous == ".." ||
+		strings.Contains(previous, "\\") ||
+		strings.HasPrefix(previous, "/") ||
+		strings.HasSuffix(previous, "/") ||
+		path.Clean(previous) != previous {
+		return fmt.Errorf("previous generation module path %q is invalid", previous)
+	}
+	if previous == target.ModulePath {
+		return errors.New("previous generation module path matches the current module path")
+	}
+	return nil
+}
+
+func compatibleRelocatedTarget(
+	prior generate.TargetSummary,
+	selected generate.TargetSummary,
+	previousModule string,
+) bool {
+	if previousModule == "" ||
+		prior.ID != selected.ID ||
+		prior.Layout != selected.Layout ||
+		prior.ModulePath != previousModule ||
+		prior.OutputDir != selected.OutputDir ||
+		prior.BridgeDir != selected.BridgeDir ||
+		prior.ManifestPath != selected.ManifestPath {
+		return false
+	}
+	previousPackage, packageOK := relocateModuleImportPath(
+		selected.PackagePath,
+		selected.ModulePath,
+		previousModule,
+	)
+	previousEntrypoint, entrypointOK := relocateModuleImportPath(
+		selected.EntrypointPackagePath,
+		selected.ModulePath,
+		previousModule,
+	)
+	return packageOK && entrypointOK &&
+		prior.PackagePath == previousPackage &&
+		prior.EntrypointPackagePath == previousEntrypoint
+}
+
+func relocateModuleImportPath(
+	importPath string,
+	currentModule string,
+	previousModule string,
+) (string, bool) {
+	if importPath == "" {
+		return "", true
+	}
+	if importPath == currentModule {
+		return previousModule, true
+	}
+	prefix := currentModule + "/"
+	if !strings.HasPrefix(importPath, prefix) {
+		return "", false
+	}
+	return previousModule + strings.TrimPrefix(importPath, currentModule), true
 }
 
 func compatibleLegacyTarget(
