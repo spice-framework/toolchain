@@ -71,8 +71,8 @@ func ConstructOrderRepository_abe0e37d() (*storage.OrderRepository, spicelifecyc
 	return value, nil, nil
 }
 
-// spiceImplementsOrderRepositoryAsOrders_fe640233 verifies the explicit @Implements binding for spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository.
-var spiceImplementsOrderRepositoryAsOrders_fe640233 storage.Orders = *new(*storage.OrderRepository)
+// spiceImplementsOrderRepositoryAsOrders_fe640233 identifies the explicit @Implements binding for spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|15:OrderRepository.
+var _ storage.Orders = (*storage.OrderRepository)(nil)
 
 // BindSettings_ee0cda8a binds the validated configuration declared by spice:symbol:v1|type|57:github.com/StevenBuglione/spice/examples/commerce/storage|0:|8:Settings.
 func BindSettings_ee0cda8a(configurationSnapshot spiceconfig.Snapshot) (storage.Settings, error) {

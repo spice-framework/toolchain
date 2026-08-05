@@ -25,8 +25,8 @@ func ConstructSystemClock_6232152b() (*notifications.SystemClock, spicelifecycle
 	return value, nil, nil
 }
 
-// spiceImplementsSystemClockAsClock_4fd59814 verifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock.
-var spiceImplementsSystemClockAsClock_4fd59814 notifications.Clock = *new(*notifications.SystemClock)
+// spiceImplementsSystemClockAsClock_4fd59814 identifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|11:SystemClock.
+var _ notifications.Clock = (*notifications.SystemClock)(nil)
 
 // ConstructDelivery_89970054 performs the direct construction selected for bean "delivery".
 // Spice source identity: spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
@@ -39,8 +39,8 @@ func ConstructDelivery_89970054(dependency0 notifications.Settings) (*notificati
 	return value, nil, nil
 }
 
-// spiceImplementsDeliveryAsSender_262d0dc4 verifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
-var spiceImplementsDeliveryAsSender_262d0dc4 mail.Sender = *new(*notifications.Delivery)
+// spiceImplementsDeliveryAsSender_262d0dc4 identifies the explicit @Implements binding for spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Delivery.
+var _ mail.Sender = (*notifications.Delivery)(nil)
 
 // ConstructNotifier_f5f0b515 performs the direct construction selected for bean "notifier".
 // Spice source identity: spice:symbol:v1|type|63:github.com/StevenBuglione/spice/examples/commerce/notifications|0:|8:Notifier.

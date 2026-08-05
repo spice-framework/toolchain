@@ -382,8 +382,8 @@ func (ValueService) Process(string) error { return nil }
 		"package spicegen",
 		`api "example.com/assertions/api"`,
 		`implementation "example.com/assertions/implementation"`,
-		"api.Processor[string] = *new(*implementation.PointerService)",
-		"api.Processor[string] = *new(implementation.ValueService)",
+		"var _ api.Processor[string] = (*implementation.PointerService)(nil)",
+		"var _ api.Processor[string] = implementation.ValueService{}",
 		"Source: implementation/service.go:",
 	} {
 		if !strings.Contains(assertions, expected) {
@@ -393,6 +393,9 @@ func (ValueService) Process(string) error { return nil }
 				assertions,
 			)
 		}
+	}
+	if strings.Contains(assertions, "var spiceImplements") {
+		t.Fatalf("generated assertion declares a synthetic global:\n%s", assertions)
 	}
 	if strings.Contains(assertions, "package implementation") {
 		t.Fatalf(
@@ -420,10 +423,25 @@ func (ValueService) Process(string) error { return nil }
 		if file.Path != assertionPath {
 			continue
 		}
+		interfaceMappings := 0
+		for _, mapping := range file.Mappings {
+			if mapping.Kind != "interface-assertion" {
+				continue
+			}
+			interfaceMappings++
+			if got := generatedRangeText(
+				t,
+				assertions,
+				mapping.Generated,
+			); got != "api.Processor[string]" {
+				t.Fatalf("interface assertion mapping = %q", got)
+			}
+		}
 		found = file.Role == FileRoleSourceUnit &&
 			file.PrimarySource != nil &&
 			file.PrimarySource.Path == "implementation/service.go" &&
-			len(file.Mappings) == 4
+			len(file.Mappings) == 4 &&
+			interfaceMappings == 2
 	}
 	if !found {
 		t.Fatalf(
@@ -433,6 +451,42 @@ func (ValueService) Process(string) error { return nil }
 	}
 	writePlan(t, root, plan)
 	runGoTest(t, root, "./...")
+}
+
+func TestRenderedInterfaceAssertionValueUsesIdiomaticZeroValues(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		value types.Type
+		want  string
+	}{
+		"pointer": {
+			value: types.NewPointer(types.Typ[types.Int]),
+			want:  "(*int)(nil)",
+		},
+		"struct": {
+			value: types.NewStruct(nil, nil),
+			want:  "struct{}{}",
+		},
+		"other concrete value": {
+			value: types.Typ[types.Int],
+			want:  "*new(int)",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := renderedInterfaceAssertionValue(
+				test.value,
+				map[string]string{},
+			); got != test.want {
+				t.Fatalf(
+					"renderedInterfaceAssertionValue() = %q, want %q",
+					got,
+					test.want,
+				)
+			}
+		})
+	}
 }
 
 func TestGeneratedComponentFieldsUseStablePackageQualifiedNames(t *testing.T) {
@@ -4139,6 +4193,26 @@ func assertOrdered(t *testing.T, content string, values ...string) {
 		}
 		previous = index
 	}
+}
+
+func generatedRangeText(
+	t *testing.T,
+	content string,
+	generated GeneratedRange,
+) string {
+	t.Helper()
+	lines := strings.Split(content, "\n")
+	if generated.StartLine < 1 || generated.StartLine > len(lines) ||
+		generated.EndLine != generated.StartLine {
+		t.Fatalf("invalid generated range %#v", generated)
+	}
+	line := lines[generated.StartLine-1]
+	start := generated.StartColumn - 1
+	end := generated.EndColumn - 1
+	if start < 0 || end < start || end > len(line) {
+		t.Fatalf("generated range %#v escapes %q", generated, line)
+	}
+	return line[start:end]
 }
 
 func containsGenerationDiagnostic(diagnostics []Diagnostic, text string) bool {

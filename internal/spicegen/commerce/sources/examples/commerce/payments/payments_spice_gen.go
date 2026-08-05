@@ -21,8 +21,8 @@ func ConstructOfflineProcessor_863e8c2d() (*payments.OfflineProcessor, spicelife
 	return new(payments.OfflineProcessor), nil, nil
 }
 
-// spiceImplementsOfflineProcessorAsProcessor_078acc78 verifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor.
-var spiceImplementsOfflineProcessorAsProcessor_078acc78 payments.Processor = *new(*payments.OfflineProcessor)
+// spiceImplementsOfflineProcessorAsProcessor_078acc78 identifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|16:OfflineProcessor.
+var _ payments.Processor = (*payments.OfflineProcessor)(nil)
 
 // ConstructStripeProcessor_c8223730 performs the direct construction selected for bean "stripeProcessor".
 // Spice source identity: spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
@@ -35,8 +35,8 @@ func ConstructStripeProcessor_c8223730(dependency0 payments.Settings) (*payments
 	return value, nil, nil
 }
 
-// spiceImplementsStripeProcessorAsProcessor_bd2b3941 verifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
-var spiceImplementsStripeProcessorAsProcessor_bd2b3941 payments.Processor = *new(*payments.Service)
+// spiceImplementsStripeProcessorAsProcessor_bd2b3941 identifies the explicit @Implements binding for spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|7:Service.
+var _ payments.Processor = (*payments.Service)(nil)
 
 // BindSettings_e69fa000 binds the validated configuration declared by spice:symbol:v1|type|58:github.com/StevenBuglione/spice/examples/commerce/payments|0:|8:Settings.
 func BindSettings_e69fa000(configurationSnapshot spiceconfig.Snapshot) (payments.Settings, error) {

@@ -401,7 +401,7 @@ func renderProviderSourceUnit(
 			err,
 		)
 	}
-	mappings, err := providerSourceUnitMappings(unit, formatted)
+	mappings, err := providerSourceUnitMappings(unit, formatted, aliases)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -584,25 +584,40 @@ func writeSourceUnitInterfaceAssertions(
 	aliases map[string]string,
 ) {
 	for _, binding := range item.Interfaces {
+		marker := generatedAssertionName(item, binding)
 		fmt.Fprintf(
 			source,
-			"// %s verifies the explicit @Implements binding for %s.\n",
-			generatedAssertionName(item, binding),
+			"// %s identifies the explicit @Implements binding for %s.\n",
+			marker,
 			item.SymbolID,
 		)
 		fmt.Fprintf(
 			source,
-			"var %s %s = *new(%s)\n\n",
-			generatedAssertionName(item, binding),
+			"var _ %s = %s\n\n",
 			renderedTypeInPackage(binding.Type, aliases),
-			renderedTypeInPackage(item.Output, aliases),
+			renderedInterfaceAssertionValue(item.Output, aliases),
 		)
 	}
+}
+
+func renderedInterfaceAssertionValue(
+	output types.Type,
+	aliases map[string]string,
+) string {
+	rendered := renderedTypeInPackage(output, aliases)
+	if _, pointer := types.Unalias(output).(*types.Pointer); pointer {
+		return "(" + rendered + ")(nil)"
+	}
+	if _, structure := types.Unalias(output).Underlying().(*types.Struct); structure {
+		return rendered + "{}"
+	}
+	return "*new(" + rendered + ")"
 }
 
 func providerSourceUnitMappings(
 	unit providerSourceUnit,
 	formatted []byte,
+	aliases map[string]string,
 ) ([]SourceMapping, error) {
 	mappings := make([]SourceMapping, 0)
 	if unit.application != nil {
@@ -656,6 +671,7 @@ func providerSourceUnitMappings(
 				binding,
 				origin,
 				formatted,
+				aliases,
 			)
 			if err != nil {
 				return nil, err
@@ -692,21 +708,47 @@ func interfaceSourceUnitMapping(
 	binding provider.InterfaceBinding,
 	origin SourceOrigin,
 	formatted []byte,
+	aliases map[string]string,
 ) (SourceMapping, error) {
-	name := generatedAssertionName(item, binding)
-	line, column, found := generatedIdentifierPosition(formatted, name)
+	marker := generatedAssertionName(item, binding)
+	contract := renderedTypeInPackage(binding.Type, aliases)
+	line, column, found := generatedInterfaceAssertionPosition(
+		formatted,
+		marker,
+		contract,
+	)
 	if !found {
 		return SourceMapping{}, fmt.Errorf(
 			"interface assertion %s has no generated position",
-			name,
+			marker,
 		)
 	}
 	return SourceMapping{
 		Kind:         "interface-assertion",
 		Contribution: item.SymbolID + "#implements:" + binding.TypeID,
 		Source:       origin,
-		Generated:    generatedIdentifierRange(line, column, name),
+		Generated:    generatedIdentifierRange(line, column, contract),
 	}, nil
+}
+
+func generatedInterfaceAssertionPosition(
+	content []byte,
+	marker string,
+	contract string,
+) (int, int, bool) {
+	markerOffset := bytes.Index(content, []byte(marker))
+	if markerOffset < 0 {
+		return 0, 0, false
+	}
+	prefix := []byte("var _ " + contract + " =")
+	statementOffset := bytes.Index(content[markerOffset:], prefix)
+	if statementOffset < 0 {
+		return 0, 0, false
+	}
+	offset := markerOffset + statementOffset + len("var _ ")
+	line := bytes.Count(content[:offset], []byte{'\n'}) + 1
+	lineStart := bytes.LastIndexByte(content[:offset], '\n') + 1
+	return line, offset - lineStart + 1, true
 }
 
 func generatedIdentifierRange(
