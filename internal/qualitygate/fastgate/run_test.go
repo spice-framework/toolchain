@@ -3,6 +3,7 @@ package fastgate
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -115,35 +116,61 @@ func TestCheckGeneratedTargetBoundaries(t *testing.T) {
 		name      string
 		path      string
 		content   string
+		manifest  bool
+		owned     bool
 		wantError string
 	}{
 		{
-			name:    "bounded source unit",
-			path:    "internal/spicegen/app/spice_orders_gen.go",
-			content: "package app\n",
+			name:     "bounded source unit",
+			path:     "internal/spicegen/app/spice_orders_gen.go",
+			content:  "package app\n",
+			manifest: true,
+			owned:    true,
 		},
 		{
 			name:      "retired monolith",
 			path:      "internal/spicegen/app/zz_spice_gen.go",
 			content:   "package app\n",
+			manifest:  true,
+			owned:     true,
 			wantError: "retired generated target monolith",
 		},
 		{
 			name:      "oversized unit",
 			path:      "examples/petclinic/internal/spicegen/app/spice_orders_gen.go",
 			content:   strings.Repeat("// generated\n", maximumGeneratedTargetLines+1),
+			manifest:  true,
+			owned:     true,
 			wantError: "must not exceed",
 		},
 		{
-			name:    "non-generated source ignored",
-			path:    "testdata/annotationapp/internal/spicegen/app/helpers.go",
-			content: strings.Repeat("// helper\n", maximumGeneratedTargetLines+1),
+			name:      "handwritten source rejected",
+			path:      "testdata/annotationapp/internal/spicegen/app/helpers.go",
+			content:   "package app\n",
+			manifest:  true,
+			wantError: "is not owned",
+		},
+		{
+			name:      "target without manifest rejected",
+			path:      "internal/spicegen/app/spice_orders_gen.go",
+			content:   "package app\n",
+			wantError: "has no ownership manifest",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
+			moduleRoot, moduleFile := generatedTestModule(root, test.path)
+			if test.manifest {
+				files := []string{"internal/spicegen/app/spice_assembly_gen.go"}
+				if test.owned {
+					files = []string{moduleFile}
+				} else {
+					writeFile(t, moduleRoot, files[0], "package app\n")
+				}
+				writeGeneratedOwnershipManifest(t, moduleRoot, files)
+			}
 			writeFile(t, root, test.path, test.content)
 			err := CheckGeneratedTargetBoundaries(root)
 			if test.wantError == "" && err != nil {
@@ -238,8 +265,7 @@ func TestStepIncludesNameAndFailure(t *testing.T) {
 func TestFileLineCountRejectsMissingFile(t *testing.T) {
 	t.Parallel()
 
-	rootPath := t.TempDir()
-	root, err := os.OpenRoot(rootPath)
+	root, err := os.OpenRoot(t.TempDir())
 	if err != nil {
 		t.Fatalf("OpenRoot() error = %v", err)
 	}
@@ -380,6 +406,39 @@ func repositoryRoot(t *testing.T) string {
 		}
 		current = parent
 	}
+}
+
+func generatedTestModule(root, file string) (string, string) {
+	for _, prefix := range []string{
+		"examples/petclinic/",
+		"testdata/annotationapp/",
+	} {
+		if relative, found := strings.CutPrefix(file, prefix); found {
+			return filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(prefix, "/"))), relative
+		}
+	}
+	return root, file
+}
+
+func writeGeneratedOwnershipManifest(
+	t *testing.T,
+	moduleRoot string,
+	files []string,
+) {
+	t.Helper()
+	manifestFiles := make([]map[string]string, 0, len(files))
+	for _, file := range files {
+		manifestFiles = append(manifestFiles, map[string]string{"path": file})
+	}
+	manifest := map[string]any{
+		"target": map[string]string{"output_dir": "internal/spicegen/app"},
+		"files":  manifestFiles,
+	}
+	content, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	writeFile(t, moduleRoot, ".spice/app.manifest.json", string(content))
 }
 
 func writeFile(t *testing.T, root, name, content string) {

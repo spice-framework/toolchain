@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/StevenBuglione/spice/internal/bootstrapcheck"
+	"github.com/StevenBuglione/spice/internal/qualitygate/fastgate"
 )
 
 const (
@@ -33,7 +34,7 @@ const (
 	requiredGradleDistributionHash = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
 	requiredGradleWrapperHash      = "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7"
 	minimumCoverage                = 85.0
-	maximumGeneratedTargetLines    = 400
+	maximumGeneratedTargetLines    = fastgate.MaximumGeneratedTargetLines
 	modulePath                     = "github.com/StevenBuglione/spice"
 )
 
@@ -384,111 +385,7 @@ func matchAPIMaturityRules(
 }
 
 func checkGeneratedTargetBoundaries(root string) error {
-	generatedRoots := []string{
-		filepath.Join(root, "internal", "spicegen"),
-		filepath.Join(root, "examples", "petclinic", "internal", "spicegen"),
-		filepath.Join(
-			root,
-			"testdata",
-			"annotationapp",
-			"internal",
-			"spicegen",
-		),
-	}
-	for _, generatedRoot := range generatedRoots {
-		if err := checkGeneratedTargetRoot(generatedRoot); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func checkGeneratedTargetRoot(rootPath string) (resultErr error) {
-	root, err := os.OpenRoot(rootPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("open generated target root %s: %w", rootPath, err)
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, root.Close())
-	}()
-	return filepath.WalkDir(rootPath, func(
-		filePath string,
-		entry fs.DirEntry,
-		walkErr error,
-	) error {
-		if walkErr != nil {
-			if errors.Is(walkErr, fs.ErrNotExist) {
-				return nil
-			}
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		relative, err := filepath.Rel(rootPath, filePath)
-		if err != nil {
-			return fmt.Errorf("resolve generated target path %s: %w", filePath, err)
-		}
-		if len(strings.Split(filepath.ToSlash(relative), "/")) != 2 {
-			return nil
-		}
-		name := entry.Name()
-		if name == "zz_spice_gen.go" {
-			return fmt.Errorf(
-				"%s is the retired generated target monolith",
-				filePath,
-			)
-		}
-		if !strings.HasPrefix(name, "spice_") ||
-			!strings.HasSuffix(name, "_gen.go") {
-			return nil
-		}
-		lines, err := fileLineCount(root, relative)
-		if err != nil {
-			return err
-		}
-		if lines > maximumGeneratedTargetLines {
-			return fmt.Errorf(
-				"%s has %d lines; generated target units must not exceed %d lines",
-				filePath,
-				lines,
-				maximumGeneratedTargetLines,
-			)
-		}
-		return nil
-	})
-}
-
-func fileLineCount(
-	root *os.Root,
-	relativePath string,
-) (result int, resultErr error) {
-	file, err := root.Open(relativePath)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"open generated target unit %s: %w",
-			relativePath,
-			err,
-		)
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, file.Close())
-	}()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		result++
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf(
-			"read generated target unit %s: %w",
-			relativePath,
-			err,
-		)
-	}
-	return result, nil
+	return fastgate.CheckGeneratedTargetBoundaries(root)
 }
 
 func checkSpringCoverage(root string) (resultErr error) {

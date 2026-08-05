@@ -477,6 +477,10 @@ func TestCheckGeneratedTargetBoundariesRejectsMonolithsAndOversizedUnits(
 		"internal/spicegen/app/sources/orders/orders_spice_gen.go",
 		strings.Repeat("line\n", maximumGeneratedTargetLines+1),
 	)
+	writeQualityGateOwnershipManifest(t, root, []string{
+		validPath,
+		"internal/spicegen/app/sources/orders/orders_spice_gen.go",
+	})
 	if err := checkGeneratedTargetBoundaries(root); err != nil {
 		t.Fatalf("checkGeneratedTargetBoundaries(valid) error = %v", err)
 	}
@@ -500,6 +504,10 @@ func TestCheckGeneratedTargetBoundariesRejectsMonolithsAndOversizedUnits(
 		"internal/spicegen/app/zz_spice_gen.go",
 		"package spicegen\n",
 	)
+	writeQualityGateOwnershipManifest(t, root, []string{
+		"internal/spicegen/app/sources/orders/orders_spice_gen.go",
+		"internal/spicegen/app/zz_spice_gen.go",
+	})
 	if err := checkGeneratedTargetBoundaries(root); err == nil ||
 		!strings.Contains(err.Error(), "retired generated target monolith") {
 		t.Fatalf("checkGeneratedTargetBoundaries(monolith) error = %v", err)
@@ -931,6 +939,27 @@ func TestTestAndCoverageReusesTheShuffledTestPass(t *testing.T) {
 		!slices.Contains(calls[3], "-race") {
 		t.Fatalf("race commands = %v, %v", calls[1], calls[3])
 	}
+}
+
+func writeQualityGateOwnershipManifest(
+	t *testing.T,
+	root string,
+	files []string,
+) {
+	t.Helper()
+	manifestFiles := make([]map[string]string, 0, len(files))
+	for _, file := range files {
+		manifestFiles = append(manifestFiles, map[string]string{"path": file})
+	}
+	manifest := map[string]any{
+		"target": map[string]string{"output_dir": "internal/spicegen/app"},
+		"files":  manifestFiles,
+	}
+	content, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	writeTestFile(t, root, ".spice/app.manifest.json", string(content))
 }
 
 func writeTestFile(t *testing.T, root, path, content string) {

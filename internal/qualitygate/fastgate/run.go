@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,8 +22,13 @@ import (
 )
 
 const (
-	requiredGoVersion           = "go1.26.5"
-	maximumGeneratedTargetLines = 400
+	requiredGoVersion = "go1.26.5"
+
+	// MaximumGeneratedTargetLines is the repository-wide upper bound for one
+	// target-wide generated Go unit. Source-mirror units are intentionally
+	// excluded because their ownership is already one source file per unit.
+	MaximumGeneratedTargetLines = 400
+	maximumGeneratedTargetLines = MaximumGeneratedTargetLines
 )
 
 // Config describes one fast-gate invocation.
@@ -287,75 +293,289 @@ func capture(
 	return string(output), nil
 }
 
-// CheckGeneratedTargetBoundaries rejects retired generated monoliths and
-// oversized target-wide generated units.
+// CheckGeneratedTargetBoundaries requires every generated target and every
+// file below it to be owned by that module's committed Spice manifest. It also
+// rejects retired generated monoliths and oversized target-wide Go units.
 func CheckGeneratedTargetBoundaries(root string) error {
-	for _, generatedRoot := range []string{
-		filepath.Join(root, "internal", "spicegen"),
-		filepath.Join(root, "examples", "petclinic", "internal", "spicegen"),
-		filepath.Join(root, "testdata", "annotationapp", "internal", "spicegen"),
+	for _, moduleRoot := range []string{
+		root,
+		filepath.Join(root, "examples", "petclinic"),
+		filepath.Join(root, "testdata", "annotationapp"),
 	} {
-		if err := checkGeneratedTargetRoot(generatedRoot); err != nil {
+		if err := checkGeneratedModuleRoot(moduleRoot); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkGeneratedTargetRoot(rootPath string) (resultErr error) {
-	root, err := os.OpenRoot(rootPath)
+type generatedOwnershipManifest struct {
+	Target struct {
+		OutputDir string `json:"output_dir"`
+	} `json:"target"`
+	Files []struct {
+		Path string `json:"path"`
+	} `json:"files"`
+}
+
+func checkGeneratedModuleRoot(moduleRoot string) error {
+	generatedRoot := filepath.Join(moduleRoot, "internal", "spicegen")
+	entries, err := os.ReadDir(generatedRoot)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("open generated target root %s: %w", rootPath, err)
+		return fmt.Errorf("read generated root %s: %w", generatedRoot, err)
 	}
-	defer func() {
-		resultErr = errors.Join(resultErr, root.Close())
-	}()
-	return filepath.WalkDir(rootPath, func(
-		filePath string,
+	manifests, err := filepath.Glob(filepath.Join(moduleRoot, ".spice", "*.manifest.json"))
+	if err != nil {
+		return fmt.Errorf("find generated ownership manifests in %s: %w", moduleRoot, err)
+	}
+	ownedTargets := make(map[string]string, len(manifests))
+	for _, manifestPath := range manifests {
+		manifest, loadErr := loadGeneratedOwnershipManifest(moduleRoot, manifestPath)
+		if loadErr != nil {
+			return loadErr
+		}
+		targetPath := filepath.Join(moduleRoot, filepath.FromSlash(manifest.Target.OutputDir))
+		ownedTargets[filepath.Clean(targetPath)] = manifestPath
+		if checkErr := checkGeneratedTargetRoot(moduleRoot, targetPath, manifestPath, manifest); checkErr != nil {
+			return checkErr
+		}
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			return fmt.Errorf("%s is not a generated target directory", filepath.Join(generatedRoot, entry.Name()))
+		}
+		targetPath := filepath.Join(generatedRoot, entry.Name())
+		if _, found := ownedTargets[filepath.Clean(targetPath)]; !found {
+			containsFiles, inspectErr := directoryContainsFiles(targetPath)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			if containsFiles {
+				return fmt.Errorf("generated target %s has no ownership manifest", targetPath)
+			}
+		}
+	}
+	return nil
+}
+
+func directoryContainsFiles(root string) (bool, error) {
+	containsFiles := false
+	err := filepath.WalkDir(root, func(
+		path string,
 		entry fs.DirEntry,
 		walkErr error,
 	) error {
 		if walkErr != nil {
-			if errors.Is(walkErr, fs.ErrNotExist) {
-				return nil
-			}
 			return walkErr
 		}
-		if entry.IsDir() {
-			return nil
-		}
-		relative, err := filepath.Rel(rootPath, filePath)
-		if err != nil {
-			return fmt.Errorf("resolve generated target path %s: %w", filePath, err)
-		}
-		if len(strings.Split(filepath.ToSlash(relative), "/")) != 2 {
-			return nil
-		}
-		name := entry.Name()
-		if name == "zz_spice_gen.go" {
-			return fmt.Errorf("%s is the retired generated target monolith", filePath)
-		}
-		if !strings.HasPrefix(name, "spice_") ||
-			!strings.HasSuffix(name, "_gen.go") {
-			return nil
-		}
-		lines, err := fileLineCount(root, relative)
-		if err != nil {
-			return err
-		}
-		if lines > maximumGeneratedTargetLines {
-			return fmt.Errorf(
-				"%s has %d lines; generated target units must not exceed %d lines",
-				filePath,
-				lines,
-				maximumGeneratedTargetLines,
-			)
+		if path != root && !entry.IsDir() {
+			containsFiles = true
+			return fs.SkipAll
 		}
 		return nil
 	})
+	if err != nil {
+		return false, fmt.Errorf("inspect unowned generated target %s: %w", root, err)
+	}
+	return containsFiles, nil
+}
+
+func loadGeneratedOwnershipManifest(
+	moduleRoot string,
+	manifestPath string,
+) (generatedOwnershipManifest, error) {
+	content, err := readScopedFile(moduleRoot, manifestPath)
+	if err != nil {
+		return generatedOwnershipManifest{}, fmt.Errorf("read ownership manifest %s: %w", manifestPath, err)
+	}
+	var manifest generatedOwnershipManifest
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return generatedOwnershipManifest{}, fmt.Errorf("decode ownership manifest %s: %w", manifestPath, err)
+	}
+	outputDir := filepath.Clean(filepath.FromSlash(manifest.Target.OutputDir))
+	wantParent := filepath.Join("internal", "spicegen")
+	if filepath.IsAbs(outputDir) || filepath.Dir(outputDir) != wantParent {
+		return generatedOwnershipManifest{}, fmt.Errorf(
+			"ownership manifest %s has unsafe generated target %q",
+			manifestPath,
+			manifest.Target.OutputDir,
+		)
+	}
+	targetPath := filepath.Join(moduleRoot, outputDir)
+	if !pathWithin(moduleRoot, targetPath) {
+		return generatedOwnershipManifest{}, fmt.Errorf(
+			"ownership manifest %s target escapes module root",
+			manifestPath,
+		)
+	}
+	return manifest, nil
+}
+
+func checkGeneratedTargetRoot(
+	moduleRoot string,
+	targetPath string,
+	manifestPath string,
+	manifest generatedOwnershipManifest,
+) (resultErr error) {
+	owned, err := generatedOwnedFiles(
+		moduleRoot,
+		targetPath,
+		manifestPath,
+		manifest,
+	)
+	if err != nil {
+		return err
+	}
+	if targetErr := requireGeneratedTarget(manifestPath, targetPath); targetErr != nil {
+		return targetErr
+	}
+	targetRoot, err := os.OpenRoot(targetPath)
+	if err != nil {
+		return fmt.Errorf("open generated target %s: %w", targetPath, err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, targetRoot.Close())
+	}()
+	boundary := generatedTargetBoundary{
+		targetPath:   targetPath,
+		manifestPath: manifestPath,
+		root:         targetRoot,
+		owned:        owned,
+		seen:         make(map[string]struct{}, len(owned)),
+	}
+	if err := filepath.WalkDir(targetPath, boundary.visit); err != nil {
+		return err
+	}
+	for filePath := range boundary.owned {
+		if _, found := boundary.seen[filePath]; !found {
+			return fmt.Errorf("ownership manifest %s references missing file %s", manifestPath, filePath)
+		}
+	}
+	return nil
+}
+
+func generatedOwnedFiles(
+	moduleRoot string,
+	targetPath string,
+	manifestPath string,
+	manifest generatedOwnershipManifest,
+) (map[string]struct{}, error) {
+	owned := make(map[string]struct{}, len(manifest.Files))
+	for _, file := range manifest.Files {
+		filePath := filepath.Clean(filepath.Join(moduleRoot, filepath.FromSlash(file.Path)))
+		if !pathWithin(targetPath, filePath) {
+			return nil, fmt.Errorf(
+				"ownership manifest %s file %q is outside generated target %s",
+				manifestPath,
+				file.Path,
+				targetPath,
+			)
+		}
+		if _, duplicate := owned[filePath]; duplicate {
+			return nil, fmt.Errorf("ownership manifest %s repeats file %q", manifestPath, file.Path)
+		}
+		owned[filePath] = struct{}{}
+	}
+	return owned, nil
+}
+
+func requireGeneratedTarget(manifestPath, targetPath string) error {
+	if _, err := os.Stat(targetPath); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("ownership manifest %s target %s does not exist", manifestPath, targetPath)
+	} else if err != nil {
+		return fmt.Errorf("inspect generated target %s: %w", targetPath, err)
+	}
+	return nil
+}
+
+type generatedTargetBoundary struct {
+	targetPath   string
+	manifestPath string
+	root         *os.Root
+	owned        map[string]struct{}
+	seen         map[string]struct{}
+}
+
+func (boundary *generatedTargetBoundary) visit(
+	filePath string,
+	entry fs.DirEntry,
+	walkErr error,
+) error {
+	if walkErr != nil {
+		if errors.Is(walkErr, fs.ErrNotExist) {
+			return nil
+		}
+		return walkErr
+	}
+	if entry.IsDir() {
+		return nil
+	}
+	cleanPath := filepath.Clean(filePath)
+	if _, found := boundary.owned[cleanPath]; !found {
+		return fmt.Errorf(
+			"generated file %s is not owned by %s",
+			filePath,
+			boundary.manifestPath,
+		)
+	}
+	boundary.seen[cleanPath] = struct{}{}
+	relative, err := filepath.Rel(boundary.targetPath, filePath)
+	if err != nil {
+		return fmt.Errorf("resolve generated target path %s: %w", filePath, err)
+	}
+	if strings.Contains(filepath.ToSlash(relative), "/") {
+		return nil
+	}
+	if entry.Name() == "zz_spice_gen.go" {
+		return fmt.Errorf("%s is the retired generated target monolith", filePath)
+	}
+	if !strings.HasPrefix(entry.Name(), "spice_") ||
+		!strings.HasSuffix(entry.Name(), "_gen.go") {
+		return nil
+	}
+	lines, err := fileLineCount(boundary.root, relative)
+	if err != nil {
+		return err
+	}
+	if lines > MaximumGeneratedTargetLines {
+		return fmt.Errorf(
+			"%s has %d lines; generated target units must not exceed %d lines",
+			filePath,
+			lines,
+			MaximumGeneratedTargetLines,
+		)
+	}
+	return nil
+}
+
+func pathWithin(rootPath, candidatePath string) bool {
+	relative, err := filepath.Rel(rootPath, candidatePath)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func readScopedFile(rootPath, filePath string) (result []byte, resultErr error) {
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("open scoped root %s: %w", rootPath, err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, root.Close())
+	}()
+	relative, err := filepath.Rel(rootPath, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve scoped file %s below %s: %w", filePath, rootPath, err)
+	}
+	if !pathWithin(rootPath, filePath) {
+		return nil, fmt.Errorf("scoped file %s escapes %s", filePath, rootPath)
+	}
+	result, err = root.ReadFile(relative)
+	if err != nil {
+		return nil, fmt.Errorf("read scoped file %s: %w", filePath, err)
+	}
+	return result, nil
 }
 
 func fileLineCount(root *os.Root, name string) (result int, resultErr error) {

@@ -1,4 +1,4 @@
-package spicegen
+package commerce_test
 
 import (
 	"bytes"
@@ -14,10 +14,31 @@ import (
 	"github.com/StevenBuglione/spice/bean"
 	"github.com/StevenBuglione/spice/config"
 	"github.com/StevenBuglione/spice/examples/commerce/orders"
+	commercegen "github.com/StevenBuglione/spice/internal/spicegen/commerce"
 	"github.com/StevenBuglione/spice/lifecycle"
 	"github.com/StevenBuglione/spice/security"
 	"github.com/StevenBuglione/spice/spicetest"
 	"github.com/StevenBuglione/spice/web"
+)
+
+type (
+	Application        = commercegen.Application
+	ApplicationOptions = commercegen.ApplicationOptions
+	BeanOverrides      = commercegen.BeanOverrides
+	CommandOptions     = commercegen.CommandOptions
+	Components         = commercegen.Components
+)
+
+const (
+	ExitFailure = commercegen.ExitFailure
+	ExitSuccess = commercegen.ExitSuccess
+	ExitUsage   = commercegen.ExitUsage
+)
+
+var (
+	NewApplication            = commercegen.NewApplication
+	NewApplicationWithOptions = commercegen.NewApplicationWithOptions
+	RunCommand                = commercegen.RunCommand
 )
 
 func TestGeneratedApplicationConstructsTypedComponentsAndStops(t *testing.T) {

@@ -1,4 +1,4 @@
-package spicegen
+package spice_test
 
 import (
 	"bytes"
@@ -13,8 +13,20 @@ import (
 	"github.com/StevenBuglione/spice/bean"
 	"github.com/StevenBuglione/spice/config"
 	"github.com/StevenBuglione/spice/internal/cli"
+	spicegen "github.com/StevenBuglione/spice/internal/spicegen/spice"
 	"github.com/StevenBuglione/spice/lifecycle"
 	"github.com/StevenBuglione/spice/spicetest"
+)
+
+type (
+	Application        = spicegen.Application
+	ApplicationOptions = spicegen.ApplicationOptions
+	BeanOverrides      = spicegen.BeanOverrides
+)
+
+var (
+	NewApplication            = spicegen.NewApplication
+	NewApplicationWithOptions = spicegen.NewApplicationWithOptions
 )
 
 func TestApplicationConstructsTypedCommandAndLifecycle(t *testing.T) {
@@ -276,7 +288,6 @@ func writeLSPMessage(t *testing.T, output *bytes.Buffer, content string) {
 func TestApplicationRejectsNilConstructionContext(t *testing.T) {
 	t.Parallel()
 
-	//nolint:staticcheck // The generated boundary deliberately rejects nil.
 	if _, err := NewApplication(nil); err == nil {
 		t.Fatal("NewApplication(nil) error = nil")
 	}
