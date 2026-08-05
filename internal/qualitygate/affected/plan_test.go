@@ -112,7 +112,7 @@ func TestSelectWidensGlobalAndAmbiguousInputs(t *testing.T) {
 	}
 }
 
-func TestSelectClassifiesDocumentationEditorsAndWorkspaceArtifacts(
+func TestSelectClassifiesDocumentationEditorAndWorkspaceArtifacts(
 	t *testing.T,
 ) {
 	t.Parallel()
@@ -123,13 +123,11 @@ func TestSelectClassifiesDocumentationEditorsAndWorkspaceArtifacts(
 	plan := Select(root, "base", []string{
 		".tmp/private.txt",
 		"docs/spring-coverage.md",
-		"editors/goland/src/Plugin.kt",
 		"editors/zed/src/lib.rs",
 	}, graph)
 	if len(plan.Modules) != 0 ||
 		slices.Contains(plan.Changed, ".tmp/private.txt") ||
 		!plan.SpringCoverage ||
-		!plan.GoLand ||
 		!plan.Zed {
 		t.Fatalf("plan = %+v", plan)
 	}

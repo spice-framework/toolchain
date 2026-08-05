@@ -29,6 +29,7 @@ import (
 	"github.com/spice-framework/spice/compiler/diagnostic"
 	diagnosticadapt "github.com/spice-framework/spice/compiler/diagnostic/adapt"
 	"github.com/spice-framework/spice/compiler/generate"
+	"github.com/spice-framework/spice/compiler/internal/moduleenv"
 	"github.com/spice-framework/spice/compiler/load"
 	"github.com/spice-framework/spice/compiler/modulith"
 	annotationparser "github.com/spice-framework/spice/compiler/parser"
@@ -851,11 +852,7 @@ func withOfflineModuleResolution(
 		}
 		flags = append(flags, flag)
 	}
-	mode := "readonly"
-	if _, err := os.Stat(filepath.Join(root, "vendor", "modules.txt")); err == nil {
-		mode = "vendor"
-	}
-	flags = append(flags, "-mod="+mode)
+	flags = append(flags, "-mod="+moduleenv.OfflineMode(root, result.Env))
 	result.BuildFlags = flags
 	return result
 }

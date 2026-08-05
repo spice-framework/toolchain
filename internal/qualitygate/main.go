@@ -28,17 +28,14 @@ import (
 )
 
 const (
-	requiredGoVersion              = "go1.26.5"
-	requiredRustVersion            = "1.93.0"
-	requiredGradleVersion          = "9.6.1"
-	requiredGradleDistributionHash = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
-	requiredGradleWrapperHash      = "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7"
-	minimumCoverage                = 85.0
-	maximumGeneratedTargetLines    = fastgate.MaximumGeneratedTargetLines
-	modulePath                     = "github.com/spice-framework/spice"
-	legacyModulePath               = "github.com/" + "StevenBuglione/spice"
-	commerceModulePath             = modulePath + "/examples/commerce"
-	petclinicModulePath            = modulePath + "/examples/petclinic"
+	requiredGoVersion           = "go1.26.5"
+	requiredRustVersion         = "1.93.0"
+	minimumCoverage             = 85.0
+	maximumGeneratedTargetLines = fastgate.MaximumGeneratedTargetLines
+	modulePath                  = "github.com/spice-framework/spice"
+	legacyModulePath            = "github.com/" + "StevenBuglione/spice"
+	commerceModulePath          = modulePath + "/examples/commerce"
+	petclinicModulePath         = modulePath + "/examples/petclinic"
 )
 
 var output = log.New(os.Stdout, "", 0)
@@ -46,7 +43,6 @@ var output = log.New(os.Stdout, "", 0)
 var (
 	runExternal        = command
 	captureExternal    = capture
-	checkGoLandWrapper = validateGoLandWrapper
 	runBootstrapCheck  = bootstrapcheck.Run
 	zedTargetDirectory = defaultZedTargetDirectory
 )
@@ -56,7 +52,7 @@ func main() {
 }
 
 func execute() int {
-	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fmt, fuzz, goland, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
+	mode := flag.String("mode", "verify", "verification mode: benchmark, bootstrap, check, coverage, dogfood, fmt, fuzz, lint, security, smoke, test, vet, offline, zed, verify, or verify-release")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -91,7 +87,6 @@ func run(ctx context.Context, mode string) error {
 		"dogfood":        func() error { return dogfood(ctx, root) },
 		"fmt":            func() error { return format(ctx, root, true) },
 		"fuzz":           func() error { return fuzz(ctx, root) },
-		"goland":         func() error { return goland(ctx, root) },
 		"lint":           func() error { return lint(ctx, root) },
 		"security":       func() error { return security(ctx, root) },
 		"smoke":          func() error { return smoke(ctx, root) },
@@ -220,24 +215,6 @@ func verify(ctx context.Context, root string, release bool) error {
 	}
 	if err := runParallel(parallelSteps, 4); err != nil {
 		return err
-	}
-	runGoLand := release
-	if !runGoLand {
-		var err error
-		runGoLand, err = goLandAffected(ctx, root)
-		if err != nil {
-			return fmt.Errorf("determine GoLand verification scope: %w", err)
-		}
-	}
-	if runGoLand {
-		if err := runStep(verificationStep{
-			name: "GoLand plugin",
-			run:  func() error { return goland(ctx, root) },
-		}); err != nil {
-			return err
-		}
-	} else {
-		output.Println("==> GoLand plugin skipped: no editor/compiler/LSP inputs changed")
 	}
 	if release {
 		if err := runStep(verificationStep{
@@ -542,99 +519,6 @@ func checkSpringCoverage(root string) (resultErr error) {
 	return nil
 }
 
-func goLandAffected(ctx context.Context, root string) (bool, error) {
-	diffArguments := []string{
-		"diff",
-		"--name-only",
-		"origin/main",
-		"--",
-	}
-	if base := strings.TrimSpace(os.Getenv("SPICE_VERIFY_BASE")); base != "" {
-		resolved, err := captureExternal(
-			ctx,
-			root,
-			"git",
-			"rev-parse",
-			"--verify",
-			"--end-of-options",
-			base+"^{commit}",
-		)
-		if err != nil {
-			return false, fmt.Errorf("resolve verification base %q: %w", base, err)
-		}
-		diffArguments = []string{
-			"diff",
-			"--name-only",
-			strings.TrimSpace(resolved),
-			"HEAD",
-			"--",
-		}
-	}
-	tracked, err := captureExternal(
-		ctx,
-		root,
-		"git",
-		diffArguments...,
-	)
-	if err != nil {
-		return false, err
-	}
-	untracked, err := captureExternal(
-		ctx,
-		root,
-		"git",
-		"ls-files",
-		"--others",
-		"--exclude-standard",
-	)
-	if err != nil {
-		return false, err
-	}
-	paths := append(
-		strings.Fields(tracked),
-		strings.Fields(untracked)...,
-	)
-	return requiresGoLand(paths), nil
-}
-
-func requiresGoLand(paths []string) bool {
-	exact := map[string]struct{}{
-		"go.mod":      {},
-		"go.sum":      {},
-		"go.work":     {},
-		"go.work.sum": {},
-	}
-	prefixes := []string{
-		"annotation/",
-		"cmd/spice/",
-		"compiler/",
-		"editors/goland/",
-		"examples/commerce/",
-		"internal/lsp/",
-		"vendor/",
-	}
-	for _, name := range paths {
-		name = strings.ReplaceAll(strings.TrimSpace(name), "\\", "/")
-		name = strings.TrimPrefix(
-			filepath.ToSlash(name),
-			"./",
-		)
-		if strings.HasPrefix(name, "compiler/") &&
-			strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		if _, found := exact[name]; found {
-			return true
-		}
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(name, prefix) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func runSequential(steps []verificationStep) error {
 	for _, step := range steps {
 		if err := runStep(step); err != nil {
@@ -675,147 +559,6 @@ func runStep(step verificationStep) error {
 	}
 	output.Printf("<== %s passed in %s", step.name, time.Since(started).Round(time.Millisecond))
 	return nil
-}
-
-func goland(ctx context.Context, root string) error {
-	golandRoot := filepath.Join(root, "editors", "goland")
-	if err := checkGoLandWrapper(golandRoot); err != nil {
-		return err
-	}
-	executable := filepath.Join(golandRoot, "gradlew")
-	if runtime.GOOS == "windows" {
-		executable += ".bat"
-	}
-	arguments := []string{"--no-daemon", "--no-parallel", "--console=plain"}
-	localPath, err := localGoLandPath()
-	if err != nil {
-		return err
-	}
-	if localPath != "" {
-		arguments = append(arguments, "-PgolandPath="+localPath)
-	}
-	verificationArguments := append(
-		slices.Clone(arguments),
-		"test",
-		"buildPlugin",
-		"verifyPluginProjectConfiguration",
-		"verifyPluginStructure",
-		"verifyPlugin",
-	)
-	runGradle := func(taskArguments []string) error {
-		commandExecutable := executable
-		commandArguments := taskArguments
-		if runtime.GOOS == "linux" &&
-			strings.TrimSpace(os.Getenv("DISPLAY")) == "" {
-			commandArguments = append(
-				[]string{"-a", commandExecutable},
-				commandArguments...,
-			)
-			commandExecutable = "xvfb-run"
-		}
-		return runExternal(
-			ctx,
-			golandRoot,
-			nil,
-			commandExecutable,
-			commandArguments...,
-		)
-	}
-	if err := runGradle(verificationArguments); err != nil {
-		return err
-	}
-	if runtime.GOOS == "darwin" {
-		return nil
-	}
-	return runGradle(append(slices.Clone(arguments), "integrationTest"))
-}
-
-func validateGoLandWrapper(golandRoot string) error {
-	properties, err := readRootFile(
-		golandRoot,
-		filepath.Join("gradle", "wrapper", "gradle-wrapper.properties"),
-	)
-	if err != nil {
-		return fmt.Errorf("read GoLand Gradle wrapper properties: %w", err)
-	}
-	for _, expected := range []string{
-		"distributionUrl=https\\://services.gradle.org/distributions/gradle-" +
-			requiredGradleVersion + "-bin.zip",
-		"distributionSha256Sum=" + requiredGradleDistributionHash,
-	} {
-		if !strings.Contains(string(properties), expected) {
-			return fmt.Errorf(
-				"GoLand Gradle wrapper properties do not contain %q",
-				expected,
-			)
-		}
-	}
-	wrapper, err := readRootFile(
-		golandRoot,
-		filepath.Join("gradle", "wrapper", "gradle-wrapper.jar"),
-	)
-	if err != nil {
-		return fmt.Errorf("read GoLand Gradle wrapper JAR: %w", err)
-	}
-	hash := fmt.Sprintf("%x", sha256.Sum256(wrapper))
-	if hash != requiredGradleWrapperHash {
-		return fmt.Errorf(
-			"GoLand Gradle wrapper JAR checksum is %s, require %s",
-			hash,
-			requiredGradleWrapperHash,
-		)
-	}
-	for _, script := range []string{"gradlew", "gradlew.bat"} {
-		if _, err := readRootFile(golandRoot, script); err != nil {
-			return fmt.Errorf("read GoLand %s script: %w", script, err)
-		}
-	}
-	return nil
-}
-
-func localGoLandPath() (string, error) {
-	if configured := strings.TrimSpace(os.Getenv("SPICE_GOLAND_HOME")); configured != "" {
-		// #nosec G703 -- the verifier intentionally performs a read-only stat
-		// on the user-selected IDE installation; it never reads a child path.
-		info, err := os.Stat(configured)
-		if err != nil {
-			return "", fmt.Errorf("inspect SPICE_GOLAND_HOME %q: %w", configured, err)
-		}
-		if !info.IsDir() {
-			return "", fmt.Errorf("SPICE_GOLAND_HOME %q is not a directory", configured)
-		}
-		return filepath.Clean(configured), nil
-	}
-	var candidate string
-	switch runtime.GOOS {
-	case "windows":
-		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-			candidate = filepath.Join(localAppData, "Programs", "GoLand")
-		}
-	case "darwin":
-		candidate = filepath.Join(
-			string(filepath.Separator),
-			"Applications",
-			"GoLand.app",
-			"Contents",
-		)
-	}
-	if candidate == "" {
-		return "", nil
-	}
-	// #nosec G703 -- this read-only stat targets one fixed GoLand location
-	// below the current user's platform-owned application directory.
-	info, err := os.Stat(candidate)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("inspect local GoLand path %q: %w", candidate, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("local GoLand path %q is not a directory", candidate)
-	}
-	return filepath.Clean(candidate), nil
 }
 
 func repositoryRoot() (string, error) {
@@ -1021,9 +764,6 @@ func goFiles(root string) ([]string, error) {
 					"bin",
 					"dist",
 					"out",
-					filepath.Join("editors", "goland", ".gradle"),
-					filepath.Join("editors", "goland", ".intellijPlatform"),
-					filepath.Join("editors", "goland", "build"),
 					filepath.Join("editors", "zed", "target"),
 				}, relative) {
 					return filepath.SkipDir

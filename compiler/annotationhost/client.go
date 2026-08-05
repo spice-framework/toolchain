@@ -16,6 +16,7 @@ import (
 
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
+	"github.com/spice-framework/spice/compiler/internal/moduleenv"
 	"golang.org/x/mod/module"
 )
 
@@ -92,7 +93,7 @@ func Start(ctx context.Context, config Config) (*Client, error) {
 	command.Dir = module.Root
 	command.Env = offlineEnvironment(
 		config.Environment,
-		moduleMode(module.Root),
+		moduleenv.OfflineMode(module.Root, config.Environment),
 	)
 	stdin, err := command.StdinPipe()
 	if err != nil {

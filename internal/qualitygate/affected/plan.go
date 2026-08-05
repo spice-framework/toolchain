@@ -32,7 +32,6 @@ type Plan struct {
 	Reasons        []string
 	Full           bool
 	SpringCoverage bool
-	GoLand         bool
 	Zed            bool
 }
 
@@ -197,10 +196,6 @@ func requiresPackageSelection(name string, plan *Plan) bool {
 	if name == "docs/spring-coverage.md" {
 		plan.SpringCoverage = true
 	}
-	if strings.HasPrefix(name, "editors/goland/") {
-		plan.GoLand = true
-		return false
-	}
 	if strings.HasPrefix(name, "editors/zed/") {
 		plan.Zed = true
 		return false
@@ -338,9 +333,6 @@ func ignoredWorkspacePath(name string) bool {
 		"bin/",
 		"dist/",
 		"out/",
-		"editors/goland/.gradle/",
-		"editors/goland/.intellijPlatform/",
-		"editors/goland/build/",
 		"editors/zed/target/",
 	} {
 		if strings.HasPrefix(name, prefix) {

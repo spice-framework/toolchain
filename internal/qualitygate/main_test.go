@@ -63,7 +63,6 @@ func TestVerifyOrchestration(t *testing.T) {
 	writeBenchmarkFixture(t, root)
 
 	originalRun, originalCapture := runExternal, captureExternal
-	originalWrapperCheck := checkGoLandWrapper
 	originalBootstrapCheck := runBootstrapCheck
 	var calls []string
 	var callsMu sync.Mutex
@@ -132,7 +131,6 @@ func TestVerifyOrchestration(t *testing.T) {
 			return "", nil
 		}
 	}
-	checkGoLandWrapper = func(string) error { return nil }
 	runBootstrapCheck = func(context.Context, string) error {
 		recordCall("bootstrap recovery")
 		return nil
@@ -140,7 +138,6 @@ func TestVerifyOrchestration(t *testing.T) {
 	t.Cleanup(func() {
 		runExternal = originalRun
 		captureExternal = originalCapture
-		checkGoLandWrapper = originalWrapperCheck
 		runBootstrapCheck = originalBootstrapCheck
 	})
 
@@ -153,10 +150,6 @@ func TestVerifyOrchestration(t *testing.T) {
 	callsMu.Lock()
 	recordedCalls := slices.Clone(calls)
 	callsMu.Unlock()
-	gradleWrapper := "gradlew"
-	if runtime.GOOS == "windows" {
-		gradleWrapper += ".bat"
-	}
 	for _, expected := range []string{
 		"go vet ./...",
 		"run --timeout=10m",
@@ -165,21 +158,12 @@ func TestVerifyOrchestration(t *testing.T) {
 		"-coverprofile=",
 		"-mod=vendor -count=1",
 		"cargo build --locked --release --target wasm32-wasip2",
-		gradleWrapper + " --no-daemon --no-parallel --console=plain",
-		"verifyPluginStructure verifyPlugin",
 		"generate --check --target Spice ./compiler/...",
 		"bootstrap recovery",
 	} {
 		if !containsCall(recordedCalls, expected) {
 			t.Fatalf("calls do not contain %q:\n%s", expected, strings.Join(recordedCalls, "\n"))
 		}
-	}
-	if runtime.GOOS != "darwin" &&
-		!containsCall(recordedCalls, " integrationTest") {
-		t.Fatalf(
-			"calls do not contain isolated GoLand integration test:\n%s",
-			strings.Join(recordedCalls, "\n"),
-		)
 	}
 }
 
@@ -386,93 +370,6 @@ func TestCheckSpringCoverageRejectsUnresolvedAndUndocumentedNonGoals(
 	}
 }
 
-func TestRequiresGoLandUsesRelevantInputs(t *testing.T) {
-	t.Parallel()
-
-	for name, test := range map[string]struct {
-		paths []string
-		want  bool
-	}{
-		"unrelated documentation": {
-			paths: []string{"docs/verification.md"},
-		},
-		"Petclinic application": {
-			paths: []string{"examples/petclinic/main.go"},
-		},
-		"plugin source": {
-			paths: []string{"editors/goland/src/main/java/Plugin.java"},
-			want:  true,
-		},
-		"compiler source": {
-			paths: []string{"compiler/controller/controller.go"},
-			want:  true,
-		},
-		"compiler test fixture": {
-			paths: []string{"compiler/generate/generate_test.go"},
-		},
-		"module graph": {
-			paths: []string{".\\go.mod"},
-			want:  true,
-		},
-		"commerce UI fixture": {
-			paths: []string{"examples/commerce/main.go"},
-			want:  true,
-		},
-	} {
-		if got := requiresGoLand(test.paths); got != test.want {
-			t.Fatalf("%s requiresGoLand() = %t, want %t", name, got, test.want)
-		}
-	}
-}
-
-func TestGoLandAffectedUsesExplicitCIBeforeCommit(t *testing.T) {
-	t.Setenv("SPICE_VERIFY_BASE", "event-before")
-	originalCapture := captureExternal
-	var calls [][]string
-	captureExternal = func(
-		_ context.Context,
-		_ string,
-		executable string,
-		arguments ...string,
-	) (string, error) {
-		calls = append(calls, append([]string{executable}, arguments...))
-		switch {
-		case slices.Equal(arguments, []string{
-			"rev-parse",
-			"--verify",
-			"--end-of-options",
-			"event-before^{commit}",
-		}):
-			return "0123456789abcdef\n", nil
-		case slices.Equal(arguments, []string{
-			"diff",
-			"--name-only",
-			"0123456789abcdef",
-			"HEAD",
-			"--",
-		}):
-			return "editors/goland/src/main/java/Plugin.java\n", nil
-		case slices.Equal(arguments, []string{
-			"ls-files",
-			"--others",
-			"--exclude-standard",
-		}):
-			return "", nil
-		default:
-			return "", errors.New("unexpected command")
-		}
-	}
-	t.Cleanup(func() { captureExternal = originalCapture })
-
-	affected, err := goLandAffected(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatalf("goLandAffected() error = %v; calls=%v", err, calls)
-	}
-	if !affected {
-		t.Fatalf("goLandAffected() = false; calls=%v", calls)
-	}
-}
-
 func TestRepositoryAndFilesystemHelpers(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
@@ -485,20 +382,11 @@ func TestRepositoryAndFilesystemHelpers(t *testing.T) {
 	if !strings.Contains(string(data), "module "+modulePath) {
 		t.Fatalf("go.mod = %q", data)
 	}
-	if wrapperErr := validateGoLandWrapper(
-		filepath.Join(root, "editors", "goland"),
-	); wrapperErr != nil {
-		t.Fatalf("validateGoLandWrapper() error = %v", wrapperErr)
-	}
-
 	tree := t.TempDir()
 	writeTestFile(t, tree, "a.go", "package a\n")
 	writeTestFile(t, tree, "nested/b.go", "package nested\n")
 	writeTestFile(t, tree, "vendor/ignored.go", "package ignored\n")
 	writeTestFile(t, tree, ".git/ignored.go", "package ignored\n")
-	writeTestFile(t, tree, "editors/goland/build/ignored.go", "not valid Go\n")
-	writeTestFile(t, tree, "editors/goland/.gradle/ignored.go", "not valid Go\n")
-	writeTestFile(t, tree, "editors/goland/.intellijPlatform/ignored.go", "not valid Go\n")
 	writeTestFile(t, tree, "editors/zed/target/ignored.go", "not valid Go\n")
 	writeTestFile(t, tree, "out/ignored.go", "not valid Go\n")
 	writeTestFile(t, tree, "dist/ignored.go", "not valid Go\n")
@@ -703,17 +591,6 @@ func TestEnvironmentAndCleanupHelpers(t *testing.T) {
 		t.Fatalf("environmentKey() = %q, want %q", got, want)
 	}
 
-	golandHome := t.TempDir()
-	t.Setenv("SPICE_GOLAND_HOME", golandHome)
-	resolved, err := localGoLandPath()
-	if err != nil || resolved != filepath.Clean(golandHome) {
-		t.Fatalf("localGoLandPath() = %q, %v", resolved, err)
-	}
-	t.Setenv("SPICE_GOLAND_HOME", filepath.Join(golandHome, "missing"))
-	if _, err := localGoLandPath(); err == nil {
-		t.Fatal("localGoLandPath() error = nil for missing configured path")
-	}
-
 	path := filepath.Join(t.TempDir(), "temporary")
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
@@ -828,7 +705,7 @@ func TestRunModesWithFakeExternal(t *testing.T) {
 		captureExternal = originalCapture
 	})
 
-	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "goland", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
+	for _, mode := range []string{"benchmark", "check", "coverage", "dogfood", "fmt", "fuzz", "lint", "security", "smoke", "test", "vet", "offline", "zed", "verify", "verify-release"} {
 		if err := run(context.Background(), mode); err != nil {
 			t.Fatalf("run(%q) error = %v", mode, err)
 		}

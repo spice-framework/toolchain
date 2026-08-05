@@ -141,3 +141,59 @@ func TestResolveSourceSymbolsRejectsNilContext(t *testing.T) {
 		t.Fatal("ResolveSourceSymbols(cancelled) error = nil")
 	}
 }
+
+func TestListPackageIgnoresModuleVendorInsideActiveWorkspace(t *testing.T) {
+	t.Parallel()
+	workspaceRoot := t.TempDir()
+	applicationRoot := filepath.Join(workspaceRoot, "application")
+	dependencyRoot := filepath.Join(workspaceRoot, "dependency")
+	writeAnnotationHostFixture(
+		t,
+		filepath.Join(applicationRoot, "go.mod"),
+		"module example.com/application\n\ngo 1.26.0\n\nrequire example.com/dependency v0.0.0\n",
+	)
+	writeAnnotationHostFixture(
+		t,
+		filepath.Join(applicationRoot, "handlers", "handler.go"),
+		"package handlers\n\nfunc Handler() {}\n",
+	)
+	writeAnnotationHostFixture(
+		t,
+		filepath.Join(applicationRoot, "vendor", "modules.txt"),
+		"# intentionally module-scoped\n",
+	)
+	writeAnnotationHostFixture(
+		t,
+		filepath.Join(dependencyRoot, "go.mod"),
+		"module example.com/dependency\n\ngo 1.26.0\n",
+	)
+	workspace := filepath.Join(workspaceRoot, "go.work")
+	writeAnnotationHostFixture(
+		t,
+		workspace,
+		"go 1.26.0\n\nuse (\n\t./application\n\t./dependency\n)\n",
+	)
+	listed, err := listPackage(
+		t.Context(),
+		TargetModule{Root: applicationRoot},
+		"example.com/application/handlers",
+		replaceEnvironmentValue(os.Environ(), "GOWORK", workspace),
+	)
+	if err != nil {
+		t.Fatalf("listPackage(workspace) error = %v", err)
+	}
+	if listed.ImportPath != "example.com/application/handlers" ||
+		listed.Dir != filepath.Join(applicationRoot, "handlers") {
+		t.Fatalf("listPackage(workspace) = %+v", listed)
+	}
+}
+
+func writeAnnotationHostFixture(t *testing.T, name string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(name), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

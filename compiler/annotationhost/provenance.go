@@ -19,6 +19,7 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
+	"github.com/spice-framework/spice/compiler/internal/moduleenv"
 )
 
 const (
@@ -152,7 +153,7 @@ func listPackage(
 	packagePath string,
 	environment []string,
 ) (goListPackage, error) {
-	mode := moduleMode(module.Root)
+	mode := moduleenv.OfflineMode(module.Root, environment)
 	command := exec.CommandContext( // #nosec G204 -- executable and flags are fixed; packagePath is one argument.
 		ctx,
 		"go",
@@ -401,13 +402,6 @@ func sameDirectory(left, right string) bool {
 		return strings.EqualFold(left, right)
 	}
 	return left == right
-}
-
-func moduleMode(root string) string {
-	if _, err := os.Stat(filepath.Join(root, "vendor", "modules.txt")); err == nil {
-		return "vendor"
-	}
-	return "readonly"
 }
 
 func offlineEnvironment(environment []string, mode string) []string {

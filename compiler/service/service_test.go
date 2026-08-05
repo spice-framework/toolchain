@@ -571,6 +571,73 @@ func TestAnalysisLoadOptionsDisableNetworkAndSelectModuleMode(t *testing.T) {
 	}
 }
 
+func TestAnalysisLoadOptionsSelectsOnlyWorkspaceVendorInWorkspaceMode(
+	t *testing.T,
+) {
+	t.Parallel()
+	workspaceRoot := t.TempDir()
+	root := filepath.Join(workspaceRoot, "application")
+	if err := os.MkdirAll(filepath.Join(root, "vendor"), 0o750); err != nil {
+		t.Fatalf("MkdirAll(module vendor) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "vendor", "modules.txt"),
+		[]byte("# module vendor fixture\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile(module vendor) error = %v", err)
+	}
+	workspace := filepath.Join(workspaceRoot, "go.work")
+	if err := os.WriteFile(workspace, []byte("go 1.26.0\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(go.work) error = %v", err)
+	}
+	compiler, err := New(Config{LoadOptions: load.Options{
+		Env: []string{"PATH=test", "GOWORK=" + workspace},
+	}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	options := compiler.analysisLoadOptions(normalizedRequest{root: root})
+	if !slices.Contains(options.BuildFlags, "-mod=readonly") ||
+		slices.Contains(options.BuildFlags, "-mod=vendor") {
+		t.Fatalf("module-vendor workspace build flags = %#v", options.BuildFlags)
+	}
+	autoCompiler, err := New(Config{LoadOptions: load.Options{
+		Env: []string{"PATH=test"},
+	}})
+	if err != nil {
+		t.Fatalf("New(auto workspace) error = %v", err)
+	}
+	autoOptions := autoCompiler.analysisLoadOptions(normalizedRequest{root: root})
+	if !slices.Contains(autoOptions.BuildFlags, "-mod=readonly") {
+		t.Fatalf("auto-workspace build flags = %#v", autoOptions.BuildFlags)
+	}
+	offCompiler, err := New(Config{LoadOptions: load.Options{
+		Env: []string{"PATH=test", "GOWORK=off"},
+	}})
+	if err != nil {
+		t.Fatalf("New(workspace off) error = %v", err)
+	}
+	offOptions := offCompiler.analysisLoadOptions(normalizedRequest{root: root})
+	if !slices.Contains(offOptions.BuildFlags, "-mod=vendor") {
+		t.Fatalf("workspace-off build flags = %#v", offOptions.BuildFlags)
+	}
+	if err := os.MkdirAll(filepath.Join(workspaceRoot, "vendor"), 0o750); err != nil {
+		t.Fatalf("MkdirAll(workspace vendor) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(workspaceRoot, "vendor", "modules.txt"),
+		[]byte("# workspace vendor fixture\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile(workspace vendor) error = %v", err)
+	}
+	options = compiler.analysisLoadOptions(normalizedRequest{root: root})
+	if !slices.Contains(options.BuildFlags, "-mod=vendor") {
+		t.Fatalf("workspace-vendor build flags = %#v", options.BuildFlags)
+	}
+}
+
 func TestServiceOffersVersionedRawAnnotationCommentFix(t *testing.T) {
 	t.Parallel()
 	root := writeServiceModule(t)

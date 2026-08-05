@@ -107,9 +107,6 @@ func runPlan(
 			return err
 		}
 	}
-	if plan.GoLand {
-		reporter.Print("==> GoLand inputs changed; make goland remains the installed-IDE gate")
-	}
 	if plan.Zed {
 		reporter.Print("==> Zed inputs changed; make zed remains the extension gate")
 	}
