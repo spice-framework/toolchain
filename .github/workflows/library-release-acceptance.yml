@@ -52,3 +52,15 @@ jobs:
           GOTOOLCHAIN: local
           GOWORK: "off"
         run: go run -mod=vendor ./internal/libraryreleaseacceptance/cmd
+
+  required:
+    name: Required CI
+    if: ${{ always() }}
+    needs: [cross-producer]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require cross-producer acceptance to succeed
+        env:
+          CROSS_PRODUCER_RESULT: ${{ needs.cross-producer.result }}
+        run: test "$CROSS_PRODUCER_RESULT" = "success"

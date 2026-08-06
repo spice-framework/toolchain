@@ -16,6 +16,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.26.5
@@ -42,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: 1.26.5
@@ -51,3 +55,18 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -trimpath ./...
+
+  required:
+    name: Required CI
+    if: ${{ always() }}
+    needs: [verify, cross-build]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          CROSS_BUILD_RESULT: ${{ needs.cross-build.result }}
+        run: |
+          test "$VERIFY_RESULT" = "success"
+          test "$CROSS_BUILD_RESULT" = "success"
