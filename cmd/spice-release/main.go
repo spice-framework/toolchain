@@ -154,7 +154,16 @@ func validateReleaseIntent(
 	signingKey string,
 	rehearsal bool,
 ) error {
-	if !semver.IsValid(version) || semver.Canonical(version) != version {
+	if !semver.IsValid(version) {
+		return fmt.Errorf("version %q is not canonical semantic version", version)
+	}
+	if semver.Build(version) != "" && !rehearsal {
+		return fmt.Errorf(
+			"production version %q must not contain build metadata",
+			version,
+		)
+	}
+	if semver.Canonical(version) != version {
 		return fmt.Errorf("version %q is not canonical semantic version", version)
 	}
 	if rehearsal {
@@ -162,12 +171,6 @@ func validateReleaseIntent(
 			return fmt.Errorf("-rehearsal cannot be combined with -signing-key")
 		}
 		return nil
-	}
-	if semver.Prerelease(version) != "" || semver.Build(version) != "" {
-		return fmt.Errorf(
-			"production version %q must not contain prerelease or build metadata",
-			version,
-		)
 	}
 	if signingKey == "" {
 		return fmt.Errorf("-signing-key is required outside rehearsal")

@@ -71,15 +71,17 @@ is deliberately untracked and recreated by verification.
 ## Release
 
 [`RELEASING.md`](RELEASING.md) defines the release contract. Production builds
-require a clean checkout at the exact stable SemVer tag, the tag's commit epoch,
+require a clean checkout at the exact canonical SemVer tag, the tag's commit epoch,
 Go 1.26.5, and an external Ed25519 signing key. Rehearsals are deliberately
 unsigned. Every build uses the committed Git snapshot, the vendor graph, a
 scrubbed offline Go environment, and emits deterministic platform archives, a
 source archive, an exact SPDX SBOM, checksums, and (for production) a detached
 checksum signature. The tag workflow independently authenticates the signed
 artifacts against the committed trust anchor, compares a clean Windows rebuild
-byte-for-byte, and reverifies downloaded draft assets before a separately
-protected publication step. The trust anchor and protected environments in
+byte-for-byte, and grants repository write authority only after a separate
+protected publication approval. That final job creates a private draft,
+downloads and reverifies every byte, and only then publishes it. The trust
+anchor and protected environments in
 [`RELEASING.md`](RELEASING.md) are mandatory before creating a release tag.
 
 Signed source-only starter releases use a separate trust boundary. The

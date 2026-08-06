@@ -75,13 +75,13 @@ func TestRunRejectsInvalidInvocationBeforeBuilding(t *testing.T) {
 			wantError: "signing-key is required",
 		},
 		{
-			name: "prerelease production",
+			name: "build metadata production",
 			arguments: []string{
-				"-version=v1.0.0-rc.1",
+				"-version=v1.0.0+build.1",
 				"-signing-key=unused",
 			},
 			wantCode:  2,
-			wantError: "must not contain prerelease",
+			wantError: "must not contain build metadata",
 		},
 	}
 	for _, test := range tests {
@@ -106,6 +106,13 @@ func TestRunRejectsInvalidInvocationBeforeBuilding(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestValidateReleaseIntentAllowsCanonicalPrerelease(t *testing.T) {
+	t.Parallel()
+	if err := validateReleaseIntent("v0.1.0-preview.1", "private-key", false); err != nil {
+		t.Fatalf("validateReleaseIntent() error = %v", err)
 	}
 }
 

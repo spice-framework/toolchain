@@ -20,21 +20,31 @@ The tag-triggered workflow is fail-closed. It is not authorized for a first
 production release until all of these repository controls exist:
 
 - `security/release/ed25519-public.pem` contains the reviewed Ed25519 trust
-  anchor. A generated `checksums.txt.pem` is not a trust anchor by itself.
+  anchor. Its DER SHA-256 fingerprint is
+  `9be4a0a3d312e48ccc1c17136510e7658c5d1fcda8f95ab2e938b6ffb0d97272`.
+  A generated `checksums.txt.pem` is not a trust anchor by itself.
 - The protected `release-signing` environment permits only release tags,
-  requires an independent reviewer, prevents self-review and administrator
-  bypass, and contains the `SPICE_RELEASE_SIGNING_KEY_FILE_B64` secret. The
+  requires the repository owner to approve, and contains the
+  `SPICE_RELEASE_SIGNING_KEY_FILE_B64` secret. The
   secret is the base64 encoding of the complete PKCS#8 PEM or supported raw-key
   file, not a path.
 - The protected `release-publish` environment has the same reviewer and tag
-  restrictions. It contains no signing material and provides the distinct
-  approval that makes a verified draft public.
+  restrictions. It contains no signing material and provides a distinct
+  approval before the only job with repository write authority creates and
+  publishes the verified draft.
 - An enforced tag ruleset restricts creation of `v*` tags to release managers
   and forbids tag updates and deletion.
 - The default branch requires the complete platform verification matrix and
   protects this workflow, the builder, verifier, trust anchor, and this
   document through code-owner review.
 - GitHub-owned Actions are allowlisted and full commit-SHA pinning is required.
+
+The organization currently has one maintainer, so GitHub cannot require a
+different human reviewer without making releases impossible. Environment
+self-review is therefore enabled deliberately. The two sequential approvals,
+credential separation, immutable tag, credential-free rebuild, and repeated
+artifact verification remain mandatory. Add a distinct required reviewer and
+prevent self-review as soon as a second release maintainer is available.
 
 The signing key must be generated and backed up outside GitHub. Rotating it
 requires a reviewed trust-anchor change and a coordinated environment-secret
@@ -48,15 +58,15 @@ decoded bytes in the repository, workflow artifacts, logs, or release assets.
    `benchmarks/budgets.json`; do not raise a ceiling without measured evidence
    and a recorded rationale.
 2. Confirm the commit is on `origin/main`, CI is green, the working tree is
-   clean, and the intended version is a canonical stable version such as
-   `v0.1.0`.
+   clean, and the intended version is a canonical version such as `v0.1.0` or
+   `v0.1.0-preview.1`. Build metadata is not accepted.
 3. Have an authorized release manager create and push the immutable `v*` tag.
    Do not manually create a GitHub Release.
 4. Approve `release-signing` only after checking the tag, commit, workflow, and
    trust-anchor history.
-5. Inspect the private draft and the retained verification evidence.
-6. Approve `release-publish` only after the downloaded draft was independently
-   reverified.
+5. Inspect the retained signature, reproducibility, and verification evidence.
+6. Approve `release-publish` only after the signed build and independent
+   Windows rebuild have passed byte-for-byte verification.
 
 The workflow then performs this chain:
 
@@ -70,13 +80,15 @@ The workflow then performs this chain:
 4. Verify the signed release with `cmd/spice-release-verify` and the committed
    trust anchor, require the exact artifact set, and compare every unsigned
    artifact byte-for-byte between the two hosts.
-5. Create or resume only a matching private draft, reject unknown assets, and
-   upload exactly the verified eleven files.
-6. Download the draft, independently verify its signature, source, archives,
-   binaries, module graph, SBOM, and checksums again, and compare all downloaded
-   bytes with the originally verified workflow artifact.
-7. Retain build evidence for 90 days. After the separate publish approval, make
-   one fresh byte comparison and only then change the draft to public.
+5. Wait at the protected publication environment. No earlier job has repository
+   write permission.
+6. After approval, create or resume only a matching private draft, reject
+   unknown assets, upload exactly the verified eleven files, download them,
+   independently verify the signature, source, archives, binaries, module
+   graph, SBOM, and checksums again, and compare every downloaded byte with the
+   originally verified workflow artifact.
+7. Retain pre-publication evidence for 90 days and make the matching draft
+   public only after every in-job recheck succeeds.
 
 Signed and unsigned workflow intermediates are retained for 14 days. A failed
 job never publishes a release. A failure after draft creation deliberately
@@ -89,8 +101,8 @@ For local production diagnosis, the guarded builder remains available:
 go run ./cmd/spice-release -version v0.1.0 -signing-key ../private/spice-release.key -output dist-v0.1.0
 ```
 
-Production validation rejects prerelease/build metadata, a tag that does not
-resolve to `HEAD`, a source epoch that differs from the `HEAD` commit timestamp,
+Production validation rejects build metadata, a tag that does not resolve to
+`HEAD`, a source epoch that differs from the `HEAD` commit timestamp,
 an unsigned build, a dirty checkout, a non-Go-1.26.5 toolchain, module
 replacements, and any difference between `go.mod` and `vendor/modules.txt`.
 
