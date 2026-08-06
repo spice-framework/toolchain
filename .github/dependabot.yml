@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /tools/actionlint
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /testdata/annotationfixture
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
