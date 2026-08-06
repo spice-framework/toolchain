@@ -34,7 +34,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		switch {
 		case executable == "go" && slices.Equal(arguments, []string{"version"}):
 			return []byte("go version go1.26.5 windows/amd64\n"), nil
-		case executable == "go" && len(arguments) >= 5 && slices.Equal(arguments[:4], []string{"tool", "-C", "tools", "-n"}):
+		case executable == "go" && len(arguments) >= 5 && arguments[0] == "tool" && arguments[1] == "-C" && arguments[3] == "-n":
 			return []byte(arguments[4] + "\n"), nil
 		case executable == "goimports" || executable == "gofumpt":
 			return nil, nil
@@ -68,8 +68,12 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 	for _, want := range []string{
 		"go mod download all",
 		"go mod verify",
+		"actionlint -no-color -shellcheck= -pyflakes=",
 		"go list -mod=readonly -m all",
 		"go vet ./...",
+		"go build -trimpath -o ",
+		" ./cmd/spice-release",
+		" ./cmd/spice-release-verify",
 		"go test -race -shuffle=on -count=1",
 		"go test -mod=vendor -count=1 ./...",
 		"go tool " + identity.CLITool + " generate . ./component",
@@ -78,6 +82,22 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		if !containsCall(calls, want) {
 			t.Errorf("verification calls do not contain %q:\n%s", want, strings.Join(calls, "\n"))
 		}
+	}
+	var builtPackages []string
+	for _, call := range calls {
+		if fields := strings.Fields(call); len(fields) >= 2 &&
+			fields[0] == "go" && fields[1] == "build" {
+			builtPackages = append(builtPackages, fields[len(fields)-1])
+		}
+	}
+	if want := []string{
+		"./cmd/spice",
+		"./cmd/spice-annotation-core",
+		"./cmd/spice-bootstrap",
+		"./cmd/spice-release",
+		"./cmd/spice-release-verify",
+	}; !slices.Equal(builtPackages, want) {
+		t.Errorf("published tool build order = %v, want %v", builtPackages, want)
 	}
 	for _, relative := range []string{".spice", "bin", "internal/spicegen"} {
 		if _, err := os.Stat(filepath.Join(root, "testdata", "annotationapp", filepath.FromSlash(relative))); !errors.Is(err, fs.ErrNotExist) {
@@ -244,6 +264,23 @@ func TestVendorAndBootstrapBoundariesRejectDrift(t *testing.T) {
 			},
 		}
 		if err := gate.bootstrapDependencies(context.Background()); err == nil || !strings.Contains(err.Error(), "depends on production generated code") {
+			t.Fatalf("bootstrapDependencies() error = %v", err)
+		}
+	})
+	t.Run("release verifier depends on builder", func(t *testing.T) {
+		t.Parallel()
+		gate := verifier{
+			root:   t.TempDir(),
+			output: io.Discard,
+			execute: func(_ context.Context, _ string, _ map[string]string, _ string, arguments ...string) ([]byte, error) {
+				if arguments[len(arguments)-1] == "./cmd/spice-release-verify" {
+					return []byte(identity.ToolchainModule + "/internal/release\n"), nil
+				}
+				return nil, nil
+			},
+		}
+		if err := gate.bootstrapDependencies(context.Background()); err == nil ||
+			!strings.Contains(err.Error(), "depends on the release builder") {
 			t.Fatalf("bootstrapDependencies() error = %v", err)
 		}
 	})

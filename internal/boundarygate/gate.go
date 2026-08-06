@@ -30,12 +30,18 @@ var checkedPackages = []string{
 	"./cmd/spice",
 	"./cmd/spice-annotation-core",
 	"./cmd/spice-bootstrap",
+	"./cmd/spice-release",
+	"./cmd/spice-release-verify",
 	"./compiler/...",
 	"./internal/annotationcore",
 	"./internal/boundarygate/...",
 	"./internal/cli",
+	"./internal/gitenv",
 	"./internal/identity",
 	"./internal/lsp",
+	"./internal/moduleenv",
+	"./internal/release",
+	"./internal/releaseverify",
 	"./internal/scaffold",
 	"./internal/testsupport",
 }
@@ -134,9 +140,8 @@ func (gate verifier) verify(ctx context.Context) error {
 		}},
 		{name: "Go formatting", run: gate.formatting},
 		{name: "module tidiness", run: gate.moduleTidiness},
-		{name: "module checksums", run: func(ctx context.Context) error {
-			return gate.run(ctx, gate.root, nil, "go", "mod", "verify")
-		}},
+		{name: "module checksums", run: gate.moduleChecksums},
+		{name: "workflow lint", run: gate.workflowLint},
 		{name: "fixture dependency acquisition", run: gate.prepareFixtureDependencies},
 		{name: "vendor reproducibility", run: gate.vendorReproducibility},
 		{name: "published tool builds", run: gate.buildTools},
@@ -329,7 +334,7 @@ func (gate verifier) goFiles() ([]string, error) {
 }
 
 func (gate verifier) moduleTidiness(ctx context.Context) error {
-	for _, directory := range []string{".", "tools", "testdata/annotationfixture"} {
+	for _, directory := range moduleDirectories() {
 		if err := gate.run(
 			ctx,
 			filepath.Join(gate.root, filepath.FromSlash(directory)),
@@ -343,6 +348,42 @@ func (gate verifier) moduleTidiness(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (gate verifier) moduleChecksums(ctx context.Context) error {
+	for _, directory := range moduleDirectories() {
+		if err := gate.run(
+			ctx,
+			filepath.Join(gate.root, filepath.FromSlash(directory)),
+			nil,
+			"go",
+			"mod",
+			"verify",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func moduleDirectories() []string {
+	return []string{".", "tools", "tools/actionlint", "testdata/annotationfixture"}
+}
+
+func (gate verifier) workflowLint(ctx context.Context) error {
+	actionlint, err := gate.toolPathAt(ctx, "tools/actionlint", "actionlint")
+	if err != nil {
+		return err
+	}
+	return gate.run(
+		ctx,
+		gate.root,
+		nil,
+		actionlint,
+		"-no-color",
+		"-shellcheck=",
+		"-pyflakes=",
+	)
 }
 
 func (gate verifier) vendorReproducibility(ctx context.Context) error {
@@ -375,13 +416,19 @@ func (gate verifier) buildTools(ctx context.Context) error {
 		return temporaryErr
 	}
 	defer gate.removeTemporary(temporary)
-	for name, pkg := range map[string]string{
-		"spice":                 "./cmd/spice",
-		"spice-annotation-core": "./cmd/spice-annotation-core",
-		"spice-bootstrap":       "./cmd/spice-bootstrap",
-	} {
-		output := filepath.Join(temporary, name+executableSuffix())
-		if err := gate.run(ctx, gate.root, nil, "go", "build", "-trimpath", "-o", output, pkg); err != nil {
+	tools := []struct {
+		name        string
+		packagePath string
+	}{
+		{name: "spice", packagePath: "./cmd/spice"},
+		{name: "spice-annotation-core", packagePath: "./cmd/spice-annotation-core"},
+		{name: "spice-bootstrap", packagePath: "./cmd/spice-bootstrap"},
+		{name: "spice-release", packagePath: "./cmd/spice-release"},
+		{name: "spice-release-verify", packagePath: "./cmd/spice-release-verify"},
+	}
+	for _, tool := range tools {
+		output := filepath.Join(temporary, tool.name+executableSuffix())
+		if err := gate.run(ctx, gate.root, nil, "go", "build", "-trimpath", "-o", output, tool.packagePath); err != nil {
 			return err
 		}
 	}
@@ -389,13 +436,25 @@ func (gate verifier) buildTools(ctx context.Context) error {
 }
 
 func (gate verifier) bootstrapDependencies(ctx context.Context) error {
-	for _, pkg := range []string{"./cmd/spice", "./cmd/spice-bootstrap", "./cmd/spice-annotation-core"} {
+	for _, pkg := range []string{
+		"./cmd/spice",
+		"./cmd/spice-annotation-core",
+		"./cmd/spice-bootstrap",
+		"./cmd/spice-release",
+		"./cmd/spice-release-verify",
+	} {
 		output, err := gate.capture(ctx, gate.root, nil, "go", "list", "-deps", pkg)
 		if err != nil {
 			return err
 		}
 		if bytes.Contains(output, []byte("/internal/spicegen/")) {
 			return fmt.Errorf("%s depends on production generated code", pkg)
+		}
+		if pkg == "./cmd/spice-release-verify" && slices.Contains(
+			strings.Fields(string(output)),
+			identity.ToolchainModule+"/internal/release",
+		) {
+			return errors.New("independent release verifier depends on the release builder")
 		}
 	}
 	return nil
@@ -517,7 +576,11 @@ func (gate verifier) offlineTests(ctx context.Context) error {
 }
 
 func (gate verifier) toolPath(ctx context.Context, name string) (string, error) {
-	output, err := gate.capture(ctx, gate.root, nil, "go", "tool", "-C", "tools", "-n", name)
+	return gate.toolPathAt(ctx, "tools", name)
+}
+
+func (gate verifier) toolPathAt(ctx context.Context, directory, name string) (string, error) {
+	output, err := gate.capture(ctx, gate.root, nil, "go", "tool", "-C", directory, "-n", name)
 	if err != nil {
 		return "", err
 	}

@@ -1,0 +1,448 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-production-release
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26.5"
+  TRUSTED_RELEASE_KEY: security/release/ed25519-public.pem
+
+jobs:
+  validate-source:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      commit: ${{ steps.metadata.outputs.commit }}
+      epoch: ${{ steps.metadata.outputs.epoch }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Check out the complete tagged repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install the exact Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            tools/actionlint/go.sum
+            testdata/annotationapp/go.sum
+            testdata/annotationfixture/go.sum
+      - name: Validate the immutable tag source
+        id: metadata
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          test "$REF_TYPE" = "tag"
+          [[ "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test -f "$TRUSTED_RELEASE_KEY"
+          commit="$(git rev-parse --verify "refs/tags/$REF_NAME^{commit}")"
+          test "$commit" = "$(git rev-parse --verify 'HEAD^{commit}')"
+          git merge-base --is-ancestor "$commit" refs/remotes/origin/main
+          test -z "$(git status --porcelain --untracked-files=normal)"
+          epoch="$(git show -s --format=%ct "$commit")"
+          {
+            printf 'commit=%s\n' "$commit"
+            printf 'epoch=%s\n' "$epoch"
+            printf 'version=%s\n' "$REF_NAME"
+          } >> "$GITHUB_OUTPUT"
+      - name: Verify the exact tagged tree
+        run: make verify
+      - name: Prove verification preserved the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=normal)"
+
+  signed-build:
+    name: Build signed release
+    needs: validate-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: release-signing
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate-source.outputs.commit }}
+      - name: Install the exact Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Build with the protected signing key
+        shell: bash
+        env:
+          EPOCH: ${{ needs.validate-source.outputs.epoch }}
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+          GOWORK: "off"
+          SIGNING_KEY_FILE_B64: ${{ secrets.SPICE_RELEASE_SIGNING_KEY_FILE_B64 }}
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_FILE_B64"
+          umask 077
+          key="$RUNNER_TEMP/spice-release.key"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$SIGNING_KEY_FILE_B64" | base64 --decode > "$key"
+          go run -mod=vendor ./cmd/spice-release \
+            -version "$VERSION" \
+            -source-date-epoch "$EPOCH" \
+            -signing-key "$key" \
+            -output dist-signed
+      - name: Upload signed build for isolated verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: dist-signed/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  unsigned-rebuild:
+    name: Independently rebuild without signing material
+    needs: validate-source
+    runs-on: windows-2025
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate-source.outputs.commit }}
+      - name: Install the exact Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Build all targets from a clean Windows runner
+        shell: pwsh
+        env:
+          EPOCH: ${{ needs.validate-source.outputs.epoch }}
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+          GOWORK: "off"
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          go run -mod=vendor ./cmd/spice-release `
+            -rehearsal `
+            -version $env:VERSION `
+            -source-date-epoch $env:EPOCH `
+            -output dist-unsigned
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload independent rebuild
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: dist-unsigned/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  verify-artifacts:
+    name: Verify signature, contents, and reproducibility
+    needs:
+      - validate-source
+      - signed-build
+      - unsigned-rebuild
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate-source.outputs.commit }}
+      - name: Install the exact Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Download signed build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: artifacts/signed
+      - name: Download independent rebuild
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: artifacts/unsigned
+      - name: Verify and compare artifacts
+        shell: bash
+        env:
+          COMMIT: ${{ needs.validate-source.outputs.commit }}
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-evidence
+          go run -mod=vendor ./cmd/spice-release-verify \
+            -root . \
+            -artifacts artifacts/signed \
+            -version "$VERSION" \
+            -commit "$COMMIT" \
+            -trusted-public-key "$TRUSTED_RELEASE_KEY" \
+            | tee release-evidence/signed-verification.txt
+
+          base="${VERSION#v}"
+          unsigned=(
+            checksums.txt
+            "spice_${base}_darwin_amd64.tar.gz"
+            "spice_${base}_darwin_arm64.tar.gz"
+            "spice_${base}_linux_amd64.tar.gz"
+            "spice_${base}_linux_arm64.tar.gz"
+            "spice_${base}_sbom.spdx.json"
+            "spice_${base}_source.tar.gz"
+            "spice_${base}_windows_amd64.zip"
+            "spice_${base}_windows_arm64.zip"
+          )
+          expected="$(printf '%s\n' "${unsigned[@]}" | LC_ALL=C sort)"
+          actual="$(find artifacts/unsigned -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          test "$(find artifacts/unsigned -mindepth 1 -maxdepth 1 | wc -l)" -eq 9
+          for name in "${unsigned[@]}"; do
+            cmp --silent "artifacts/signed/$name" "artifacts/unsigned/$name"
+            printf '%s\n' "$name"
+          done | LC_ALL=C sort > release-evidence/reproducible-assets.txt
+          (cd artifacts/signed && sha256sum -- *) > release-evidence/signed-assets.sha256
+          (cd artifacts/unsigned && sha256sum -- *) > release-evidence/unsigned-assets.sha256
+      - name: Retain release verification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verification-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: release-evidence/*
+          if-no-files-found: warn
+          compression-level: 9
+          retention-days: 90
+
+  create-draft:
+    name: Create guarded draft release
+    needs:
+      - validate-source
+      - verify-artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified signed artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: artifacts/signed
+      - name: Create or resume the exact draft
+        shell: bash
+        env:
+          COMMIT: ${{ needs.validate-source.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="${VERSION#v}"
+          expected=(
+            checksums.txt
+            checksums.txt.pem
+            checksums.txt.sig
+            "spice_${base}_darwin_amd64.tar.gz"
+            "spice_${base}_darwin_arm64.tar.gz"
+            "spice_${base}_linux_amd64.tar.gz"
+            "spice_${base}_linux_arm64.tar.gz"
+            "spice_${base}_sbom.spdx.json"
+            "spice_${base}_source.tar.gz"
+            "spice_${base}_windows_amd64.zip"
+            "spice_${base}_windows_arm64.zip"
+          )
+          expected_names="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
+          actual_names="$(find artifacts/signed -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+          test "$actual_names" = "$expected_names"
+          test "$(find artifacts/signed -mindepth 1 -maxdepth 1 | wc -l)" -eq 11
+
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$VERSION" --jq '.sha')" = "$COMMIT"
+          if metadata="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,tagName,assets 2>/dev/null)"; then
+            test "$(jq -r '.isDraft' <<<"$metadata")" = "true"
+            test "$(jq -r '.tagName' <<<"$metadata")" = "$VERSION"
+            existing_names="$(jq -r '.assets[].name' <<<"$metadata" | LC_ALL=C sort)"
+            if test -n "$existing_names"; then
+              test -z "$(comm -23 <(printf '%s\n' "$existing_names") <(printf '%s\n' "$expected_names"))"
+            fi
+          else
+            gh release create "$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --verify-tag \
+              --target "$COMMIT" \
+              --title "Spice $VERSION" \
+              --generate-notes
+          fi
+
+          paths=()
+          for name in "${expected[@]}"; do
+            paths+=("artifacts/signed/$name")
+          done
+          gh release upload "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            "${paths[@]}"
+
+          published="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,tagName,assets)"
+          test "$(jq -r '.isDraft' <<<"$published")" = "true"
+          test "$(jq -r '.tagName' <<<"$published")" = "$VERSION"
+          uploaded_names="$(jq -r '.assets[].name' <<<"$published" | LC_ALL=C sort)"
+          test "$uploaded_names" = "$expected_names"
+
+  verify-draft:
+    name: Download and independently reverify draft
+    needs:
+      - validate-source
+      - signed-build
+      - create-draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate-source.outputs.commit }}
+      - name: Install the exact Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Download verified workflow artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: artifacts/signed
+      - name: Download the draft release assets
+        shell: bash
+        env:
+          COMMIT: ${{ needs.validate-source.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          metadata="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft)"
+          test "$(jq -r '.isDraft' <<<"$metadata")" = "true"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$VERSION" --jq '.sha')" = "$COMMIT"
+          mkdir artifacts/downloaded
+          gh release download "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir artifacts/downloaded
+      - name: Reverify downloaded release assets
+        shell: bash
+        env:
+          COMMIT: ${{ needs.validate-source.outputs.commit }}
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-evidence
+          go run -mod=vendor ./cmd/spice-release-verify \
+            -root . \
+            -artifacts artifacts/downloaded \
+            -version "$VERSION" \
+            -commit "$COMMIT" \
+            -trusted-public-key "$TRUSTED_RELEASE_KEY" \
+            | tee release-evidence/draft-verification.txt
+          test "$(find artifacts/signed -mindepth 1 -maxdepth 1 | wc -l)" -eq 11
+          test "$(find artifacts/downloaded -mindepth 1 -maxdepth 1 | wc -l)" -eq 11
+          signed_names="$(find artifacts/signed -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+          downloaded_names="$(find artifacts/downloaded -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+          test "$signed_names" = "$downloaded_names"
+          while IFS= read -r name; do
+            cmp --silent "artifacts/signed/$name" "artifacts/downloaded/$name"
+          done <<<"$signed_names"
+          (cd artifacts/downloaded && sha256sum -- *) > release-evidence/downloaded-assets.sha256
+      - name: Retain downloaded-release evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: draft-verification-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: release-evidence/*
+          if-no-files-found: warn
+          compression-level: 9
+          retention-days: 90
+
+  publish:
+    name: Publish verified release
+    needs:
+      - validate-source
+      - signed-build
+      - verify-draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: release-publish
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate-source.outputs.version }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download the originally verified artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-${{ needs.validate-source.outputs.version }}-${{ needs.validate-source.outputs.commit }}
+          path: artifacts/signed
+      - name: Recheck the draft after approval and publish it
+        shell: bash
+        env:
+          COMMIT: ${{ needs.validate-source.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-source.outputs.version }}
+        run: |
+          set -euo pipefail
+          metadata="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,tagName)"
+          test "$(jq -r '.isDraft' <<<"$metadata")" = "true"
+          test "$(jq -r '.tagName' <<<"$metadata")" = "$VERSION"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$VERSION" --jq '.sha')" = "$COMMIT"
+          mkdir artifacts/downloaded
+          gh release download "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir artifacts/downloaded
+          test "$(find artifacts/signed -mindepth 1 -maxdepth 1 | wc -l)" -eq 11
+          test "$(find artifacts/downloaded -mindepth 1 -maxdepth 1 | wc -l)" -eq 11
+          signed_names="$(find artifacts/signed -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+          downloaded_names="$(find artifacts/downloaded -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+          test "$signed_names" = "$downloaded_names"
+          while IFS= read -r name; do
+            cmp --silent "artifacts/signed/$name" "artifacts/downloaded/$name"
+          done <<<"$signed_names"
+          gh release edit "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+          test "$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')" = "false"

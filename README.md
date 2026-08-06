@@ -69,7 +69,11 @@ Go 1.26.5, and an external Ed25519 signing key. Rehearsals are deliberately
 unsigned. Every build uses the committed Git snapshot, the vendor graph, a
 scrubbed offline Go environment, and emits deterministic platform archives, a
 source archive, an exact SPDX SBOM, checksums, and (for production) a detached
-checksum signature.
+checksum signature. The tag workflow independently authenticates the signed
+artifacts against the committed trust anchor, compares a clean Windows rebuild
+byte-for-byte, and reverifies downloaded draft assets before a separately
+protected publication step. The trust anchor and protected environments in
+[`RELEASING.md`](RELEASING.md) are mandatory before creating a release tag.
 
 ## Extraction provenance
 
