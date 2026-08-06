@@ -163,7 +163,7 @@ func validateConfig(ctx context.Context, config Config) error {
 	if ctx == nil {
 		return fmt.Errorf("build release: context is nil")
 	}
-	if !semver.IsValid(config.Version) {
+	if !semver.IsValid(config.Version) || semver.Canonical(config.Version) != config.Version {
 		return fmt.Errorf(
 			"build release: version %q is not canonical semantic version",
 			config.Version,

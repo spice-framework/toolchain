@@ -50,6 +50,15 @@ func TestRunRejectsInvalidInvocationBeforeBuilding(t *testing.T) {
 			wantError: "not canonical semantic version",
 		},
 		{
+			name: "noncanonical semantic version",
+			arguments: []string{
+				"-rehearsal",
+				"-version=v1.0",
+			},
+			wantCode:  2,
+			wantError: "not canonical semantic version",
+		},
+		{
 			name: "signed rehearsal",
 			arguments: []string{
 				"-rehearsal",

@@ -154,7 +154,7 @@ func validateReleaseIntent(
 	signingKey string,
 	rehearsal bool,
 ) error {
-	if !semver.IsValid(version) {
+	if !semver.IsValid(version) || semver.Canonical(version) != version {
 		return fmt.Errorf("version %q is not canonical semantic version", version)
 	}
 	if rehearsal {

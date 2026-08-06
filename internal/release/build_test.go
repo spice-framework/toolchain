@@ -112,6 +112,12 @@ func TestBuildRejectsUnsafeOrIncompleteConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name: "noncanonical version",
+			change: func(config *Config) {
+				config.Version = "v1.0"
+			},
+		},
+		{
 			name: "missing epoch",
 			change: func(config *Config) {
 				config.Epoch = time.Time{}

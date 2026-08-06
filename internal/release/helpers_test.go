@@ -26,40 +26,31 @@ func TestReleaseEnvironmentReplacesBuildControls(t *testing.T) {
 	t.Setenv("GODEBUG", "gocacheverify=1")
 	t.Setenv("GOTOOLCHAIN", "auto")
 	environment := releaseEnvironment("linux", "arm64")
-	joined := strings.Join(environment, "\n")
-	for _, want := range []string{
-		"GOOS=linux",
-		"GOARCH=arm64",
-		"GO111MODULE=on",
-		"CGO_ENABLED=0",
-		"GODEBUG=",
-		"GOENV=off",
-		"GOEXPERIMENT=",
-		"GOFIPS140=off",
-		"GOFLAGS=",
-		"GOARM64=v8.0",
-		"GONOPROXY=",
-		"GONOSUMDB=",
-		"GOPRIVATE=",
-		"GOPROXY=off",
-		"GOSUMDB=off",
-		"GOTOOLCHAIN=local",
-		"GOWORK=off",
-	} {
-		if strings.Count(joined, want) != 1 {
-			t.Errorf("environment has %d occurrences of %q", strings.Count(joined, want), want)
+	want := map[string]string{
+		"GOOS": "linux", "GOARCH": "arm64", "GO111MODULE": "on",
+		"CGO_ENABLED": "0", "GODEBUG": "", "GOENV": "off",
+		"GOEXPERIMENT": "", "GOFIPS140": "off", "GOFLAGS": "",
+		"GOARM64": "v8.0", "GONOPROXY": "", "GONOSUMDB": "",
+		"GOPRIVATE": "", "GOPROXY": "off", "GOSUMDB": "off",
+		"GOTOOLCHAIN": "local", "GOWORK": "off",
+	}
+	seen := make(map[string]int, len(want))
+	for _, entry := range environment {
+		name, value, found := strings.Cut(entry, "=")
+		name = strings.ToUpper(name)
+		expected, controlled := want[name]
+		if !found || !controlled {
+			continue
+		}
+		seen[name]++
+		if value != expected {
+			t.Errorf("environment %s = %q, want %q", name, value, expected)
 		}
 	}
-	if strings.Contains(joined, "forbidden") ||
-		strings.Contains(joined, "proxy.example") ||
-		strings.Contains(joined, "sum.example") ||
-		strings.Contains(joined, "private.example") ||
-		strings.Contains(joined, "environment-file") ||
-		strings.Contains(joined, "ambient") ||
-		strings.Contains(joined, "v9.4") ||
-		strings.Contains(joined, "latest") ||
-		strings.Contains(joined, "gocacheverify") {
-		t.Fatalf("environment retained an ambient build control: %s", joined)
+	for name := range want {
+		if seen[name] != 1 {
+			t.Errorf("environment has %d assignments for %s, want 1", seen[name], name)
+		}
 	}
 }
 

@@ -19,7 +19,11 @@ func TestOfflineModeMatchesModuleAndWorkspaceVendorSelection(t *testing.T) {
 	if got := OfflineMode(application, []string{"GOWORK=off"}); got != "vendor" {
 		t.Fatalf("OfflineMode(module vendor) = %q", got)
 	}
-	if got, found := VendorRoot(application, []string{"GOWORK=off"}); !found || got != application {
+	canonicalApplication, err := canonicalDirectory(application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, found := VendorRoot(application, []string{"GOWORK=off"}); !found || got != canonicalApplication {
 		t.Fatalf("VendorRoot(module vendor) = %q, %t", got, found)
 	}
 
@@ -36,7 +40,11 @@ func TestOfflineModeMatchesModuleAndWorkspaceVendorSelection(t *testing.T) {
 	if got := OfflineMode(application, []string{"GOWORK=auto"}); got != "vendor" {
 		t.Fatalf("OfflineMode(auto workspace vendor) = %q", got)
 	}
-	if got, found := VendorRoot(application, []string{"GOWORK=" + workspace}); !found || got != workspaceRoot {
+	canonicalWorkspaceRoot, err := canonicalDirectory(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, found := VendorRoot(application, []string{"GOWORK=" + workspace}); !found || got != canonicalWorkspaceRoot {
 		t.Fatalf("VendorRoot(workspace vendor) = %q, %t", got, found)
 	}
 
@@ -84,9 +92,17 @@ func TestWorkspaceModulesRequiresMembershipAndHonorsCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	canonicalApplication, err := canonicalDirectory(application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalPlugin, err := canonicalDirectory(plugin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []WorkspaceModule{
-		{Path: "example.com/application", Root: application},
-		{Path: "example.com/plugin", Root: plugin},
+		{Path: "example.com/application", Root: canonicalApplication},
+		{Path: "example.com/plugin", Root: canonicalPlugin},
 	}
 	if !slices.Equal(modules, want) {
 		t.Fatalf("WorkspaceModules() = %#v, want %#v", modules, want)
@@ -124,11 +140,15 @@ example.com/remote/annotation
 	if err != nil {
 		t.Fatal(err)
 	}
+	canonicalVendor, err := canonicalDirectory(vendor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []VendoredModule{
 		{
 			Path:                 "example.com/local",
 			Version:              "v1.2.3",
-			Directory:            filepath.Join(vendor, "example.com", "local"),
+			Directory:            filepath.Join(canonicalVendor, "example.com", "local"),
 			ReplacementPath:      "../local",
 			ReplacementDirectory: filepath.Clean(filepath.Join(root, "../local")),
 			LocalReplacement:     true,
@@ -136,7 +156,7 @@ example.com/remote/annotation
 		{
 			Path:               "example.com/remote",
 			Version:            "v1.0.0",
-			Directory:          filepath.Join(vendor, "example.com", "remote"),
+			Directory:          filepath.Join(canonicalVendor, "example.com", "remote"),
 			ReplacementPath:    "example.com/fork",
 			ReplacementVersion: "v1.1.0",
 		},
