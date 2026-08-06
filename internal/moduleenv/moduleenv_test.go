@@ -67,15 +67,19 @@ func TestWorkspaceSelectionUsesAmbientAndLastDuplicate(t *testing.T) {
 	writeModuleEnvironmentContent(t, application, "vendor/modules.txt", "")
 	writeModuleEnvironmentContent(t, root, "go.work", "go 1.26.0\n\nuse ./application\n")
 	writeModuleEnvironmentContent(t, root, "vendor/modules.txt", "## workspace\n")
+	canonicalWorkspace, err := canonicalFile(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if got := WorkspaceFile(application, []string{"GOWORK=" + workspace, "gowork=off"}); got != "" {
 		t.Fatalf("WorkspaceFile(last off) = %q", got)
 	}
-	if got := WorkspaceFile(application, []string{"GOWORK=off", "gowork=" + workspace}); got != workspace {
+	if got := WorkspaceFile(application, []string{"GOWORK=off", "gowork=" + workspace}); got != canonicalWorkspace {
 		t.Fatalf("WorkspaceFile(last workspace) = %q", got)
 	}
 	t.Setenv("GOWORK", workspace)
-	if got := WorkspaceFile(application, nil); got != workspace {
+	if got := WorkspaceFile(application, nil); got != canonicalWorkspace {
 		t.Fatalf("WorkspaceFile(ambient) = %q", got)
 	}
 }

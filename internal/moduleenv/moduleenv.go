@@ -171,13 +171,17 @@ func workspaceSelection(root string, environment []string) (string, bool) {
 		case strings.EqualFold(value, "off"):
 			return "", false
 		case value != "" && !strings.EqualFold(value, "auto"):
-			if !filepath.IsAbs(value) || !regularFile(value) {
+			if !filepath.IsAbs(value) {
 				return "", true
 			}
-			return filepath.Clean(value), true
+			workspace, err := canonicalFile(value)
+			if err != nil {
+				return "", true
+			}
+			return workspace, true
 		}
 	}
-	current, err := filepath.Abs(root)
+	current, err := canonicalDirectory(root)
 	if err != nil {
 		return "", false
 	}
@@ -478,6 +482,17 @@ func canonicalDirectory(path string) (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(filepath.Clean(absolute))
+}
+
+func canonicalFile(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	if !regularFile(resolved) {
+		return "", fmt.Errorf("%q is not a regular file", path)
+	}
+	return resolved, nil
 }
 
 func containsModuleRoot(modules []WorkspaceModule, target string) bool {
