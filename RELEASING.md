@@ -34,10 +34,12 @@ production release until all of these repository controls exist:
   publishes the verified draft.
 - An enforced tag ruleset restricts creation of `v*` tags to release managers
   and forbids tag updates and deletion.
-- The default branch requires the complete platform verification matrix and
-  protects this workflow, the builder, verifier, trust anchor, and this
-  document through code-owner review.
-- GitHub-owned Actions are allowlisted and full commit-SHA pinning is required.
+- The default branch rejects deletion, non-fast-forward updates, and nonlinear
+  history. The repository's direct-main contract requires the exact local
+  `make verify`, a fetch guard, and a clean push; hosted verification is the
+  post-push durability mirror.
+- Every third-party workflow action is pinned to a full commit SHA. Actionlint
+  and the repository workflow-invariant tests reject authority drift.
 
 The organization currently has one maintainer, so GitHub cannot require a
 different human reviewer without making releases impossible. Environment
@@ -46,10 +48,12 @@ credential separation, immutable tag, credential-free rebuild, and repeated
 artifact verification remain mandatory. Add a distinct required reviewer and
 prevent self-review as soon as a second release maintainer is available.
 
-The signing key must be generated and backed up outside GitHub. Rotating it
-requires a reviewed trust-anchor change and a coordinated environment-secret
-change before a release tag is created. Never store the private key or its
-decoded bytes in the repository, workflow artifacts, logs, or release assets.
+The signing key is generated outside the repository and transferred directly
+to the protected GitHub environment. This solo-maintainer setup deliberately
+retains no plaintext local copy; loss of the hosted secret requires a reviewed
+trust-anchor rotation before another release tag is created. Never store the
+private key or its decoded bytes in the repository, workflow artifacts, logs,
+or release assets.
 
 ## Automated production release
 
