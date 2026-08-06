@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	DevelopmentCommit = "afcab67bcb1a6d2893335242df5d76d25afc4d98"
-	StarterOIDCCommit = "24ae4132e4782b8c0957c5d44b85cfcd845a168e"
+	DevelopmentCommit = "4c308d1b9fda11cb2b045f2e0d9e1616d32d007d"
+	StarterOIDCCommit = "cdc0f9b2766cd6a9939409bf0149bcdff12ca806"
 	ReleaseVersion    = "v1.2.3"
 
 	developmentSource = "https://github.com/spice-framework/development.git"
