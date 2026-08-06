@@ -72,6 +72,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		"go list -mod=readonly -m all",
 		"go vet ./...",
 		"go build -trimpath -o ",
+		" ./cmd/spice-library-release-verify",
 		" ./cmd/spice-release",
 		" ./cmd/spice-release-verify",
 		"go test -race -shuffle=on -count=1",
@@ -94,6 +95,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		"./cmd/spice",
 		"./cmd/spice-annotation-core",
 		"./cmd/spice-bootstrap",
+		"./cmd/spice-library-release-verify",
 		"./cmd/spice-release",
 		"./cmd/spice-release-verify",
 	}; !slices.Equal(builtPackages, want) {
@@ -268,20 +270,49 @@ func TestVendorAndBootstrapBoundariesRejectDrift(t *testing.T) {
 		}
 	})
 	t.Run("release verifier depends on builder", func(t *testing.T) {
-		t.Parallel()
-		gate := verifier{
-			root:   t.TempDir(),
-			output: io.Discard,
-			execute: func(_ context.Context, _ string, _ map[string]string, _ string, arguments ...string) ([]byte, error) {
-				if arguments[len(arguments)-1] == "./cmd/spice-release-verify" {
-					return []byte(identity.ToolchainModule + "/internal/release\n"), nil
-				}
-				return nil, nil
+		for _, test := range []struct {
+			name       string
+			command    string
+			dependency string
+		}{
+			{
+				name:       "binary verifier and toolchain builder",
+				command:    "./cmd/spice-release-verify",
+				dependency: identity.ToolchainModule + "/internal/release",
 			},
-		}
-		if err := gate.bootstrapDependencies(context.Background()); err == nil ||
-			!strings.Contains(err.Error(), "depends on the release builder") {
-			t.Fatalf("bootstrapDependencies() error = %v", err)
+			{
+				name:       "binary verifier and library builder",
+				command:    "./cmd/spice-release-verify",
+				dependency: "github.com/spice-framework/development/internal/libraryrelease",
+			},
+			{
+				name:       "library verifier and toolchain builder",
+				command:    "./cmd/spice-library-release-verify",
+				dependency: identity.ToolchainModule + "/internal/release",
+			},
+			{
+				name:       "library verifier and library builder",
+				command:    "./cmd/spice-library-release-verify",
+				dependency: "github.com/spice-framework/development/internal/libraryrelease",
+			},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				t.Parallel()
+				gate := verifier{
+					root:   t.TempDir(),
+					output: io.Discard,
+					execute: func(_ context.Context, _ string, _ map[string]string, _ string, arguments ...string) ([]byte, error) {
+						if arguments[len(arguments)-1] == test.command {
+							return []byte(test.dependency + "\n"), nil
+						}
+						return nil, nil
+					},
+				}
+				if err := gate.bootstrapDependencies(context.Background()); err == nil ||
+					!strings.Contains(err.Error(), "depends on forbidden builder package") {
+					t.Fatalf("bootstrapDependencies() error = %v", err)
+				}
+			})
 		}
 	})
 }

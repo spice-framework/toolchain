@@ -100,3 +100,45 @@ configuration removed.
 The committed trust anchor and protected GitHub environments remain hard
 blockers even when a local signed build succeeds. Never create a tag merely to
 test the production workflow; use the unsigned rehearsal instead.
+
+## Starter-library verification
+
+`cmd/spice-library-release-verify` is the independent verifier for signed
+source-only Spice starter releases. It accepts an untrusted artifact directory,
+an exact trusted starter commit and repository name, and a separately
+provisioned Ed25519 public-key PEM. It requires exactly the source archive,
+SPDX 2.3 SBOM, checksums, detached signature, and emitted public key;
+authenticates the checksum bytes before reading their claims; and verifies
+archive paths, modes, symlinks, timestamps, content, module sums, vendor
+selection, compatibility metadata, and renderer schema against trusted Git
+objects.
+
+This command does not render artifacts and has no dependency on
+`internal/release`, the central development renderer, or retained starter
+builders. A key shipped beside its own signature is never accepted as the trust
+anchor: callers must pass the independently provisioned public-key file with
+`-trusted-public-key`. The canonical source and module are separate trusted
+inputs, so a repository with the same basename on another host cannot satisfy
+the contract:
+
+```text
+go tool github.com/spice-framework/toolchain/cmd/spice-library-release-verify \
+  -artifacts dist -root . -repository starter-oidc \
+  -source https://github.com/spice-framework/starter-oidc \
+  -module github.com/spice-framework/starter-oidc \
+  -version v1.2.3 -commit <exact-object-id> \
+  -trusted-public-key <independently-provisioned-key.pem>
+```
+
+Renderer/v1 limits compatibility metadata to 64 KiB, the selected module graph
+and committed `go.sum` to 16 MiB each, the emitted SPDX document to 1 MiB, each
+expanded source entry to 128 MiB, and the complete expanded source archive to
+256 MiB. The verifier duplicates these constants deliberately instead of
+importing producer code. Changing a limit requires a new renderer contract and
+cross-producer acceptance vector.
+
+The opt-in `TestCentralRendererV1Acceptance` test exercises a real central
+producer result without importing its implementation. Set
+`SPICE_LIBRARY_RELEASE_ACCEPTANCE_ROOT` to a directory containing the pinned
+`central` artifacts and `starter-oidc` checkout; leaving it unset produces an
+explicit skip in ordinary focused tests.

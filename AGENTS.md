@@ -27,6 +27,10 @@ to `github.com/spice-framework/spice`.
   provenance; committed files never contain machine-specific replacements.
 - Analysis and editor operations remain offline and do not execute provider or
   descriptor bodies.
+- `spice-library-release-verify` must remain independent of every release
+  builder. It authenticates signed library artifacts against an external trust
+  anchor and exact Git objects; it never re-renders artifacts or trusts the
+  emitted public key as its own anchor.
 
 ## Feedback loop
 

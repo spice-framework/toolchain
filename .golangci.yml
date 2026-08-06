@@ -110,7 +110,7 @@ linters:
         linters:
           - forbidigo
           - noctx
-      - path: "(^|.*[/\\\\])(cmd[/\\\\](spice|spice-annotation-core|spice-bootstrap|spice-release)|internal[/\\\\]boundarygate[/\\\\]cmd)[/\\\\]main\\.go$"
+      - path: "(^|.*[/\\\\])(cmd[/\\\\](spice|spice-annotation-core|spice-bootstrap|spice-library-release-verify|spice-release)|internal[/\\\\]boundarygate[/\\\\]cmd)[/\\\\]main\\.go$"
         text: 'use of `os\.Exit`'
         linters:
           - forbidigo

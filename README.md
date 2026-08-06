@@ -75,6 +75,17 @@ byte-for-byte, and reverifies downloaded draft assets before a separately
 protected publication step. The trust anchor and protected environments in
 [`RELEASING.md`](RELEASING.md) are mandatory before creating a release tag.
 
+Signed source-only starter releases use a separate trust boundary. The
+`cmd/spice-library-release-verify` Go tool authenticates the exact five-file
+artifact set with an externally trusted Ed25519 public key, then independently
+checks the source archive and SPDX 2.3 document against an exact commit in the
+trusted starter checkout. Callers must also provide the expected canonical
+HTTPS source URL and Go module path; repository-name coincidence alone is not a
+trust decision. It does not import the central development renderer, the
+retained starter builder, or this repository's binary-release builder. Starter
+workflows authorize an exact verifier version with an ordinary root `go.mod`
+`tool` directive and run it in vendor-only offline mode.
+
 ## Extraction provenance
 
 The repository retains the filtered history of the compiler/tooling boundary.

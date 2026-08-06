@@ -30,6 +30,7 @@ var checkedPackages = []string{
 	"./cmd/spice",
 	"./cmd/spice-annotation-core",
 	"./cmd/spice-bootstrap",
+	"./cmd/spice-library-release-verify",
 	"./cmd/spice-release",
 	"./cmd/spice-release-verify",
 	"./compiler/...",
@@ -39,6 +40,7 @@ var checkedPackages = []string{
 	"./internal/gitenv",
 	"./internal/identity",
 	"./internal/lsp",
+	"./internal/libraryreleaseverify",
 	"./internal/moduleenv",
 	"./internal/release",
 	"./internal/releaseverify",
@@ -423,6 +425,7 @@ func (gate verifier) buildTools(ctx context.Context) error {
 		{name: "spice", packagePath: "./cmd/spice"},
 		{name: "spice-annotation-core", packagePath: "./cmd/spice-annotation-core"},
 		{name: "spice-bootstrap", packagePath: "./cmd/spice-bootstrap"},
+		{name: "spice-library-release-verify", packagePath: "./cmd/spice-library-release-verify"},
 		{name: "spice-release", packagePath: "./cmd/spice-release"},
 		{name: "spice-release-verify", packagePath: "./cmd/spice-release-verify"},
 	}
@@ -440,6 +443,7 @@ func (gate verifier) bootstrapDependencies(ctx context.Context) error {
 		"./cmd/spice",
 		"./cmd/spice-annotation-core",
 		"./cmd/spice-bootstrap",
+		"./cmd/spice-library-release-verify",
 		"./cmd/spice-release",
 		"./cmd/spice-release-verify",
 	} {
@@ -450,11 +454,16 @@ func (gate verifier) bootstrapDependencies(ctx context.Context) error {
 		if bytes.Contains(output, []byte("/internal/spicegen/")) {
 			return fmt.Errorf("%s depends on production generated code", pkg)
 		}
-		if pkg == "./cmd/spice-release-verify" && slices.Contains(
-			strings.Fields(string(output)),
-			identity.ToolchainModule+"/internal/release",
-		) {
-			return errors.New("independent release verifier depends on the release builder")
+		if strings.Contains(pkg, "release-verify") {
+			dependencies := strings.Fields(string(output))
+			for _, forbidden := range []string{
+				identity.ToolchainModule + "/internal/release",
+				"github.com/spice-framework/development/internal/libraryrelease",
+			} {
+				if slices.Contains(dependencies, forbidden) {
+					return fmt.Errorf("independent release verifier %s depends on forbidden builder package %s", pkg, forbidden)
+				}
+			}
 		}
 	}
 	return nil
