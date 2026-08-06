@@ -236,6 +236,12 @@ func TestDevCommandKeepsLastKnownGoodAndRecovers(t *testing.T) {
 		output,
 		"graceful restart requested for revision "+strconv.Itoa(revision),
 	)
+	// EventApplicationStarted proves that the operating-system process was
+	// created; the generated command may not yet have installed its signal
+	// handler. Wait for both successful generated applications to report
+	// runtime startup before exercising graceful cancellation. This matters on
+	// slower Windows hosts, where CTRL_BREAK can otherwise race process setup.
+	waitForBufferTextOccurrences(t, output, `"msg":"Spice application starting"`, 2)
 
 	cancel()
 	select {
@@ -296,6 +302,32 @@ func waitForBufferText(
 		case <-timeout.C:
 			t.Fatalf(
 				"timed out waiting for %q\n%s",
+				expected,
+				buffer.String(),
+			)
+		}
+	}
+}
+
+func waitForBufferTextOccurrences(
+	t *testing.T,
+	buffer *notifyingBuffer,
+	expected string,
+	minimum int,
+) {
+	t.Helper()
+	timeout := time.NewTimer(90 * time.Second)
+	defer timeout.Stop()
+	for {
+		if strings.Count(buffer.String(), expected) >= minimum {
+			return
+		}
+		select {
+		case <-buffer.updated:
+		case <-timeout.C:
+			t.Fatalf(
+				"timed out waiting for %d occurrence(s) of %q\n%s",
+				minimum,
 				expected,
 				buffer.String(),
 			)
