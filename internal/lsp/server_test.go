@@ -19,6 +19,7 @@ import (
 
 	"github.com/spice-framework/toolchain/compiler/load"
 	compilerservice "github.com/spice-framework/toolchain/compiler/service"
+	"github.com/spice-framework/toolchain/internal/identity"
 	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
@@ -1105,7 +1106,7 @@ func main() {
 		"go.mod": "module example.com/lspfixture\n\ngo 1.26.0\n\n" +
 			"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n" +
 			"require (\n" +
-			"\tgithub.com/spice-framework/spice v0.0.0\n" +
+			"\tgithub.com/spice-framework/spice " + identity.CoreVersion + "\n" +
 			"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(coreDirectory) + "\n\n" +
@@ -1172,7 +1173,7 @@ func main() {
 	mod := "module example.com/importedlsp\n\ngo 1.26.0\n\n" +
 		"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n" +
 		"require (\n" +
-		"\tgithub.com/spice-framework/spice v0.0.0\n" +
+		"\tgithub.com/spice-framework/spice " + identity.CoreVersion + "\n" +
 		"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 		"replace github.com/spice-framework/spice => " +
 		filepath.ToSlash(coreDirectory) + "\n\n" +

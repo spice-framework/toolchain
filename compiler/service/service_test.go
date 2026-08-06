@@ -19,6 +19,7 @@ import (
 	"github.com/spice-framework/toolchain/compiler/generate"
 	"github.com/spice-framework/toolchain/compiler/load"
 	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
+	"github.com/spice-framework/toolchain/internal/identity"
 	"github.com/spice-framework/toolchain/internal/testsupport"
 )
 
@@ -1507,7 +1508,7 @@ func writeServiceModule(tb testingTB) string {
 		"go.mod": "module example.com/servicefixture\n\ngo 1.26.0\n\n" +
 			"tool github.com/spice-framework/toolchain/cmd/spice-annotation-core\n\n" +
 			"require (\n" +
-			"\tgithub.com/spice-framework/spice v0.0.0\n" +
+			"\tgithub.com/spice-framework/spice " + identity.CoreVersion + "\n" +
 			"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(coreDirectory) + "\n\n" +

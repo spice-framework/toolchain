@@ -4,6 +4,7 @@ package wiring
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spice-framework/spice/annotation/sdk"
 )
@@ -50,6 +51,25 @@ func FactoryHandler(
 		"Factory",
 	); err != nil {
 		return sdk.Result{}, err
+	}
+	results, present, err := invocation.FunctionResultFacts()
+	if err != nil {
+		return sdk.Result{}, fmt.Errorf("decode function result facts: %w", err)
+	}
+	want := sdk.FunctionResultFact{
+		TypeID:             "example.com/spice-annotation-app/component.Message",
+		CanonicalTypeID:    "example.com/spice-annotation-app/component.Message",
+		Kind:               sdk.GoTypeBasic,
+		NamedOriginPackage: "example.com/spice-annotation-app/component",
+		NamedOriginName:    "Message",
+	}
+	if !present || len(results) != 1 || results[0] != want {
+		return sdk.Result{}, fmt.Errorf(
+			"function result facts = %+v (present %t), want [%+v]",
+			results,
+			present,
+			want,
+		)
 	}
 	return sdk.OneContribution(sdk.Contribution{
 		Kind:     sdk.ContributionProvider,

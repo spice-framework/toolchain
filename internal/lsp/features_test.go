@@ -607,7 +607,7 @@ type Stripe struct{}
 			"go 1.26.0\n\n" +
 			"tool " + identity.AnnotationTool + "\n\n" +
 			"require (\n" +
-			"\tgithub.com/spice-framework/spice v0.0.0\n" +
+			"\tgithub.com/spice-framework/spice " + identity.CoreVersion + "\n" +
 			"\tgithub.com/spice-framework/toolchain v0.0.0\n)\n\n" +
 			"replace github.com/spice-framework/spice => " +
 			filepath.ToSlash(coreDirectory) + "\n\n" +
