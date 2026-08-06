@@ -222,7 +222,10 @@ func TestStrictParsersAndPortablePaths(t *testing.T) {
 			t.Errorf("canonicalSourceURL(%q) succeeded", value)
 		}
 	}
-	for _, name := range []string{"../escape", `back\\slash`, "CON/file", "trailing./file", "control\x01"} {
+	for _, name := range []string{
+		"../escape", `back\\slash`, "CON/file", "trailing./file", "control\x01",
+		"café.go", "cafe\u0301.go", string([]byte{'b', 'a', 'd', 0xff}),
+	} {
 		if err := validateArchivePath(name); err == nil {
 			t.Errorf("validateArchivePath(%q) succeeded", name)
 		}
@@ -232,6 +235,11 @@ func TestStrictParsersAndPortablePaths(t *testing.T) {
 	}
 	if !safeLinkTarget("internal/latest", "../README.md") || safeLinkTarget("latest", "../escape") {
 		t.Fatal("safeLinkTarget traversal policy is incorrect")
+	}
+	for _, target := range []string{"café.go", "cafe\u0301.go", string([]byte{'b', 'a', 'd', 0xff})} {
+		if safeLinkTarget("internal/latest", target) {
+			t.Errorf("safeLinkTarget(%q) succeeded", target)
+		}
 	}
 
 	digest := sha256.Sum256([]byte("artifact"))
@@ -476,6 +484,8 @@ func TestSourceArchiveRejectsNoncanonicalContent(t *testing.T) {
 	}{
 		{name: "gzip epoch", gzipEpoch: epoch.Add(time.Second)},
 		{name: "unsafe path", modify: func(header *tar.Header) { header.Name = "../escape" }},
+		{name: "NFC path", modify: func(header *tar.Header) { header.Name = "starter-test_1.2.3/café.go" }},
+		{name: "NFD path", modify: func(header *tar.Header) { header.Name = "starter-test_1.2.3/cafe\u0301.go" }},
 		{name: "metadata", modify: func(header *tar.Header) { header.Uid = 1 }},
 		{name: "PAX metadata", modify: func(header *tar.Header) {
 			header.PAXRecords = map[string]string{"comment": "not renderer/v1"}
@@ -492,6 +502,11 @@ func TestSourceArchiveRejectsNoncanonicalContent(t *testing.T) {
 			header.Typeflag = tar.TypeSymlink
 			header.Size = 0
 			header.Linkname = "../../escape"
+		}},
+		{name: "non-ASCII symlink", modify: func(header *tar.Header) {
+			header.Typeflag = tar.TypeSymlink
+			header.Size = 0
+			header.Linkname = "café.go"
 		}},
 		{name: "duplicate", duplicate: true},
 		{name: "trailing", trailing: true},
@@ -556,10 +571,8 @@ func TestRendererV1TarPAXBoundaries(t *testing.T) {
 	}{
 		{name: "100-byte path", path: strings.Repeat("a", 81)},
 		{name: "101-byte path", path: strings.Repeat("a", 82)},
-		{name: "Unicode path", path: "café.go"},
 		{name: "100-byte link", path: "link", linkTarget: strings.Repeat("a", 100)},
 		{name: "101-byte link", path: "link", linkTarget: strings.Repeat("a", 101)},
-		{name: "Unicode link", path: "link", linkTarget: "café.go"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

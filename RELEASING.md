@@ -137,6 +137,12 @@ expanded source entry to 128 MiB, and the complete expanded source archive to
 importing producer code. Changing a limit requires a new renderer contract and
 cross-producer acceptance proof.
 
+Renderer/v1 source paths and symbolic-link targets use printable ASCII bytes
+only (`0x20` through `0x7e`). This deliberately prevents Unicode-normalization
+aliases and invalid UTF-8 from producing different extraction results across
+Linux, macOS, and Windows. File contents remain unrestricted. The verifier also
+rejects ASCII case-folded path collisions independently of the producer.
+
 ## Cross-producer acceptance
 
 The network-capable cross-producer proof is deliberately separate from the
