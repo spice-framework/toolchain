@@ -11,12 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/spice-framework/toolchain/internal/gitenv"
 	spicerelease "github.com/spice-framework/toolchain/internal/release"
+	"golang.org/x/mod/semver"
 )
 
 func main() {
@@ -85,16 +86,23 @@ func run(
 	if err != nil {
 		return writeExit(stderr, 2, "spice-release: %v\n", err)
 	}
+	if intentErr := validateReleaseIntent(version, signingKey, rehearsal); intentErr != nil {
+		return writeExit(stderr, 2, "spice-release: %v\n", intentErr)
+	}
 	resolvedEpoch, err := sourceEpoch(ctx, root, epoch)
 	if err != nil {
 		return writeExit(stderr, 1, "spice-release: %v\n", err)
 	}
+	commit := ""
 	if !rehearsal {
-		if validationErr := validateReleaseCheckout(
+		var validationErr error
+		commit, validationErr = validateReleaseCheckout(
 			ctx,
 			root,
 			version,
-		); validationErr != nil {
+			resolvedEpoch,
+		)
+		if validationErr != nil {
 			return writeExit(
 				stderr,
 				1,
@@ -114,11 +122,13 @@ func run(
 				err,
 			)
 		}
+		defer clear(key)
 	}
 	result, err := spicerelease.Build(ctx, spicerelease.Config{
 		Root:          root,
 		OutputDir:     output,
 		Version:       version,
+		Commit:        commit,
 		Epoch:         resolvedEpoch,
 		Targets:       parsedTargets,
 		PrivateKey:    key,
@@ -137,6 +147,32 @@ func run(
 		return 1
 	}
 	return 0
+}
+
+func validateReleaseIntent(
+	version string,
+	signingKey string,
+	rehearsal bool,
+) error {
+	if !semver.IsValid(version) {
+		return fmt.Errorf("version %q is not canonical semantic version", version)
+	}
+	if rehearsal {
+		if signingKey != "" {
+			return fmt.Errorf("-rehearsal cannot be combined with -signing-key")
+		}
+		return nil
+	}
+	if semver.Prerelease(version) != "" || semver.Build(version) != "" {
+		return fmt.Errorf(
+			"production version %q must not contain prerelease or build metadata",
+			version,
+		)
+	}
+	if signingKey == "" {
+		return fmt.Errorf("-signing-key is required outside rehearsal")
+	}
+	return nil
 }
 
 func writeExit(
@@ -193,31 +229,54 @@ func validateReleaseCheckout(
 	ctx context.Context,
 	root string,
 	version string,
-) error {
+	epoch time.Time,
+) (string, error) {
 	status, err := gitOutput(
 		ctx,
 		root,
 		"status",
 		"--porcelain",
-		"--untracked-files=no",
+		"--untracked-files=normal",
 	)
 	if err != nil {
-		return fmt.Errorf("inspect release checkout: %w", err)
+		return "", fmt.Errorf("inspect release checkout: %w", err)
 	}
 	if strings.TrimSpace(status) != "" {
-		return fmt.Errorf("release checkout has tracked modifications")
+		return "", fmt.Errorf("release checkout has modifications or untracked files")
 	}
-	tags, err := gitOutput(ctx, root, "tag", "--points-at", "HEAD")
+	head, err := gitOutput(ctx, root, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		return fmt.Errorf("inspect release tag: %w", err)
+		return "", fmt.Errorf("resolve release HEAD: %w", err)
 	}
-	if slices.Contains(strings.Fields(tags), version) {
-		return nil
-	}
-	return fmt.Errorf(
-		"release HEAD is not tagged exactly %q",
-		version,
+	tag, err := gitOutput(
+		ctx,
+		root,
+		"rev-parse",
+		"--verify",
+		"refs/tags/"+version+"^{commit}",
 	)
+	if err != nil {
+		return "", fmt.Errorf("resolve release tag %q: %w", version, err)
+	}
+	if strings.TrimSpace(tag) != strings.TrimSpace(head) {
+		return "", fmt.Errorf("release tag %q does not identify HEAD", version)
+	}
+	commitEpoch, err := gitOutput(ctx, root, "show", "-s", "--format=%ct", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("read release HEAD epoch: %w", err)
+	}
+	parsedEpoch, err := strconv.ParseInt(strings.TrimSpace(commitEpoch), 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("parse release HEAD epoch: %w", err)
+	}
+	if epoch.Unix() != parsedEpoch {
+		return "", fmt.Errorf(
+			"release source epoch %d does not match HEAD epoch %d",
+			epoch.Unix(),
+			parsedEpoch,
+		)
+	}
+	return strings.TrimSpace(head), nil
 }
 
 func gitOutput(
@@ -229,7 +288,7 @@ func gitOutput(
 	// repository-owned Git arguments; no shell is involved.
 	command := exec.CommandContext(ctx, "git", arguments...)
 	command.Dir = root
-	command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	command.Env = gitenv.ReadOnly(os.Environ())
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout

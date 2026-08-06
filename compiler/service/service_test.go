@@ -537,6 +537,13 @@ func NewStore(Settings) *Store {
 func TestAnalysisLoadOptionsDisableNetworkAndSelectModuleMode(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, "go.mod"),
+		[]byte("module example.com/application\n\ngo 1.26.0\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
 	compiler, err := New(Config{
 		LoadOptions: load.Options{
 			Env:        []string{"PATH=test", "GOPROXY=https://proxy.example"},
@@ -578,6 +585,16 @@ func TestAnalysisLoadOptionsSelectsOnlyWorkspaceVendorInWorkspaceMode(
 	t.Parallel()
 	workspaceRoot := t.TempDir()
 	root := filepath.Join(workspaceRoot, "application")
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		t.Fatalf("MkdirAll(application) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "go.mod"),
+		[]byte("module example.com/application\n\ngo 1.26.0\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, "vendor"), 0o750); err != nil {
 		t.Fatalf("MkdirAll(module vendor) error = %v", err)
 	}
@@ -589,7 +606,7 @@ func TestAnalysisLoadOptionsSelectsOnlyWorkspaceVendorInWorkspaceMode(
 		t.Fatalf("WriteFile(module vendor) error = %v", err)
 	}
 	workspace := filepath.Join(workspaceRoot, "go.work")
-	if err := os.WriteFile(workspace, []byte("go 1.26.0\n"), 0o600); err != nil {
+	if err := os.WriteFile(workspace, []byte("go 1.26.0\n\nuse ./application\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(go.work) error = %v", err)
 	}
 	compiler, err := New(Config{LoadOptions: load.Options{
@@ -628,7 +645,7 @@ func TestAnalysisLoadOptionsSelectsOnlyWorkspaceVendorInWorkspaceMode(
 	}
 	if err := os.WriteFile(
 		filepath.Join(workspaceRoot, "vendor", "modules.txt"),
-		[]byte("# workspace vendor fixture\n"),
+		[]byte("## workspace\n# workspace vendor fixture\n"),
 		0o600,
 	); err != nil {
 		t.Fatalf("WriteFile(workspace vendor) error = %v", err)

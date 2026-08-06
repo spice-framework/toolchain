@@ -19,8 +19,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
-	"github.com/spice-framework/toolchain/compiler/internal/moduleenv"
 	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/moduleenv"
 )
 
 const (

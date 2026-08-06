@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/spice-framework/toolchain/compiler/load"
 	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
+	"github.com/spice-framework/toolchain/internal/moduleenv"
 )
 
 const (
@@ -37,13 +39,24 @@ func loadModuleVersions(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if _, found := moduleenv.VendorRoot(options.Dir, options.Env); found {
+		workspace, err := moduleenv.WorkspaceModules(ctx, options.Dir, options.Env)
+		if err != nil {
+			return nil, err
+		}
+		vendored, err := moduleenv.VendoredModules(ctx, options.Dir, options.Env)
+		if err != nil {
+			return nil, err
+		}
+		return moduleVersionsFromVendor(workspace, vendored)
+	}
 
 	// #nosec G204 -- the executable and every argument are compiler-owned constants.
 	command := exec.CommandContext(
 		ctx,
 		"go",
 		"list",
-		"-mod=readonly",
+		"-mod="+moduleenv.OfflineMode(options.Dir, options.Env),
 		"-m",
 		"-json",
 		"all",
@@ -88,6 +101,50 @@ func loadModuleVersions(
 			detail,
 		)
 	}
+	return modules, nil
+}
+
+func moduleVersionsFromVendor(
+	workspace []moduleenv.WorkspaceModule,
+	vendored []moduleenv.VendoredModule,
+) ([]compilerstarter.ModuleVersion, error) {
+	modules := make([]compilerstarter.ModuleVersion, 0, len(workspace)+len(vendored))
+	seen := make(map[string]struct{}, cap(modules))
+	appendModule := func(value compilerstarter.ModuleVersion) error {
+		if _, duplicate := seen[value.Path]; duplicate {
+			return fmt.Errorf("vendored Go module graph contains duplicate module path %q", value.Path)
+		}
+		if len(modules) == maxModuleGraphEntries {
+			return fmt.Errorf(
+				"vendored module graph exceeds the %d-entry safety limit",
+				maxModuleGraphEntries,
+			)
+		}
+		seen[value.Path] = struct{}{}
+		modules = append(modules, value)
+		return nil
+	}
+	for _, item := range workspace {
+		if err := appendModule(compilerstarter.ModuleVersion{Path: item.Path, Main: true}); err != nil {
+			return nil, err
+		}
+	}
+	for _, item := range vendored {
+		if err := appendModule(compilerstarter.ModuleVersion{
+			Path:               item.Path,
+			Version:            item.Version,
+			ReplacementPath:    item.ReplacementPath,
+			ReplacementVersion: item.ReplacementVersion,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(modules, func(left, right int) bool {
+		if modules[left].Main != modules[right].Main {
+			return modules[left].Main
+		}
+		return modules[left].Path < modules[right].Path
+	})
 	return modules, nil
 }
 

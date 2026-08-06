@@ -22,6 +22,8 @@ func TestAnnotationCatalogCachesClonesAndInvalidatesWorkspace(t *testing.T) {
 go 1.26.0
 
 tool example.com/plugin/cmd/spice-annotations
+
+require example.com/plugin v1.2.3
 `)
 	writeServiceCatalogFile(t, root, "vendor/modules.txt", `# example.com/plugin v1.2.3
 ## explicit; go 1.26.0

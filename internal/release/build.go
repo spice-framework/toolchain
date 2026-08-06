@@ -20,11 +20,14 @@ import (
 
 const maxDiagnosticBytes = 32 << 10
 
+const requiredGoVersion = "go1.26.5"
+
 // Config describes one guarded release build.
 type Config struct {
 	Root          string
 	OutputDir     string
 	Version       string
+	Commit        string
 	Epoch         time.Time
 	Targets       []Target
 	PrivateKey    []byte
@@ -47,7 +50,20 @@ func Build(
 	if err != nil {
 		return Result{}, err
 	}
-	snapshot, err := captureSourceSnapshot(ctx, normalized.Root)
+	defer clear(normalized.PrivateKey)
+	if goVersionErr := validateReleaseGo(ctx, normalized.Root); goVersionErr != nil {
+		return Result{}, goVersionErr
+	}
+	commit, err := resolveSnapshotCommit(
+		ctx,
+		normalized.Root,
+		normalized.Commit,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	normalized.Commit = commit
+	snapshot, err := captureSourceSnapshot(ctx, normalized.Root, commit)
 	if err != nil {
 		return Result{}, err
 	}
@@ -159,6 +175,39 @@ func validateConfig(ctx context.Context, config Config) error {
 	if len(config.PrivateKey) == 0 && !config.AllowUnsigned {
 		return fmt.Errorf(
 			"build release: Ed25519 signing key is required unless unsigned mode is explicit",
+		)
+	}
+	if len(config.PrivateKey) != 0 && config.AllowUnsigned {
+		return fmt.Errorf(
+			"build release: unsigned rehearsal cannot include a signing key",
+		)
+	}
+	return nil
+}
+
+func validateReleaseGo(ctx context.Context, root string) error {
+	// #nosec G204 -- the Go executable and arguments are fixed and no shell is
+	// involved.
+	command := exec.CommandContext(ctx, "go", "env", "GOVERSION")
+	command.Dir = root
+	command.Env = releaseEnvironment("", "")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf(
+			"validate release Go version: %w: %s",
+			err,
+			boundedText(stderr.Bytes()),
+		)
+	}
+	version := strings.TrimSpace(stdout.String())
+	if version != requiredGoVersion {
+		return fmt.Errorf(
+			"build release: require %s, got %q",
+			requiredGoVersion,
+			version,
 		)
 	}
 	return nil
@@ -378,11 +427,15 @@ func buildBinary(
 }
 
 func releaseEnvironment(goos, goarch string) []string {
-	environment := make([]string, 0, len(os.Environ())+6)
+	environment := make([]string, 0, len(os.Environ())+16)
 	for _, value := range os.Environ() {
 		name, _, _ := strings.Cut(value, "=")
 		switch strings.ToUpper(name) {
-		case "CGO_ENABLED", "GOARCH", "GOOS", "GOPROXY", "GOTOOLCHAIN", "GOWORK":
+		case "CGO_ENABLED", "GO111MODULE", "GO386", "GOAMD64", "GOARCH", "GOARM", "GOARM64",
+			"GODEBUG", "GOENV", "GOEXPERIMENT", "GOFIPS140", "GOFLAGS",
+			"GOMIPS", "GOMIPS64", "GONOPROXY", "GONOSUMDB", "GOOS",
+			"GOPPC64", "GOPRIVATE", "GOPROXY", "GORISCV64", "GOSUMDB",
+			"GOTOOLCHAIN", "GOWASM", "GOWORK":
 			continue
 		default:
 			environment = append(environment, value)
@@ -391,10 +444,21 @@ func releaseEnvironment(goos, goarch string) []string {
 	environment = append(
 		environment,
 		"CGO_ENABLED=0",
+		"GO111MODULE=on",
+		"GODEBUG=",
+		"GOENV=off",
+		"GOEXPERIMENT=",
+		"GOFIPS140=off",
+		"GOFLAGS=",
+		"GONOPROXY=",
+		"GONOSUMDB=",
+		"GOPRIVATE=",
 		"GOPROXY=off",
+		"GOSUMDB=off",
 		"GOTOOLCHAIN=local",
 		"GOWORK=off",
 	)
+	environment = append(environment, canonicalArchitectureEnvironment(goarch)...)
 	if goos != "" {
 		environment = append(environment, "GOOS="+goos)
 	}
@@ -402,6 +466,17 @@ func releaseEnvironment(goos, goarch string) []string {
 		environment = append(environment, "GOARCH="+goarch)
 	}
 	return environment
+}
+
+func canonicalArchitectureEnvironment(goarch string) []string {
+	switch goarch {
+	case "amd64":
+		return []string{"GOAMD64=v1"}
+	case "arm64":
+		return []string{"GOARM64=v8.0"}
+	default:
+		return nil
+	}
 }
 
 func artifactChecksums(root string, files []string) ([]byte, error) {

@@ -29,7 +29,6 @@ import (
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
 	diagnosticadapt "github.com/spice-framework/toolchain/compiler/diagnostic/adapt"
 	"github.com/spice-framework/toolchain/compiler/generate"
-	"github.com/spice-framework/toolchain/compiler/internal/moduleenv"
 	"github.com/spice-framework/toolchain/compiler/load"
 	"github.com/spice-framework/toolchain/compiler/modulith"
 	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
@@ -38,6 +37,7 @@ import (
 	"github.com/spice-framework/toolchain/compiler/scan"
 	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
 	"github.com/spice-framework/toolchain/compiler/validate"
+	"github.com/spice-framework/toolchain/internal/moduleenv"
 )
 
 // Service owns bounded analysis state for independent workspaces.

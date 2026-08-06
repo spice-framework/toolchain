@@ -35,6 +35,7 @@ Run `make verify` once on the exact tree to commit. The final gate owns tidy,
 vendor, vet, offline, identity, tool-build, and third-party generation proofs.
 Never claim a gate passed unless it was executed.
 
-Production self-hosting and release benchmark policy are intentionally deferred
-from this extraction slice. Do not revive the removed stale generated command or
-monorepository acceptance tests as placeholders.
+Production self-hosting and release benchmark policy remain separate follow-up
+work. Release artifacts already follow the guarded contract in `RELEASING.md`.
+Do not revive the removed stale generated command or monorepository acceptance
+tests as placeholders.

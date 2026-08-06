@@ -16,8 +16,8 @@ import (
 
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
-	"github.com/spice-framework/toolchain/compiler/internal/moduleenv"
 	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/moduleenv"
 	"golang.org/x/mod/module"
 )
 

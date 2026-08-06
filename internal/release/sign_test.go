@@ -41,6 +41,15 @@ func TestParsePrivateKeyFormatsAndFailures(t *testing.T) {
 				base64.StdEncoding.EncodeToString(privateKey),
 			),
 		},
+		{
+			name: "mismatched private public half",
+			input: func() []byte {
+				corrupted := append(ed25519.PrivateKey(nil), privateKey...)
+				corrupted[len(corrupted)-1] ^= 0xff
+				return []byte(base64.StdEncoding.EncodeToString(corrupted))
+			}(),
+			wantErr: true,
+		},
 		{name: "invalid base64", input: []byte("%%%"), wantErr: true},
 		{
 			name: "wrong decoded length",
@@ -55,6 +64,11 @@ func TestParsePrivateKeyFormatsAndFailures(t *testing.T) {
 				Type:  "PRIVATE KEY",
 				Bytes: []byte("invalid"),
 			}),
+			wantErr: true,
+		},
+		{
+			name:    "trailing PEM data",
+			input:   append(append([]byte(nil), pemKey...), []byte("unexpected")...),
 			wantErr: true,
 		},
 	}

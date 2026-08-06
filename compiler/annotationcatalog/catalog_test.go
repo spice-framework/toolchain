@@ -62,6 +62,8 @@ func TestDiscoverReadsVendoredDescriptorCatalog(t *testing.T) {
 go 1.26.0
 
 tool example.com/plugin/cmd/spice-annotations
+
+require example.com/plugin v1.2.3
 `)
 	writeCatalogFile(t, root, "vendor/modules.txt", `# example.com/plugin v1.2.3
 ## explicit; go 1.26.0
@@ -104,6 +106,84 @@ func Controller() sdk.Definition {
 		got.Version != "v1.2.3" ||
 		!got.ToolAuthorized {
 		t.Fatalf("candidate = %+v", got)
+	}
+}
+
+func TestDiscoverReadsWorkspaceModulesAndWorkspaceVendor(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	application := filepath.Join(workspace, "application")
+	plugin := filepath.Join(workspace, "plugin")
+	writeCatalogFile(t, workspace, "go.work", `go 1.26.0
+
+use (
+	./application
+	./plugin
+)
+`)
+	writeCatalogFile(t, application, "go.mod", `module example.com/application
+
+go 1.26.0
+
+tool (
+	example.com/plugin/cmd/spice-annotations
+	example.com/vendor-plugin/cmd/spice-annotations
+)
+
+require example.com/vendor-plugin v1.2.3
+
+replace example.com/vendor-plugin v1.2.3 => example.com/vendor-fork v1.4.0
+`)
+	writeCatalogFile(t, plugin, "go.mod", `module example.com/plugin
+
+go 1.26.0
+`)
+	writeCatalogFile(
+		t,
+		plugin,
+		"annotation/local/descriptor.go",
+		descriptorFixture("local.Component", "example.com/plugin/cmd/spice-annotations", "LocalHandler"),
+	)
+	writeCatalogFile(t, workspace, "vendor/modules.txt", `## workspace
+# example.com/vendor-plugin v1.2.3 => example.com/vendor-fork v1.4.0
+## explicit; go 1.26.0
+example.com/vendor-plugin/annotation/remote
+`)
+	writeCatalogFile(
+		t,
+		workspace,
+		"vendor/example.com/vendor-plugin/annotation/remote/descriptor.go",
+		descriptorFixture("remote.Component", "example.com/vendor-plugin/cmd/spice-annotations", "RemoteHandler"),
+	)
+
+	candidates, err := Discover(
+		context.Background(),
+		application,
+		[]string{"GOWORK=auto"},
+	)
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	found := make(map[string]Candidate, len(candidates))
+	for _, candidate := range candidates {
+		found[candidate.Package+"."+candidate.Symbol] = candidate
+	}
+	for _, identity := range []string{
+		"example.com/plugin/annotation/local.Descriptor",
+		"example.com/vendor-plugin/annotation/remote.Descriptor",
+	} {
+		candidate, exists := found[identity]
+		if !exists || !candidate.ToolAuthorized {
+			t.Fatalf("candidate %q = %+v, found = %t", identity, candidate, exists)
+		}
+	}
+	remote := found["example.com/vendor-plugin/annotation/remote.Descriptor"]
+	if remote.Module != "example.com/vendor-plugin" ||
+		remote.Version != "v1.2.3" ||
+		remote.ReplacementModule != "example.com/vendor-fork" ||
+		remote.ReplacementVersion != "v1.4.0" ||
+		remote.LocalReplacement {
+		t.Fatalf("remote replacement provenance = %+v", remote)
 	}
 }
 
@@ -223,4 +303,22 @@ func writeCatalogFile(
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
+}
+
+func descriptorFixture(name, tool, handler string) string {
+	return `package annotation
+
+import "github.com/spice-framework/spice/annotation/sdk"
+
+func Descriptor() sdk.Definition {
+	return sdk.Definition{
+		Name: "` + name + `",
+		Implementation: sdk.Implementation{
+			Tool: "` + tool + `",
+			Handler: ` + handler + `,
+			Protocol: sdk.ProtocolV1Alpha2,
+		},
+	}
+}
+`
 }

@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/spice-framework/toolchain/internal/gitenv"
 )
 
 const (
@@ -49,7 +51,7 @@ func validateRequiredSnapshotFiles(snapshot sourceSnapshot) error {
 	for _, filename := range []string{"go.mod", "LICENSE", "README.md"} {
 		if _, err := snapshot.file(filename); err != nil {
 			return fmt.Errorf(
-				"build release: required HEAD file %q: %w",
+				"build release: required source file %q: %w",
 				filename,
 				err,
 			)
@@ -61,24 +63,27 @@ func validateRequiredSnapshotFiles(snapshot sourceSnapshot) error {
 func captureSourceSnapshot(
 	ctx context.Context,
 	repository string,
+	commit string,
 ) (sourceSnapshot, error) {
 	if ctx == nil {
 		return sourceSnapshot{}, errors.New("capture release source snapshot: context is nil")
 	}
+	// #nosec G204 -- commit is an exact validated object ID passed as one Git argument; no shell is involved.
 	command := exec.CommandContext(
 		ctx,
 		"git",
 		"ls-tree",
 		"-rz",
 		"--full-tree",
-		"HEAD",
+		commit,
 	)
 	command.Dir = repository
-	command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	command.Env = gitenv.ReadOnly(os.Environ())
 	tree, err := command.Output()
 	if err != nil {
 		return sourceSnapshot{}, fmt.Errorf(
-			"enumerate release source at HEAD: %w%s",
+			"enumerate release source at commit %q: %w%s",
+			commit,
 			err,
 			gitCommandStderr(err),
 		)
@@ -94,6 +99,51 @@ func captureSourceSnapshot(
 		return sourceSnapshot{}, err
 	}
 	return sourceSnapshot{entries: entries}, nil
+}
+
+func resolveSnapshotCommit(
+	ctx context.Context,
+	repository string,
+	reference string,
+) (string, error) {
+	if reference == "" {
+		reference = "HEAD"
+	}
+	// #nosec G204 -- reference is passed as one Git argument; no shell is involved, and the result must be an exact object ID.
+	command := exec.CommandContext(
+		ctx,
+		"git",
+		"rev-parse",
+		"--verify",
+		reference+"^{commit}",
+	)
+	command.Dir = repository
+	command.Env = gitenv.ReadOnly(os.Environ())
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf(
+			"resolve release source commit %q: %w%s",
+			reference,
+			err,
+			gitCommandStderr(err),
+		)
+	}
+	commit := strings.TrimSpace(string(output))
+	if len(commit) != 40 && len(commit) != 64 {
+		return "", fmt.Errorf(
+			"resolve release source commit %q: unexpected object ID %q",
+			reference,
+			commit,
+		)
+	}
+	if _, err := hex.DecodeString(commit); err != nil {
+		return "", fmt.Errorf(
+			"resolve release source commit %q: invalid object ID: %w",
+			reference,
+			err,
+		)
+	}
+	return commit, nil
 }
 
 func parseSnapshotTree(tree []byte) ([]snapshotEntry, error) {
@@ -234,11 +284,7 @@ func readSnapshotBlobs(
 	}
 	command := exec.CommandContext(ctx, "git", "cat-file", "--batch")
 	command.Dir = repository
-	command.Env = append(
-		os.Environ(),
-		"GIT_NO_LAZY_FETCH=1",
-		"GIT_OPTIONAL_LOCKS=0",
-	)
+	command.Env = append(gitenv.ReadOnly(os.Environ()), "GIT_NO_LAZY_FETCH=1")
 	command.Stdin = strings.NewReader(requests.String())
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -253,12 +299,12 @@ func readSnapshotBlobs(
 	for index := range entries {
 		data, readErr := readSnapshotBlob(reader, entries[index].objectID)
 		if readErr != nil {
-			return stopSnapshotBlobCommand(command, stderr.Bytes(), readErr)
+			return stopSnapshotBlobCommand(command, &stderr, readErr)
 		}
 		if entries[index].kind == snapshotSymlink {
 			target := string(data)
 			if targetErr := validateSnapshotSymlink(entries[index].path, target); targetErr != nil {
-				return stopSnapshotBlobCommand(command, stderr.Bytes(), targetErr)
+				return stopSnapshotBlobCommand(command, &stderr, targetErr)
 			}
 			entries[index].linkTarget = target
 			continue
@@ -308,7 +354,7 @@ func readSnapshotBlob(reader *bufio.Reader, objectID string) ([]byte, error) {
 
 func stopSnapshotBlobCommand(
 	command *exec.Cmd,
-	stderr []byte,
+	stderr *bytes.Buffer,
 	cause error,
 ) error {
 	killErr := command.Process.Kill()
@@ -321,7 +367,7 @@ func stopSnapshotBlobCommand(
 		waitErr = nil
 	}
 	result := errors.Join(cause, killErr, waitErr)
-	if detail := strings.TrimPrefix(renderGitStderr(stderr), ": "); detail != "" {
+	if detail := strings.TrimPrefix(renderGitStderr(stderr.Bytes()), ": "); detail != "" {
 		result = errors.Join(result, errors.New(detail))
 	}
 	return result

@@ -9,6 +9,7 @@ import (
 
 	"github.com/spice-framework/toolchain/compiler/load"
 	compilerstarter "github.com/spice-framework/toolchain/compiler/starter"
+	"github.com/spice-framework/toolchain/internal/moduleenv"
 )
 
 func TestDecodeModuleVersions(t *testing.T) {
@@ -56,6 +57,55 @@ func TestDecodeModuleVersionsEnforcesEntryLimit(t *testing.T) {
 	_, err := decodeModuleVersions(input)
 	if err == nil || !strings.Contains(err.Error(), "safety limit") {
 		t.Fatalf("decodeModuleVersions() error = %v", err)
+	}
+}
+
+func TestModuleVersionsFromVendorPreservesWorkspaceAndReplacementProvenance(t *testing.T) {
+	t.Parallel()
+	got, err := moduleVersionsFromVendor(
+		[]moduleenv.WorkspaceModule{
+			{Path: "example.com/plugin", Root: "plugin"},
+			{Path: "example.com/application", Root: "application"},
+		},
+		[]moduleenv.VendoredModule{
+			{
+				Path: "example.com/local", Version: "v0.0.0",
+				ReplacementPath: "../local", LocalReplacement: true,
+			},
+			{
+				Path: "example.com/remote", Version: "v1.2.3",
+				ReplacementPath: "example.com/fork", ReplacementVersion: "v1.4.0",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []compilerstarter.ModuleVersion{
+		{Path: "example.com/application", Main: true},
+		{Path: "example.com/plugin", Main: true},
+		{
+			Path: "example.com/local", Version: "v0.0.0",
+			ReplacementPath: "../local",
+		},
+		{
+			Path: "example.com/remote", Version: "v1.2.3",
+			ReplacementPath: "example.com/fork", ReplacementVersion: "v1.4.0",
+		},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("moduleVersionsFromVendor() = %#v, want %#v", got, want)
+	}
+}
+
+func TestModuleVersionsFromVendorRejectsDuplicateModulePath(t *testing.T) {
+	t.Parallel()
+	_, err := moduleVersionsFromVendor(
+		[]moduleenv.WorkspaceModule{{Path: "example.com/duplicate"}},
+		[]moduleenv.VendoredModule{{Path: "example.com/duplicate", Version: "v1.0.0"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("moduleVersionsFromVendor() error = %v", err)
 	}
 }
 

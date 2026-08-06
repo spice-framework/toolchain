@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -46,6 +47,12 @@ func TestBuildProducesReproducibleSignedHostRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("GOAMD64", "v3")
+	t.Setenv("GOARM64", "v9.4")
+	t.Setenv("GO111MODULE", "off")
+	t.Setenv("GOEXPERIMENT", "definitely-invalid")
+	t.Setenv("GOFIPS140", "latest")
+	t.Setenv("GODEBUG", "gocacheverify=1")
 	config.OutputDir = filepath.Join(parent, "second")
 	second, err := Build(t.Context(), config)
 	if err != nil {
@@ -117,6 +124,12 @@ func TestBuildRejectsUnsafeOrIncompleteConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name: "signed rehearsal",
+			change: func(config *Config) {
+				config.PrivateKey = []byte("not-used")
+			},
+		},
+		{
 			name: "unsupported target",
 			change: func(config *Config) {
 				config.Targets = []Target{{GOOS: "plan9", GOARCH: "amd64"}}
@@ -143,6 +156,39 @@ func TestBuildRejectsUnsafeOrIncompleteConfiguration(t *testing.T) {
 				t.Fatal("Build() error = nil")
 			}
 		})
+	}
+}
+
+func TestBuildRejectsWrongGoBeforeReadingGit(t *testing.T) {
+	fakeRoot := t.TempDir()
+	source := filepath.Join(fakeRoot, "main.go")
+	if err := os.WriteFile(source, []byte(`package main
+
+import "fmt"
+
+func main() { fmt.Print("go1.25.0") }
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(fakeRoot, "go")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	command := exec.CommandContext(t.Context(), "go", "build", "-o", executable, source)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build fake Go executable: %v: %s", err, output)
+	}
+	t.Setenv("PATH", fakeRoot)
+	_, err := Build(t.Context(), Config{
+		Root:          t.TempDir(),
+		OutputDir:     filepath.Join(t.TempDir(), "release"),
+		Version:       "v0.1.0",
+		Epoch:         time.Unix(1, 0),
+		Targets:       []Target{HostTarget()},
+		AllowUnsigned: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "require go1.26.5, got \"go1.25.0\"") {
+		t.Fatalf("Build() wrong Go error = %v", err)
 	}
 }
 
@@ -266,6 +312,12 @@ func checkSBOM(
 		len(document.Packages) < 2 ||
 		len(document.Relationships) != len(document.Packages)-1 {
 		t.Fatalf("SBOM = %#v", document)
+	}
+	if !strings.HasPrefix(
+		document.DocumentNamespace,
+		"https://github.com/spice-framework/toolchain/releases/",
+	) {
+		t.Fatalf("SBOM namespace = %q", document.DocumentNamespace)
 	}
 	if strings.Contains(string(data), root) ||
 		strings.Contains(string(data), filepath.ToSlash(root)) {

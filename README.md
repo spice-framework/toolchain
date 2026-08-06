@@ -54,8 +54,22 @@ monorepository imports, enforces pinned formatting, lint, nil-safety, security,
 race, fuzz, and 85% coverage gates, and generates a third-party SDK fixture
 twice from zero before compiling and executing it offline.
 
+Before the offline fixture tests, the gate explicitly acquires and verifies the
+fixture's declared Go modules. Product analysis, generation, LSP operation, and
+the subsequent fixture workflow all run with network lookup disabled.
+
 The third-party fixture under `testdata/` is handwritten. Its generated output
 is deliberately untracked and recreated by verification.
+
+## Release
+
+[`RELEASING.md`](RELEASING.md) defines the release contract. Production builds
+require a clean checkout at the exact stable SemVer tag, the tag's commit epoch,
+Go 1.26.5, and an external Ed25519 signing key. Rehearsals are deliberately
+unsigned. Every build uses the committed Git snapshot, the vendor graph, a
+scrubbed offline Go environment, and emits deterministic platform archives, a
+source archive, an exact SPDX SBOM, checksums, and (for production) a detached
+checksum signature.
 
 ## Extraction provenance
 
@@ -73,7 +87,8 @@ This initial standalone boundary intentionally runs `cmd/spice` through the
 handwritten CLI, exactly like `cmd/spice-bootstrap`. The former monorepository's
 stale generated self-hosted command was removed rather than published under the
 wrong module identity. Production self-hosting and release benchmark policy are
-follow-up integration milestones; this repository does not claim them yet.
+follow-up integration milestones; this repository does not claim them yet. The
+artifact build itself is guarded and reproducible as documented above.
 
 ## License
 

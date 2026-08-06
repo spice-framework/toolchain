@@ -19,9 +19,8 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 	root := t.TempDir()
 	writeGateFile(t, root, "main.go", "package toolchain\n")
 	writeGateFile(t, root, "vendor/example.txt", "vendored\n")
-	if err := os.MkdirAll(filepath.Join(root, "testdata", "annotationapp"), 0o750); err != nil {
-		t.Fatal(err)
-	}
+	writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
+	writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
 
 	var calls []string
 	execute := func(
@@ -67,6 +66,9 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		t.Fatalf("verify() output = %q", output.String())
 	}
 	for _, want := range []string{
+		"go mod download all",
+		"go mod verify",
+		"go list -mod=readonly -m all",
 		"go vet ./...",
 		"go test -race -shuffle=on -count=1",
 		"go test -mod=vendor -count=1 ./...",
@@ -81,6 +83,38 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "testdata", "annotationapp", filepath.FromSlash(relative))); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("fixture output %s remains after verification: %v", relative, err)
 		}
+	}
+}
+
+func TestPrepareFixtureDependenciesKeepsAcquiredSumsIsolated(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fixture := filepath.Join(root, "testdata", "annotationapp")
+	writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
+	writeGateFile(t, root, "testdata/annotationapp/go.sum", "original\n")
+	gate := verifier{
+		root:   root,
+		output: io.Discard,
+		execute: func(_ context.Context, directory string, environment map[string]string, executable string, arguments ...string) ([]byte, error) {
+			if executable == "go" && slices.Equal(arguments, []string{"mod", "download", "all"}) {
+				modfile := strings.TrimPrefix(environment["GOFLAGS"], "-modfile=")
+				sumfile := strings.TrimSuffix(modfile, ".mod") + ".sum"
+				if err := os.WriteFile(filepath.Join(directory, sumfile), []byte("repaired\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return nil, nil
+		},
+	}
+	if err := gate.prepareFixtureDependencies(context.Background()); err != nil {
+		t.Fatalf("prepareFixtureDependencies() error = %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(fixture, "go.sum")); err != nil || string(content) != "original\n" {
+		t.Fatalf("committed go.sum = %q, %v", content, err)
+	}
+	files, err := filepath.Glob(filepath.Join(fixture, ".spice-boundary-*"))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("isolated modfiles remain: %v, %v", files, err)
 	}
 }
 
@@ -111,6 +145,8 @@ func TestFastAndCheckStopAtCommandFailures(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			writeGateFile(t, root, "main.go", "package toolchain\n")
+			writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
+			writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
 			failure := errors.New("command failed")
 			testCalls := 0
 			gate := verifier{

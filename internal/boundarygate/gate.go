@@ -111,6 +111,9 @@ func (gate verifier) check(ctx context.Context) error {
 	if err := gate.fast(ctx); err != nil {
 		return err
 	}
+	if err := gate.prepareFixtureDependencies(ctx); err != nil {
+		return err
+	}
 	return gate.run(
 		ctx,
 		gate.root,
@@ -134,6 +137,7 @@ func (gate verifier) verify(ctx context.Context) error {
 		{name: "module checksums", run: func(ctx context.Context) error {
 			return gate.run(ctx, gate.root, nil, "go", "mod", "verify")
 		}},
+		{name: "fixture dependency acquisition", run: gate.prepareFixtureDependencies},
 		{name: "vendor reproducibility", run: gate.vendorReproducibility},
 		{name: "published tool builds", run: gate.buildTools},
 		{name: "bootstrap dependency boundary", run: gate.bootstrapDependencies},
@@ -155,6 +159,110 @@ func (gate verifier) verify(ctx context.Context) error {
 	}
 	_, err := fmt.Fprintln(gate.output, "Standalone Spice toolchain verification passed.")
 	return err
+}
+
+func (gate verifier) prepareFixtureDependencies(ctx context.Context) (resultErr error) {
+	fixture := filepath.Join(gate.root, "testdata", "annotationapp")
+	fixtureRoot, err := os.OpenRoot(fixture)
+	if err != nil {
+		return fmt.Errorf("open fixture module root: %w", err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, fixtureRoot.Close())
+	}()
+	module, err := fixtureRoot.ReadFile("go.mod")
+	if err != nil {
+		return fmt.Errorf("read fixture go.mod: %w", err)
+	}
+	sums, err := fixtureRoot.ReadFile("go.sum")
+	if err != nil {
+		return fmt.Errorf("read fixture go.sum: %w", err)
+	}
+	modfile, err := os.CreateTemp(fixture, ".spice-boundary-*.mod")
+	if err != nil {
+		return fmt.Errorf("create isolated fixture modfile: %w", err)
+	}
+	modfileName := filepath.Base(modfile.Name())
+	sumfileName := strings.TrimSuffix(modfileName, ".mod") + ".sum"
+	defer func() {
+		resultErr = errors.Join(
+			resultErr,
+			removeTemporaryFile(fixtureRoot, modfileName),
+			removeTemporaryFile(fixtureRoot, sumfileName),
+		)
+	}()
+	if _, writeErr := modfile.Write(module); writeErr != nil {
+		return fmt.Errorf(
+			"write isolated fixture modfile: %w",
+			errors.Join(writeErr, modfile.Close()),
+		)
+	}
+	if closeErr := modfile.Close(); closeErr != nil {
+		return fmt.Errorf("close isolated fixture modfile: %w", closeErr)
+	}
+	sumfile, err := fixtureRoot.OpenFile(
+		sumfileName,
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
+		0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("write isolated fixture sumfile: %w", err)
+	}
+	if _, writeErr := sumfile.Write(sums); writeErr != nil {
+		return fmt.Errorf(
+			"write isolated fixture sumfile: %w",
+			errors.Join(writeErr, sumfile.Close()),
+		)
+	}
+	if closeErr := sumfile.Close(); closeErr != nil {
+		return fmt.Errorf("close isolated fixture sumfile: %w", closeErr)
+	}
+	environment := map[string]string{
+		"GOTOOLCHAIN": "local",
+		"GOWORK":      "off",
+		"GOFLAGS":     "-modfile=" + modfileName,
+	}
+	if err := gate.run(ctx, fixture, environment, "go", "mod", "download", "all"); err != nil {
+		return err
+	}
+	if err := gate.run(ctx, fixture, environment, "go", "mod", "verify"); err != nil {
+		return err
+	}
+	if err := fixtureDependencyFilesUnchanged(fixtureRoot, modfileName, module, sums); err != nil {
+		return err
+	}
+	environment["GOPROXY"] = "off"
+	environment["GOSUMDB"] = "off"
+	return gate.run(ctx, fixture, environment, "go", "list", "-mod=readonly", "-m", "all")
+}
+
+func fixtureDependencyFilesUnchanged(root *os.Root, modfile string, module, sums []byte) error {
+	gotModule, err := root.ReadFile("go.mod")
+	if err != nil {
+		return fmt.Errorf("read fixture go.mod after dependency acquisition: %w", err)
+	}
+	gotSums, err := root.ReadFile("go.sum")
+	if err != nil {
+		return fmt.Errorf("read fixture go.sum after dependency acquisition: %w", err)
+	}
+	if !bytes.Equal(gotModule, module) || !bytes.Equal(gotSums, sums) {
+		return errors.New("fixture dependency acquisition modified tracked go.mod or go.sum")
+	}
+	gotIsolatedModule, err := root.ReadFile(modfile)
+	if err != nil {
+		return fmt.Errorf("read isolated fixture modfile: %w", err)
+	}
+	if !bytes.Equal(gotIsolatedModule, module) {
+		return errors.New("fixture dependency acquisition modified the isolated go.mod")
+	}
+	return nil
+}
+
+func removeTemporaryFile(root *os.Root, path string) error {
+	if err := root.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove verifier scratch file %q: %w", path, err)
+	}
+	return nil
 }
 
 func (gate verifier) goVersion(ctx context.Context) error {

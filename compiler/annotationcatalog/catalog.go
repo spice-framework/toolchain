@@ -23,6 +23,7 @@ import (
 
 	"github.com/spice-framework/toolchain/compiler/annotationhost"
 	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/moduleenv"
 )
 
 const (
@@ -140,18 +141,35 @@ func catalogModuleRoots(
 	module annotationhost.TargetModule,
 	environment []string,
 ) ([]moduleRoot, error) {
-	main := moduleRoot{
-		path:             module.Path,
-		directory:        module.Root,
-		localReplacement: true,
-	}
-	vendorRoot := filepath.Join(module.Root, "vendor")
-	if _, err := os.Stat(filepath.Join(vendorRoot, "modules.txt")); err == nil {
-		vendored, parseErr := vendorModuleRoots(vendorRoot)
-		if parseErr != nil {
-			return nil, parseErr
+	if _, found := moduleenv.VendorRoot(module.Root, environment); found {
+		workspace, workspaceErr := moduleenv.WorkspaceModules(ctx, module.Root, environment)
+		if workspaceErr != nil {
+			return nil, workspaceErr
 		}
-		return append([]moduleRoot{main}, vendored...), nil
+		roots := make([]moduleRoot, 0, len(workspace))
+		for _, item := range workspace {
+			roots = append(roots, moduleRoot{
+				path:             item.Path,
+				directory:        item.Root,
+				localReplacement: true,
+			})
+		}
+		vendored, vendorErr := moduleenv.VendoredModules(ctx, module.Root, environment)
+		if vendorErr != nil {
+			return nil, vendorErr
+		}
+		for _, item := range vendored {
+			roots = append(roots, moduleRoot{
+				path:               item.Path,
+				version:            item.Version,
+				directory:          item.Directory,
+				replacementPath:    item.ReplacementPath,
+				replacementVersion: item.ReplacementVersion,
+				replacementDir:     item.ReplacementDirectory,
+				localReplacement:   item.LocalReplacement,
+			})
+		}
+		return compactModuleRoots(roots), nil
 	}
 	command := exec.CommandContext( // #nosec G204 -- executable and arguments are fixed.
 		ctx,
@@ -219,34 +237,6 @@ func listedModuleRoot(listed listedModule) moduleRoot {
 		result.localReplacement = listed.Replace.Version == ""
 	}
 	return result
-}
-
-func vendorModuleRoots(vendorRoot string) ([]moduleRoot, error) {
-	root, err := os.OpenRoot(vendorRoot)
-	if err != nil {
-		return nil, fmt.Errorf("open vendor module catalog: %w", err)
-	}
-	content, readErr := root.ReadFile("modules.txt")
-	closeErr := root.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return nil, fmt.Errorf("read vendor module catalog: %w", err)
-	}
-	var roots []moduleRoot
-	for line := range strings.SplitSeq(string(content), "\n") {
-		if !strings.HasPrefix(line, "# ") {
-			continue
-		}
-		fields := strings.Fields(strings.TrimPrefix(line, "# "))
-		if len(fields) < 2 || fields[0] == "=>" {
-			continue
-		}
-		roots = append(roots, moduleRoot{
-			path:      fields[0],
-			version:   fields[1],
-			directory: filepath.Join(vendorRoot, filepath.FromSlash(fields[0])),
-		})
-	}
-	return compactModuleRoots(roots), nil
 }
 
 func compactModuleRoots(values []moduleRoot) []moduleRoot {

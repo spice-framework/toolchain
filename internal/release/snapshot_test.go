@@ -48,7 +48,7 @@ func TestSourceSnapshotIgnoresWorktreeAndPreservesGitMetadata(t *testing.T) {
 
 	writeSnapshotFile(t, root, "README.md", "dirty readme\n", 0o600)
 	writeSnapshotFile(t, root, "untracked-secret.txt", "must not ship\n", 0o600)
-	snapshot, err := captureSourceSnapshot(t.Context(), root)
+	snapshot, err := captureSourceSnapshot(t.Context(), root, "HEAD")
 	if err != nil {
 		t.Fatalf("captureSourceSnapshot() error = %v", err)
 	}
@@ -118,7 +118,7 @@ func TestSourceSnapshotIgnoresWorktreeAndPreservesGitMetadata(t *testing.T) {
 	}
 }
 
-func TestBuildUsesOneExactHEADSnapshotForEverySourceInput(t *testing.T) {
+func TestBuildUsesOneExactCommitSnapshotAfterHEADMoves(t *testing.T) {
 	t.Parallel()
 
 	parent := t.TempDir()
@@ -140,17 +140,21 @@ func main() { fmt.Print("HEAD-BINARY") }
 	})
 	runGit(t, root, "add", ".")
 	commitSnapshotRepository(t, root)
+	commit := runGit(t, root, "rev-parse", "HEAD")
 
 	writeSnapshotFile(t, root, "README.md", "dirty readme\n", 0o600)
 	writeSnapshotFile(t, root, "LICENSE", "dirty license\n", 0o600)
 	writeSnapshotFile(t, root, "cmd/spice/main.go", "this is invalid Go\n", 0o600)
 	writeSnapshotFile(t, root, "vendor/modules.txt", "# dirty.invalid v9.9.9\n", 0o600)
+	runGit(t, root, "add", ".")
+	commitSnapshotRepository(t, root)
 	writeSnapshotFile(t, root, "private-key.txt", "untracked\n", 0o600)
 
 	result, err := Build(t.Context(), Config{
 		Root:          root,
 		OutputDir:     filepath.Join(parent, "release"),
 		Version:       "v1.2.3",
+		Commit:        commit,
 		Epoch:         time.Unix(1_788_000_000, 0).UTC(),
 		Targets:       []Target{HostTarget()},
 		AllowUnsigned: true,
@@ -216,7 +220,7 @@ func TestSourceSnapshotRejectsGitlinksAndUnsafeSymlinks(t *testing.T) {
 			gitModeGitlink+","+commit+",dependency",
 		)
 		commitSnapshotRepository(t, root)
-		if _, err := captureSourceSnapshot(t.Context(), root); err == nil ||
+		if _, err := captureSourceSnapshot(t.Context(), root, "HEAD"); err == nil ||
 			!strings.Contains(err.Error(), "gitlink") {
 			t.Fatalf("capture gitlink error = %v", err)
 		}
@@ -237,11 +241,36 @@ func TestSourceSnapshotRejectsGitlinksAndUnsafeSymlinks(t *testing.T) {
 				gitModeSymlink+","+linkBlob+",unsafe.link",
 			)
 			commitSnapshotRepository(t, root)
-			if _, err := captureSourceSnapshot(t.Context(), root); err == nil ||
+			if _, err := captureSourceSnapshot(t.Context(), root, "HEAD"); err == nil ||
 				!strings.Contains(err.Error(), "unsafe") && !strings.Contains(err.Error(), "escapes") {
 				t.Fatalf("capture unsafe symlink error = %v", err)
 			}
 		})
+	}
+}
+
+func TestSourceSnapshotIgnoresGitReplacementObjects(t *testing.T) {
+	t.Parallel()
+	root := initializeSnapshotRepository(t, map[string]string{
+		"README.md": "trusted\n",
+	})
+	runGit(t, root, "add", ".")
+	commitSnapshotRepository(t, root)
+	trusted := runGit(t, root, "rev-parse", "HEAD")
+	writeSnapshotFile(t, root, "README.md", "replacement\n", 0o600)
+	runGit(t, root, "add", ".")
+	commitSnapshotRepository(t, root)
+	replacement := runGit(t, root, "rev-parse", "HEAD")
+	runGit(t, root, "reset", "--hard", trusted)
+	runGit(t, root, "replace", trusted, replacement)
+
+	snapshot, err := captureSourceSnapshot(t.Context(), root, trusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme, err := snapshot.file("README.md")
+	if err != nil || string(readme) != "trusted\n" {
+		t.Fatalf("replacement-safe README = %q, %v", readme, err)
 	}
 }
 
@@ -281,12 +310,12 @@ func TestRequiredReleaseFilesMustExistAtHEAD(t *testing.T) {
 	} {
 		writeSnapshotFile(t, root, filename, content, 0o600)
 	}
-	snapshot, err := captureSourceSnapshot(t.Context(), root)
+	snapshot, err := captureSourceSnapshot(t.Context(), root, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := validateRequiredSnapshotFiles(snapshot); err == nil ||
-		!strings.Contains(err.Error(), "required HEAD file") {
+		!strings.Contains(err.Error(), "required source file") {
 		t.Fatalf("validateRequiredSnapshotFiles() error = %v", err)
 	}
 }
@@ -446,7 +475,7 @@ func TestCaptureSourceSnapshotRejectsCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := captureSourceSnapshot(ctx, t.TempDir())
+	_, err := captureSourceSnapshot(ctx, t.TempDir(), "HEAD")
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("captureSourceSnapshot(canceled) error = %v", err)
 	}

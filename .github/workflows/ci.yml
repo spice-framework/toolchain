@@ -22,6 +22,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
+            testdata/annotationapp/go.sum
+            testdata/annotationfixture/go.sum
       - name: Verify standalone boundary
         run: go run ./internal/boundarygate/cmd -mode=verify
 

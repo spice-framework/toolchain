@@ -15,6 +15,8 @@ import (
 
 const maxVendorGraphBytes = 16 << 20
 
+const releaseModulePath = "github.com/spice-framework/toolchain"
+
 type listedModule struct {
 	Path    string
 	Version string
@@ -115,7 +117,7 @@ func buildSBOM(
 		DataLicense: "CC0-1.0",
 		SPDXID:      "SPDXRef-DOCUMENT",
 		Name:        "Spice " + version,
-		DocumentNamespace: "https://github.com/spice-framework/spice/releases/" +
+		DocumentNamespace: "https://github.com/spice-framework/toolchain/releases/" +
 			version + "/spdx/" + hex.EncodeToString(namespaceHash[:]),
 		CreationInfo: spdxCreationInfo{
 			Created: epoch.UTC().Format(time.RFC3339),
@@ -142,11 +144,27 @@ func listModules(ctx context.Context, root string) ([]listedModule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read release go.mod: %w", err)
 	}
-	modulePath := modfile.ModulePath(goMod)
-	if modulePath == "" {
+	parsed, err := modfile.Parse("go.mod", goMod, nil)
+	if err != nil {
+		return nil, fmt.Errorf("read release go.mod: %w", err)
+	}
+	if parsed.Module == nil || parsed.Module.Mod.Path == "" {
 		return nil, fmt.Errorf("read release go.mod: module directive is missing")
 	}
-	modules := []listedModule{{Path: modulePath, Main: true}}
+	if parsed.Module.Mod.Path != releaseModulePath {
+		return nil, fmt.Errorf(
+			"read release go.mod: module is %q, require %q",
+			parsed.Module.Mod.Path,
+			releaseModulePath,
+		)
+	}
+	if len(parsed.Replace) != 0 {
+		return nil, fmt.Errorf("read release go.mod: replace directives are forbidden")
+	}
+	required := make(map[string]string, len(parsed.Require))
+	for _, requirement := range parsed.Require {
+		required[requirement.Mod.Path] = requirement.Mod.Version
+	}
 	vendorData, err := readScopedFile(root, "vendor/modules.txt")
 	if err != nil {
 		return nil, fmt.Errorf("read release vendor module graph: %w", err)
@@ -157,15 +175,72 @@ func listModules(ctx context.Context, root string) ([]listedModule, error) {
 			maxVendorGraphBytes,
 		)
 	}
-	for line := range strings.SplitSeq(string(vendorData), "\n") {
+	vendored := make(map[string]string, len(required))
+	lines := strings.Split(string(vendorData), "\n")
+	for index, line := range lines {
 		if !strings.HasPrefix(line, "# ") ||
 			strings.HasPrefix(line, "## ") {
 			continue
 		}
 		module, found := parseVendoredModule(line[2:])
-		if found {
-			modules = append(modules, module)
+		if !found {
+			return nil, fmt.Errorf(
+				"read release vendor module graph: invalid module header %q",
+				line,
+			)
 		}
+		if index+1 >= len(lines) ||
+			!strings.HasPrefix(lines[index+1], "## ") ||
+			!slices.Contains(
+				strings.FieldsFunc(lines[index+1][3:], func(value rune) bool {
+					return value == ';' || value == ' '
+				}),
+				"explicit",
+			) {
+			return nil, fmt.Errorf(
+				"read release vendor module graph: module %q is not explicit",
+				module.Path,
+			)
+		}
+		if _, duplicate := vendored[module.Path]; duplicate {
+			return nil, fmt.Errorf(
+				"read release vendor module graph: duplicate module %q",
+				module.Path,
+			)
+		}
+		vendored[module.Path] = module.Version
+	}
+	for path, version := range required {
+		vendorVersion, found := vendored[path]
+		if !found {
+			return nil, fmt.Errorf(
+				"read release vendor module graph: required module %s@%s is missing",
+				path,
+				version,
+			)
+		}
+		if vendorVersion != version {
+			return nil, fmt.Errorf(
+				"read release vendor module graph: module %s is %s, require %s",
+				path,
+				vendorVersion,
+				version,
+			)
+		}
+	}
+	for path, version := range vendored {
+		if _, found := required[path]; !found {
+			return nil, fmt.Errorf(
+				"read release vendor module graph: undeclared module %s@%s",
+				path,
+				version,
+			)
+		}
+	}
+	modules := make([]listedModule, 0, len(vendored)+1)
+	modules = append(modules, listedModule{Path: releaseModulePath, Main: true})
+	for path, version := range vendored {
+		modules = append(modules, listedModule{Path: path, Version: version})
 	}
 	slices.SortFunc(modules, func(left, right listedModule) int {
 		return strings.Compare(left.Path, right.Path)
@@ -174,20 +249,14 @@ func listModules(ctx context.Context, root string) ([]listedModule, error) {
 }
 
 func parseVendoredModule(line string) (listedModule, bool) {
-	left, replacement, replaced := strings.Cut(line, " => ")
-	fields := strings.Fields(left)
+	if strings.Contains(line, " => ") {
+		return listedModule{}, false
+	}
+	fields := strings.Fields(line)
 	if len(fields) < 2 || !strings.HasPrefix(fields[1], "v") {
 		return listedModule{}, false
 	}
-	version := fields[1]
-	if replaced {
-		replacementFields := strings.Fields(replacement)
-		if len(replacementFields) >= 2 &&
-			strings.HasPrefix(replacementFields[1], "v") {
-			version = replacementFields[1]
-		}
-	}
-	return listedModule{Path: fields[0], Version: version}, true
+	return listedModule{Path: fields[0], Version: fields[1]}, true
 }
 
 func packageSPDXID(name, version string) string {
