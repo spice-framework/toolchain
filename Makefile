@@ -1,10 +1,13 @@
-.PHONY: fast check verify vendor release-acceptance
+.PHONY: fast check benchmark verify vendor release-acceptance
 
 fast:
 	go run ./internal/boundarygate/cmd -mode=fast
 
 check:
 	go run ./internal/boundarygate/cmd -mode=check
+
+benchmark:
+	go run ./internal/boundarygate/cmd -mode=benchmark
 
 verify:
 	go run ./internal/boundarygate/cmd -mode=verify

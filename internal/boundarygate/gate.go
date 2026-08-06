@@ -66,6 +66,8 @@ func Run(ctx context.Context, root, mode string, output io.Writer) error {
 		return gate.fast(ctx)
 	case "check":
 		return gate.check(ctx)
+	case "benchmark":
+		return gate.performance(ctx)
 	case "verify":
 		return gate.verify(ctx)
 	default:
@@ -152,6 +154,7 @@ func (gate verifier) verify(ctx context.Context) error {
 		{name: "lint and nil safety", run: gate.lint},
 		{name: "security", run: gate.security},
 		{name: "race and coverage tests", run: gate.coverage},
+		{name: "performance budgets", run: gate.benchmarkBudgets},
 		{name: "fuzz smoke", run: gate.fuzz},
 		{name: "vendor-offline tests", run: gate.offlineTests},
 		{name: "third-party generation", run: gate.thirdPartyGeneration},

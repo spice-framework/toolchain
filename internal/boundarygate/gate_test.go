@@ -21,6 +21,9 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 	writeGateFile(t, root, "vendor/example.txt", "vendored\n")
 	writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
 	writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
+	writeGateFile(t, root, "benchmarks/budgets.json", testBenchmarkBudgetDocument(
+		`{"name":"BenchmarkGate","package":"./compiler/gate","reference_ns_per_op":10,"maximum_ns_per_op":100,"maximum_bytes_per_op":100,"maximum_allocs_per_op":10,"rationale":"gate path"}`,
+	))
 
 	var calls []string
 	execute := func(
@@ -43,6 +46,8 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 			return nil, nil
 		case executable == "go" && len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return []byte("total:\t(statements)\t85.2%\n"), nil
+		case executable == "go" && len(arguments) >= 6 && arguments[0] == "test" && arguments[4] == "-bench":
+			return benchmarkOutput("BenchmarkGate", []int{50, 10, 30, 20, 40}), nil
 		case executable == "go" && slices.Equal(arguments, []string{"tool", identity.CLITool, "run", ".", "./component", "--", "-check"}):
 			return []byte("fixture ready.\n"), nil
 		case executable == "go" && len(arguments) >= 3 && slices.Equal(arguments[:3], []string{"tool", identity.CLITool, "generate"}):
@@ -76,6 +81,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		" ./cmd/spice-release",
 		" ./cmd/spice-release-verify",
 		"go test -race -shuffle=on -count=1",
+		"go test -mod=vendor -run ^$ -bench ^BenchmarkGate$ -benchmem -benchtime 250ms -count 5 ./compiler/gate",
 		"go test -mod=vendor -count=1 ./...",
 		"go tool " + identity.CLITool + " generate . ./component",
 		"go tool " + identity.CLITool + " verify . ./component",

@@ -43,7 +43,10 @@ decoded bytes in the repository, workflow artifacts, logs, or release assets.
 
 ## Automated production release
 
-1. Run `make verify` on exactly Go 1.26.5 and commit the green tree.
+1. Run `make verify` on exactly Go 1.26.5 and commit the green tree. This gate
+   includes the reviewed toolchain performance budgets in
+   `benchmarks/budgets.json`; do not raise a ceiling without measured evidence
+   and a recorded rationale.
 2. Confirm the commit is on `origin/main`, CI is green, the working tree is
    clean, and the intended version is a canonical stable version such as
    `v0.1.0`.

@@ -39,7 +39,9 @@ Run `make verify` once on the exact tree to commit. The final gate owns tidy,
 vendor, vet, offline, identity, tool-build, and third-party generation proofs.
 Never claim a gate passed unless it was executed.
 
-Production self-hosting and release benchmark policy remain separate follow-up
-work. Release artifacts already follow the guarded contract in `RELEASING.md`.
+Production self-hosting remains separate follow-up work. Toolchain performance
+budgets are repository-owned, run independently with `make benchmark`, and are
+mandatory in `make verify`. Release artifacts follow the guarded contract in
+`RELEASING.md`.
 Do not revive the removed stale generated command or monorepository acceptance
 tests as placeholders.

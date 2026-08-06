@@ -1,0 +1,50 @@
+{
+  "schema": "spice.benchmarks/v1",
+  "benchmarks": [
+    {
+      "name": "BenchmarkBuildPackageMainApplication",
+      "package": "./compiler/application",
+      "reference_ns_per_op": 35000,
+      "maximum_ns_per_op": 250000,
+      "maximum_bytes_per_op": 80000,
+      "maximum_allocs_per_op": 450,
+      "rationale": "Bounds immutable application-model construction while allowing for supported shared CI hosts."
+    },
+    {
+      "name": "BenchmarkRenderPackageMainApplication",
+      "package": "./compiler/generate",
+      "reference_ns_per_op": 1450000,
+      "maximum_ns_per_op": 3000000,
+      "maximum_bytes_per_op": 550000,
+      "maximum_allocs_per_op": 10000,
+      "rationale": "Bounds deterministic generated-Go rendering, including source-mapped debug units and production feature renderers."
+    },
+    {
+      "name": "BenchmarkServiceCachedOverlayAnalysis",
+      "package": "./compiler/service",
+      "reference_ns_per_op": 1100000,
+      "maximum_ns_per_op": 2500000,
+      "maximum_bytes_per_op": 100000,
+      "maximum_allocs_per_op": 350,
+      "rationale": "Bounds the repeated editor-analysis path after an identical overlay snapshot is warm."
+    },
+    {
+      "name": "BenchmarkParseRunArguments",
+      "package": "./internal/cli",
+      "reference_ns_per_op": 75,
+      "maximum_ns_per_op": 500,
+      "maximum_bytes_per_op": 64,
+      "maximum_allocs_per_op": 4,
+      "rationale": "Bounds process-boundary argument parsing independently of compilation and application startup."
+    },
+    {
+      "name": "BenchmarkStructuralFingerprint",
+      "package": "./internal/devloop",
+      "reference_ns_per_op": 5000,
+      "maximum_ns_per_op": 100000,
+      "maximum_bytes_per_op": 20000,
+      "maximum_allocs_per_op": 150,
+      "rationale": "Bounds body-insensitive source classification used to bypass analysis and generation during spice dev."
+    }
+  ]
+}

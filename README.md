@@ -44,6 +44,7 @@ The repository requires exactly Go 1.26.5. Use:
 ```text
 make fast
 make check
+make benchmark
 make verify
 ```
 
@@ -53,6 +54,12 @@ builds every published tool, tests the compiler/CLI/LSP boundary, rejects stale
 monorepository imports, enforces pinned formatting, lint, nil-safety, security,
 race, fuzz, and 85% coverage gates, and generates a third-party SDK fixture
 twice from zero before compiling and executing it offline.
+
+The definitive gate also enforces the versioned latency, allocation, and memory
+ceilings in [`benchmarks/budgets.json`](benchmarks/budgets.json). Five samples
+per critical path are reduced to a median to limit scheduler noise. Run
+`make benchmark` for that focused contract without waiting for the full gate;
+the budgets remain mandatory in `make verify` and therefore in every release.
 
 Before the offline fixture tests, the gate explicitly acquires and verifies the
 fixture's declared Go modules. Product analysis, generation, LSP operation, and
@@ -112,9 +119,9 @@ script or machine-specific replacement is part of the published tree.
 This initial standalone boundary intentionally runs `cmd/spice` through the
 handwritten CLI, exactly like `cmd/spice-bootstrap`. The former monorepository's
 stale generated self-hosted command was removed rather than published under the
-wrong module identity. Production self-hosting and release benchmark policy are
-follow-up integration milestones; this repository does not claim them yet. The
-artifact build itself is guarded and reproducible as documented above.
+wrong module identity. Production self-hosting remains a follow-up integration
+milestone; this repository does not claim it yet. Performance budgets and the
+artifact build are guarded and reproducible as documented above.
 
 ## License
 

@@ -16,7 +16,7 @@ func main() {
 }
 
 func run() int {
-	mode := flag.String("mode", "verify", "verification mode: fast, check, or verify")
+	mode := flag.String("mode", "verify", "verification mode: fast, check, benchmark, or verify")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
