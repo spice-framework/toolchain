@@ -86,6 +86,17 @@ retained starter builder, or this repository's binary-release builder. Starter
 workflows authorize an exact verifier version with an ordinary root `go.mod`
 `tool` directive and run it in vendor-only offline mode.
 
+The separately explicit `make release-acceptance` proof is network-capable by
+design and is not part of `make verify`. It clones the central development
+signer and starter-oidc at repository-pinned commit IDs, creates a clean
+temporary checkout with the canonical HTTPS origin and an exact temporary tag,
+signs with a newly generated ephemeral Ed25519 key, and passes those artifacts
+to this repository's independent verifier with explicit source and module
+identity. Its hosted workflow runs on Linux and Windows. All Go builds remain
+vendor-only and offline; network access is limited to the two pinned Git
+fetches, and the temporary clones, artifacts, and private key are deleted when
+the proof finishes.
+
 ## Extraction provenance
 
 The repository retains the filtered history of the compiler/tooling boundary.

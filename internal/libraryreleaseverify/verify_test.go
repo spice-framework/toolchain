@@ -863,41 +863,6 @@ func TestVerifyRejectsNilContext(t *testing.T) {
 	}
 }
 
-func TestCentralRendererV1Acceptance(t *testing.T) {
-	const (
-		vectorEnvironment = "SPICE_LIBRARY_RELEASE_ACCEPTANCE_ROOT"
-		vectorCommit      = "24ae4132e4782b8c0957c5d44b85cfcd845a168e"
-		vectorModule      = "github.com/spice-framework/starter-oidc"
-		vectorRepository  = "starter-oidc"
-		vectorVersion     = "v1.2.3"
-	)
-	root := os.Getenv(vectorEnvironment)
-	if root == "" {
-		t.Skip("set " + vectorEnvironment + " to the pinned renderer/v1 acceptance-vector directory")
-	}
-	artifacts := filepath.Join(root, "central")
-	trustedKey, err := os.ReadFile(filepath.Join(artifacts, "checksums.txt.pem"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := Verify(context.Background(), Config{
-		Directory:        artifacts,
-		Repository:       filepath.Join(root, vectorRepository),
-		RepositoryName:   vectorRepository,
-		CanonicalSource:  "https://github.com/spice-framework/" + vectorRepository,
-		Module:           vectorModule,
-		Version:          vectorVersion,
-		Commit:           vectorCommit,
-		TrustedPublicKey: trustedKey,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Commit != vectorCommit || result.Module != vectorModule || len(result.Files) != 5 {
-		t.Fatalf("Verify(renderer/v1 vector) = %#v", result)
-	}
-}
-
 func TestReadGitBlobRejectsMalformedStreams(t *testing.T) {
 	t.Parallel()
 	objectID := strings.Repeat("a", 40)

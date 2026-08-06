@@ -135,10 +135,34 @@ and committed `go.sum` to 16 MiB each, the emitted SPDX document to 1 MiB, each
 expanded source entry to 128 MiB, and the complete expanded source archive to
 256 MiB. The verifier duplicates these constants deliberately instead of
 importing producer code. Changing a limit requires a new renderer contract and
-cross-producer acceptance vector.
+cross-producer acceptance proof.
 
-The opt-in `TestCentralRendererV1Acceptance` test exercises a real central
-producer result without importing its implementation. Set
-`SPICE_LIBRARY_RELEASE_ACCEPTANCE_ROOT` to a directory containing the pinned
-`central` artifacts and `starter-oidc` checkout; leaving it unset produces an
-explicit skip in ordinary focused tests.
+## Cross-producer acceptance
+
+The network-capable cross-producer proof is deliberately separate from the
+offline, deterministic `make verify` gate. Run it explicitly with:
+
+```text
+make release-acceptance
+```
+
+The repository-owned harness pins the central development producer to commit
+`afcab67bcb1a6d2893335242df5d76d25afc4d98` and starter-oidc to commit
+`24ae4132e4782b8c0957c5d44b85cfcd845a168e`. It fetches only those objects,
+constructs a clean temporary starter checkout whose origin is
+`https://github.com/spice-framework/starter-oidc.git`, creates the exact
+temporary `v1.2.3` tag, and invokes the real central production planner and
+signer. A new Ed25519 PKCS#8 private key and matching PKIX public key are
+created outside both repositories for that invocation only.
+
+The signed output is then handed to the independent verifier in this
+repository with explicit canonical source, module, repository, version,
+commit, and trust-anchor inputs. The verifier does not import or build against
+the producer. There is no retained signed-artifact fixture, producer-built
+verifier, or long-lived acceptance private key. Temporary source, key, and
+artifact material is removed on success or failure.
+
+`.github/workflows/library-release-acceptance.yml` runs this exact proof on
+Linux and Windows. Go compilation in every checkout is vendor-only with
+`GOPROXY=off`; the only network operation is fetching the two exact Git commit
+objects from their canonical repositories.
