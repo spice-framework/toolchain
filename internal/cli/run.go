@@ -294,7 +294,9 @@ func printHelp(writer io.Writer) error {
 
 Usage:
   spice version
-  spice new --module path [--directory path] [--spice-version version] [--toolchain-version version] [--replace path] [--toolchain-replace path]
+  spice init --module path [--profile=java-structured] [--directory path] [--spice-version version] [--toolchain-version version] [--replace path] [--toolchain-replace path]
+  spice new (module|service|repository|controller|component|enum) name [--profile=java-structured] [--directory path] [--package name]
+  spice new --module path [application-init-option ...]
   spice add [--tool] [--apply] [--directory path] package@version
   spice verify [--format text|json] [package-pattern ...]
   spice annotations [package-pattern ...]
@@ -312,7 +314,8 @@ Usage:
 
 Commands:
   version      Print the Spice version.
-  new          Create a valid-Go application without downloading dependencies.
+  init         Create a valid-Go application without downloading dependencies.
+  new          Create a typed declaration; the original application form remains supported.
   add          Preview or apply exact standard Go module-file changes.
   verify       Load, resolve, and validate Spice annotations for Go packages.
   annotations  List occurrences, inspect descriptors, or verify annotation tools.

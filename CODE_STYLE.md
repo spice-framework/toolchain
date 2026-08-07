@@ -10,6 +10,19 @@ Enable the contract at the command line:
 go tool github.com/spice-framework/toolchain/cmd/spice verify --profile=java-structured ./...
 ```
 
+For a new application, the scaffold creates the matching entry-point and
+module-root layout directly:
+
+```text
+go tool github.com/spice-framework/toolchain/cmd/spice init --module example.com/shop --profile=java-structured
+go tool github.com/spice-framework/toolchain/cmd/spice new module orders
+go tool github.com/spice-framework/toolchain/cmd/spice new service OrderService --directory internal/orders --package orders
+```
+
+All typed declaration kinds accept `--profile=java-structured`; their current
+templates already satisfy that strict contract. Scaffolding is additive and
+fails if its destination file exists.
+
 Editor clients can pass the same value as the Spice LSP initialization or
 workspace setting:
 

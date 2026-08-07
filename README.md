@@ -48,8 +48,26 @@ package helpers or mutable globals. [`CODE_STYLE.md`](CODE_STYLE.md) is the
 normative rule and diagnostic reference. The LSP accepts the same profile in
 its Spice settings and offers source generation for validated `@Enum` helpers.
 
-`spice new` writes both tool declarations and independently pins the public core
-and toolchain module versions. It never downloads modules implicitly.
+Create a profile-shaped application and class-oriented declarations with:
+
+```text
+go tool github.com/spice-framework/toolchain/cmd/spice init --module example.com/shop --profile=java-structured
+go tool github.com/spice-framework/toolchain/cmd/spice new module orders
+go tool github.com/spice-framework/toolchain/cmd/spice new service OrderService --directory internal/orders --package orders
+go tool github.com/spice-framework/toolchain/cmd/spice new repository OrderRepository --directory internal/orders --package orders
+go tool github.com/spice-framework/toolchain/cmd/spice new controller OrderController --directory internal/orders --package orders
+go tool github.com/spice-framework/toolchain/cmd/spice new component PasswordHasher --directory internal/orders --package orders
+go tool github.com/spice-framework/toolchain/cmd/spice new enum OrderStatus --directory internal/orders --package orders
+```
+
+`spice init` writes both tool declarations and independently pins the public
+core and toolchain module versions. Java-structured initialization places the
+application boundary in `cmd/<application>/main.go` and creates an initial
+`internal/<application>/package.go` module root. Declaration scaffolds use
+deterministic filenames and exact `New<Type>` constructors. Neither command
+overwrites source, downloads modules, invokes Go, or initializes version
+control. The original `spice new --module ...` application form remains
+supported.
 
 ## Develop
 

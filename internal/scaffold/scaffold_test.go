@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	compilerstyle "github.com/spice-framework/toolchain/compiler/style"
 )
 
 func TestCreateWritesDeterministicValidGoApplication(t *testing.T) {
@@ -69,6 +71,188 @@ func TestCreateWritesDeterministicValidGoApplication(t *testing.T) {
 	}
 }
 
+func TestCreateWritesJavaStructuredApplicationLayout(t *testing.T) {
+	t.Parallel()
+	destination := filepath.Join(t.TempDir(), "catalog")
+	result, err := Create(t.Context(), Config{
+		Directory:        destination,
+		Module:           "example.com/acme/catalog",
+		SpiceVersion:     "v0.2.0",
+		ToolchainVersion: "v0.3.0",
+		Profile:          compilerstyle.ProfileJavaStructured,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	wantFiles := []string{
+		".gitignore",
+		"README.md",
+		"cmd/catalog/main.go",
+		"go.mod",
+		"internal/catalog/package.go",
+	}
+	if !slices.Equal(result.Files, wantFiles) {
+		t.Fatalf("Create() files = %v", result.Files)
+	}
+	mainSource := readScaffoldFile(t, destination, "cmd/catalog/main.go")
+	if !strings.Contains(mainSource, "// @Application") {
+		t.Fatalf("main.go = %s", mainSource)
+	}
+	packageSource := readScaffoldFile(t, destination, "internal/catalog/package.go")
+	for _, expected := range []string{"// @Module", "package catalog"} {
+		if !strings.Contains(packageSource, expected) {
+			t.Fatalf("package.go missing %q:\n%s", expected, packageSource)
+		}
+	}
+	readme := readScaffoldFile(t, destination, "README.md")
+	if !strings.Contains(readme, "verify --profile=java-structured ./...") {
+		t.Fatalf("README.md = %s", readme)
+	}
+}
+
+func TestCreateJavaStructuredFallsBackToValidPackageName(t *testing.T) {
+	t.Parallel()
+	destination := filepath.Join(t.TempDir(), "my-app")
+	result, err := Create(t.Context(), Config{
+		Directory: destination, Module: "example.com/acme/my-app",
+		SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
+		Profile: compilerstyle.ProfileJavaStructured,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if !slices.Contains(result.Files, "internal/application/package.go") {
+		t.Fatalf("Create() files = %v", result.Files)
+	}
+}
+
+func TestCreateDeclarationWritesTypedDeterministicScaffolds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		kind     DeclarationKind
+		name     string
+		file     string
+		contains []string
+	}{
+		{DeclarationModule, "orders", "package.go", []string{"// @Module", "package orders"}},
+		{DeclarationService, "OrderService", "order_service.go", []string{"// @Service", "type OrderService struct", "func NewOrderService() *OrderService"}},
+		{DeclarationRepository, "OrderRepository", "order_repository.go", []string{"// @Repository", "func NewOrderRepository() *OrderRepository"}},
+		{DeclarationController, "OrderController", "order_controller.go", []string{"// @Controller", "// @Get(\"/\")", "net/http"}},
+		{DeclarationComponent, "PasswordHasher", "password_hasher.go", []string{"// @Component", "func NewPasswordHasher() *PasswordHasher"}},
+		{DeclarationEnum, "OrderStatus", "order_status.go", []string{"// @Enum", "OrderStatusUnknown OrderStatus = \"unknown\""}},
+	}
+	for _, test := range tests {
+		t.Run(string(test.kind), func(t *testing.T) {
+			t.Parallel()
+			directory := filepath.Join(t.TempDir(), string(test.kind))
+			result, err := CreateDeclaration(t.Context(), DeclarationConfig{
+				Directory: directory,
+				Package:   "orders",
+				Kind:      test.kind,
+				Name:      test.name,
+			})
+			if err != nil {
+				t.Fatalf("CreateDeclaration() error = %v", err)
+			}
+			if !slices.Equal(result.Files, []string{test.file}) {
+				t.Fatalf("CreateDeclaration() files = %v", result.Files)
+			}
+			content := readScaffoldFile(t, directory, test.file)
+			for _, expected := range test.contains {
+				if !strings.Contains(content, expected) {
+					t.Fatalf("%s missing %q:\n%s", test.file, expected, content)
+				}
+			}
+		})
+	}
+}
+
+func TestCreateDeclarationPreservesExistingPackageFiles(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	owned := filepath.Join(directory, "owned.go")
+	if err := os.WriteFile(owned, []byte("package orders\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := DeclarationConfig{
+		Directory: directory,
+		Package:   "orders",
+		Kind:      DeclarationService,
+		Name:      "OrderService",
+	}
+	if _, err := CreateDeclaration(t.Context(), config); err != nil {
+		t.Fatalf("CreateDeclaration() error = %v", err)
+	}
+	if _, err := CreateDeclaration(t.Context(), config); err == nil {
+		t.Fatal("CreateDeclaration() overwrite error = nil")
+	}
+	if content, err := os.ReadFile(owned); err != nil || string(content) != "package orders\n" {
+		t.Fatalf("owned.go = %q, %v", content, err)
+	}
+}
+
+func TestCreateDeclarationRejectsInvalidAndCanceledRequests(t *testing.T) {
+	t.Parallel()
+	for name, config := range map[string]DeclarationConfig{
+		"directory":  {Package: "orders", Kind: DeclarationService, Name: "Thing"},
+		"kind":       {Directory: t.TempDir(), Package: "orders", Kind: "utility", Name: "Thing"},
+		"package":    {Directory: t.TempDir(), Package: "bad-name", Kind: DeclarationService, Name: "Thing"},
+		"unexported": {Directory: t.TempDir(), Package: "orders", Kind: DeclarationService, Name: "thing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := CreateDeclaration(t.Context(), config); err == nil {
+				t.Fatal("CreateDeclaration() error = nil")
+			}
+		})
+	}
+	if _, err := CreateDeclaration(nil, DeclarationConfig{}); err == nil { //nolint:staticcheck // Nil context is an intentional fail-closed boundary case.
+		t.Fatal("CreateDeclaration(nil) error = nil")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := CreateDeclaration(canceled, DeclarationConfig{
+		Directory: filepath.Join(t.TempDir(), "orders"),
+		Package:   "orders", Kind: DeclarationService, Name: "OrderService",
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("CreateDeclaration(canceled) error = %v", err)
+	}
+}
+
+func TestWriteDeclarationFileRejectsInvalidCanceledAndOwnedTargets(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := root.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := writeDeclarationFile(t.Context(), root, plannedFile{
+		name: "nested/value.go", content: []byte("package nested\n"), mode: 0o600,
+	}); err == nil {
+		t.Fatal("writeDeclarationFile(nested) error = nil")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := writeDeclarationFile(canceled, root, plannedFile{
+		name: "value.go", content: []byte("package value\n"), mode: 0o600,
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("writeDeclarationFile(canceled) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "value.go"), []byte("package value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeDeclarationFile(t.Context(), root, plannedFile{
+		name: "value.go", content: []byte("replacement\n"), mode: 0o600,
+	}); err == nil {
+		t.Fatal("writeDeclarationFile(owned) error = nil")
+	}
+}
+
 func TestCreateRejectsInvalidOrOwnedDestinations(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
@@ -81,6 +265,9 @@ func TestCreateRejectsInvalidOrOwnedDestinations(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := map[string]Config{
+		"missing directory": {
+			Module: "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
+		},
 		"invalid module": {
 			Directory: filepath.Join(parent, "module"), Module: "../app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
 		},
@@ -95,6 +282,9 @@ func TestCreateRejectsInvalidOrOwnedDestinations(t *testing.T) {
 		},
 		"missing parent": {
 			Directory: filepath.Join(parent, "missing", "app"), Module: "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
+		},
+		"unknown profile": {
+			Directory: filepath.Join(parent, "profile"), Module: "example.com/app", SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0", Profile: "java",
 		},
 	}
 	for name, test := range tests {
@@ -175,18 +365,71 @@ func TestValidateConfigRejectsUnsafeLocalReplacements(t *testing.T) {
 	}
 }
 
+func TestCreateAcceptsExplicitCoreReplacement(t *testing.T) {
+	t.Parallel()
+	destination := filepath.Join(t.TempDir(), "application")
+	if _, err := Create(t.Context(), Config{
+		Directory: destination, Module: "example.com/application",
+		SpiceVersion: "v0.2.0", ToolchainVersion: "v0.3.0",
+		Replace: repositoryRoot(t),
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if content := readScaffoldFile(t, destination, "go.mod"); !strings.Contains(
+		content,
+		"replace "+FrameworkModule,
+	) {
+		t.Fatalf("go.mod = %s", content)
+	}
+}
+
 func TestApplyRollsBackOnlyOwnedFiles(t *testing.T) {
 	t.Parallel()
 	destination := filepath.Join(t.TempDir(), "application")
 	_, err := apply(t.Context(), destination, []plannedFile{
 		{name: "created.txt", content: []byte("created\n"), mode: 0o600},
-		{name: "missing/invalid.txt", content: []byte("invalid\n"), mode: 0o600},
+		{name: "../invalid.txt", content: []byte("invalid\n"), mode: 0o600},
 	})
 	if err == nil {
 		t.Fatal("apply() error = nil")
 	}
 	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("rolled-back destination stat error = %v", statErr)
+	}
+}
+
+func TestApplyRollsBackOwnedNestedDirectories(t *testing.T) {
+	t.Parallel()
+	destination := filepath.Join(t.TempDir(), "application")
+	_, err := apply(t.Context(), destination, []plannedFile{
+		{name: "nested/deeper/created.txt", content: []byte("created\n"), mode: 0o600},
+		{name: "../invalid.txt", content: []byte("invalid\n"), mode: 0o600},
+	})
+	if err == nil {
+		t.Fatal("apply() error = nil")
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("rolled-back destination stat error = %v", statErr)
+	}
+}
+
+func TestDirectoryPreparationRejectsNonDirectories(t *testing.T) {
+	t.Parallel()
+	file := filepath.Join(t.TempDir(), "owned")
+	if err := os.WriteFile(file, []byte("owned\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareDirectory(file); err == nil {
+		t.Fatal("prepareDirectory(file) error = nil")
+	}
+	if _, err := prepareDeclarationDirectory(file); err == nil {
+		t.Fatal("prepareDeclarationDirectory(file) error = nil")
+	}
+	if err := cleanupDirectories([]string{filepath.Join(t.TempDir(), "missing")}); err != nil {
+		t.Fatalf("cleanupDirectories(missing) error = %v", err)
+	}
+	if _, err := scaffoldEntries(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("scaffoldEntries(missing) error = nil")
 	}
 }
 

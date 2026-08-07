@@ -38,6 +38,122 @@ func TestScaffoldCommandCreatesApplicationWithoutResolvingModules(t *testing.T) 
 	}
 }
 
+func TestInitCommandCreatesJavaStructuredApplication(t *testing.T) {
+	t.Parallel()
+	destination := filepath.Join(t.TempDir(), "catalog")
+	var stdout, stderr strings.Builder
+	code := applicationScaffoldCommand(
+		"init",
+		[]string{
+			"--module", "example.com/acme/catalog",
+			"--directory", destination,
+			"--profile=java-structured",
+		},
+		&stdout,
+		&stderr,
+	)
+	if code != 0 || stderr.String() != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, name := range []string{
+		filepath.Join("cmd", "catalog", "main.go"),
+		filepath.Join("internal", "catalog", "package.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(destination, name)); err != nil {
+			t.Fatalf("scaffold %s: %v", name, err)
+		}
+	}
+}
+
+func TestDeclarationScaffoldCommandCreatesRequestedType(t *testing.T) {
+	t.Parallel()
+	destination := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(destination, "existing.go"),
+		[]byte("package orders\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	code := declarationScaffoldCommand(
+		[]string{
+			"service", "OrderService",
+			"--directory", destination,
+			"--package", "orders",
+		},
+		&stdout,
+		&stderr,
+	)
+	if code != 0 || stderr.String() != "" ||
+		!strings.Contains(stdout.String(), "Created Spice service OrderService") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	source := readCLIFile(t, filepath.Join(destination, "order_service.go"))
+	if !strings.Contains(source, "func NewOrderService() *OrderService") {
+		t.Fatalf("order_service.go = %s", source)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := declarationScaffoldCommand(
+		[]string{"service", "OrderService", "--directory", destination, "--package", "orders"},
+		&stdout,
+		&stderr,
+	); code != 1 || !strings.Contains(stderr.String(), "file exists") {
+		t.Fatalf("overwrite code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestScaffoldHandlersDispatchInitAndTypedNew(t *testing.T) {
+	t.Parallel()
+	runtime := NewRuntime()
+	initHandler, err := NewInitHandler(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newHandler, err := NewScaffoldHandler(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isDeclarationInvocation([]string{"service", "OrderService"}) ||
+		isDeclarationInvocation(nil) || isDeclarationInvocation([]string{"utility", "Thing"}) {
+		t.Fatal("isDeclarationInvocation() dispatch mismatch")
+	}
+	var stdout, stderr strings.Builder
+	if code := initHandler.Run(Invocation{
+		Arguments: []string{"--directory", "missing-module"},
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	}); code != 2 || !strings.Contains(stderr.String(), "Spice init failed") {
+		t.Fatalf("init handler code=%d stderr=%q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	directory := t.TempDir()
+	if code := newHandler.Run(Invocation{
+		Arguments: []string{"enum", "OrderStatus", "--directory", directory, "--package", "orders"},
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	}); code != 0 || stderr.String() != "" {
+		t.Fatalf("new handler code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestDeclarationScaffoldCommandReportsArgumentAndOutputFailures(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr strings.Builder
+	if code := declarationScaffoldCommand([]string{"service"}, &stdout, &stderr); code != 2 ||
+		!strings.Contains(stderr.String(), "requires a kind and name") {
+		t.Fatalf("argument code=%d stderr=%q", code, stderr.String())
+	}
+	stderr.Reset()
+	if code := declarationScaffoldCommand([]string{
+		"component", "PasswordHasher", "--directory", t.TempDir(), "--package", "orders",
+	}, errorWriter{}, &stderr); code != 1 {
+		t.Fatalf("output failure code=%d", code)
+	}
+}
+
 func TestAddCommandPreviewsThenAppliesExactDependency(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -96,13 +212,32 @@ func TestAddCommandPreviewsThenAppliesExactDependency(t *testing.T) {
 func TestProjectCommandsRejectAmbiguousInputs(t *testing.T) {
 	t.Parallel()
 	for name, arguments := range map[string][]string{
-		"missing module": {"--directory", "app"},
-		"unknown new":    {"--module", "example.com/app", "--mystery"},
+		"missing module":    {"--directory", "app"},
+		"unknown new":       {"--module", "example.com/app", "--mystery"},
+		"unknown profile":   {"--module", "example.com/app", "--profile=java"},
+		"empty profile":     {"--module", "example.com/app", "--profile="},
+		"duplicate profile": {"--module", "example.com/app", "--profile", "java-structured", "--profile=java-structured"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := parseScaffoldArguments(arguments); err == nil {
 				t.Fatal("parseScaffoldArguments() error = nil")
+			}
+		})
+	}
+	for name, arguments := range map[string][]string{
+		"missing name":      {"service"},
+		"unknown kind":      {"utility", "Thing"},
+		"unknown option":    {"service", "Thing", "--mystery"},
+		"missing directory": {"service", "Thing", "--directory"},
+		"empty profile":     {"service", "Thing", "--profile="},
+		"unknown profile":   {"service", "Thing", "--profile=java"},
+		"duplicate profile": {"service", "Thing", "--profile", "java-structured", "--profile=java-structured"},
+	} {
+		t.Run("declaration "+name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parseDeclarationArguments(arguments); err == nil {
+				t.Fatal("parseDeclarationArguments() error = nil")
 			}
 		})
 	}
@@ -148,6 +283,25 @@ func TestProjectArgumentDefaultsAndOptions(t *testing.T) {
 		scaffoldArguments.spiceVersion != "v0.2.0" ||
 		scaffoldArguments.toolchainVersion != "v0.3.0" {
 		t.Fatalf("parseScaffoldArguments() = %#v", scaffoldArguments)
+	}
+	profiled, err := parseScaffoldArguments([]string{
+		"--module", "example.com/acme/catalog",
+		"--profile", "java-structured",
+	})
+	if err != nil || profiled.profile != "java-structured" {
+		t.Fatalf("profiled scaffold = %#v, %v", profiled, err)
+	}
+	declaration, err := parseDeclarationArguments([]string{"module", "orders"})
+	if err != nil || declaration.directory != filepath.Join("internal", "orders") ||
+		declaration.kind != "module" || declaration.name != "orders" {
+		t.Fatalf("module declaration = %#v, %v", declaration, err)
+	}
+	typedDeclaration, err := parseDeclarationArguments([]string{
+		"service", "OrderService", "--profile", "java-structured",
+	})
+	if err != nil || typedDeclaration.directory != "." ||
+		typedDeclaration.profile != "java-structured" {
+		t.Fatalf("typed declaration = %#v, %v", typedDeclaration, err)
 	}
 	addArguments, err := parseAddArguments([]string{
 		"--tool", "--apply", "--directory", "application",
