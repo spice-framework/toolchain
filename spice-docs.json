@@ -1,0 +1,38 @@
+{
+  "$schema": "https://spiceframework.dev/schemas/spice-docs.schema.json",
+  "schema": 1,
+  "product": {
+    "id": "toolchain",
+    "title": "Spice Toolchain",
+    "family": "toolchain",
+    "summary": "Standalone Spice compiler, command-line interface, and language tooling for deterministic Go generation.",
+    "maturity": "preview",
+    "audience": [
+      "application-developer",
+      "framework-contributor",
+      "extension-author"
+    ]
+  },
+  "content": [
+    {
+      "source": "README.md",
+      "route": "index",
+      "kind": "reference",
+      "order": 0,
+      "search": true
+    }
+  ],
+  "snippets": [
+    {
+      "root": ".",
+      "include": [
+        "**/*.go"
+      ],
+      "exclude": [
+        "vendor/**",
+        "internal/spicegen/**",
+        ".generated/**"
+      ]
+    }
+  ]
+}
