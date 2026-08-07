@@ -66,6 +66,19 @@ the handwritten enum file and adds a safe `fmt` import when required. These are
 source edits because Go forbids a generated package from attaching methods to
 an application-owned type.
 
+## Service-centered cross-cutting behavior
+
+Cross-cutting application behavior belongs on managed service methods. A
+service using transaction, authorization, cache, retry, or observation policy
+must declare exactly one application interface with `@Implements`, use
+singleton scope, accept exact `context.Context` first, and return `error` last.
+Constructors inject that interface. Concrete injection is rejected because it
+would bypass generated policy behavior.
+
+Generated decorators nest policies as observation → authorization → cache →
+retry → transaction → direct target. They are ordinary target-scoped Go with
+direct method calls; the profile does not authorize reflection or runtime AOP.
+
 ## What the profile does not add
 
 The profile does not introduce field injection, runtime scanning, reflection

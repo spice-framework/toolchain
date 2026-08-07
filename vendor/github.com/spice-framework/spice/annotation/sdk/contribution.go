@@ -6,6 +6,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 )
 
 // ContributionKind identifies one typed compiler-IR input returned by an
@@ -33,6 +34,8 @@ const (
 	ContributionEventListener  ContributionKind = "event-listener"
 	ContributionCache          ContributionKind = "cache"
 	ContributionAuthorization  ContributionKind = "authorization"
+	ContributionRetry          ContributionKind = "retry"
+	ContributionObservation    ContributionKind = "observation"
 	ContributionGeneratedFile  ContributionKind = "generated-file"
 )
 
@@ -192,6 +195,23 @@ type AuthorizationContribution struct {
 	Expression    string   `json:"expression,omitempty"`
 }
 
+// RetryContribution describes one bounded generated method retry policy.
+// Classifier is an optional exported package function with signature
+// func(error) bool; an empty classifier selects retry.Transient.
+type RetryContribution struct {
+	MaxAttempts    int64  `json:"max_attempts"`
+	InitialBackoff string `json:"initial_backoff,omitempty"`
+	MaxBackoff     string `json:"max_backoff,omitempty"`
+	Multiplier     int64  `json:"multiplier,omitempty"`
+	Classifier     string `json:"classifier,omitempty"`
+}
+
+// ObservationContribution describes one generated method observation. Name
+// is optional; an empty name selects the compiler-owned stable method ID.
+type ObservationContribution struct {
+	Name string `json:"name,omitempty"`
+}
+
 // GeneratedFileContribution requests one guarded generated file. The compiler
 // still owns path safety, generated markers, ownership, and filesystem apply.
 type GeneratedFileContribution struct {
@@ -223,6 +243,8 @@ type Contribution struct {
 	EventListener  *EventListenerContribution
 	Cache          *CacheContribution
 	Authorization  *AuthorizationContribution
+	Retry          *RetryContribution
+	Observation    *ObservationContribution
 	GeneratedFile  *GeneratedFileContribution
 }
 
@@ -482,6 +504,19 @@ func validateIntegrationContribution(
 			return err, true
 		}
 		return validateAuthorization(*contribution.Authorization), true
+	case ContributionRetry:
+		if err := requirePayload(contribution.Retry, "retry"); err != nil {
+			return err, true
+		}
+		return validateRetry(*contribution.Retry), true
+	case ContributionObservation:
+		if err := requirePayload(contribution.Observation, "observation"); err != nil {
+			return err, true
+		}
+		if contribution.Observation.Name == "" {
+			return nil, true
+		}
+		return requireTrimmed("observation name", contribution.Observation.Name), true
 	case ContributionGeneratedFile:
 		if err := requirePayload(
 			contribution.GeneratedFile,
@@ -562,6 +597,8 @@ func (contribution Contribution) Clone() Contribution {
 			contribution.Authorization.AllScopes,
 		)
 	}
+	result.Retry = clonePointer(contribution.Retry)
+	result.Observation = clonePointer(contribution.Observation)
 	result.GeneratedFile = clonePointer(contribution.GeneratedFile)
 	return result
 }
@@ -589,6 +626,8 @@ func (contribution Contribution) payloadCount() int {
 		contribution.EventListener != nil,
 		contribution.Cache != nil,
 		contribution.Authorization != nil,
+		contribution.Retry != nil,
+		contribution.Observation != nil,
 		contribution.GeneratedFile != nil,
 	} {
 		if present {
@@ -614,6 +653,40 @@ func validateBeanIdentity(name string, aliases []string) error {
 				alias,
 			)
 		}
+	}
+	return nil
+}
+
+func validateRetry(retry RetryContribution) error {
+	if retry.MaxAttempts < 1 || retry.MaxAttempts > 100 {
+		return fmt.Errorf(
+			"annotation retry max attempts %d must be between 1 and 100",
+			retry.MaxAttempts,
+		)
+	}
+	initial, err := time.ParseDuration(retry.InitialBackoff)
+	if err != nil || initial < 0 {
+		return fmt.Errorf(
+			"annotation retry initial backoff %q must be a non-negative duration",
+			retry.InitialBackoff,
+		)
+	}
+	maximum, err := time.ParseDuration(retry.MaxBackoff)
+	if err != nil || maximum < initial {
+		return fmt.Errorf(
+			"annotation retry max backoff %q must be a duration at least %s",
+			retry.MaxBackoff,
+			initial,
+		)
+	}
+	if retry.Multiplier < 2 || retry.Multiplier > 100 {
+		return fmt.Errorf(
+			"annotation retry multiplier %d must be between 2 and 100",
+			retry.Multiplier,
+		)
+	}
+	if retry.Classifier != "" {
+		return requireTrimmed("retry classifier", retry.Classifier)
 	}
 	return nil
 }

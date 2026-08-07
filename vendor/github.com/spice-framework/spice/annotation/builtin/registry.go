@@ -112,6 +112,13 @@ func Registry() annotation.Registry {
 			Targets: annotation.Targets(annotation.TargetFunction),
 		},
 		annotation.Definition{
+			Name:    "observability.Observed",
+			Targets: annotation.Targets(annotation.TargetMethod),
+			Arguments: []annotation.ArgumentDefinition{
+				{Name: "name", Kinds: []annotation.Kind{annotation.KindString}},
+			},
+		},
+		annotation.Definition{
 			Name:    "Post",
 			Targets: annotation.Targets(annotation.TargetMethod),
 			Arguments: []annotation.ArgumentDefinition{
@@ -141,6 +148,17 @@ func Registry() annotation.Registry {
 					Kinds:            []annotation.Kind{annotation.KindList},
 					ListElementKinds: []annotation.Kind{annotation.KindString},
 				},
+			},
+		},
+		annotation.Definition{
+			Name:    "retry.Retryable",
+			Targets: annotation.Targets(annotation.TargetMethod),
+			Arguments: []annotation.ArgumentDefinition{
+				{Name: "maxAttempts", Kinds: []annotation.Kind{annotation.KindInteger}},
+				{Name: "initialBackoff", Kinds: []annotation.Kind{annotation.KindString}},
+				{Name: "maxBackoff", Kinds: []annotation.Kind{annotation.KindString}},
+				{Name: "multiplier", Kinds: []annotation.Kind{annotation.KindInteger}},
+				{Name: "classifier", Kinds: []annotation.Kind{annotation.KindIdentifier}},
 			},
 		},
 		annotation.Definition{

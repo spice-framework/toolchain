@@ -9,8 +9,8 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 )
 
-// Cacheable marks a GET controller method whose successful response may be
-// cached under a stable cache name.
+// Cacheable marks a typed GET controller method or an interface-bound managed
+// service method whose successful response may be cached under a stable name.
 //
 // Spice generates deterministic key material from the validated request and
 // keeps the cache implementation explicit through dependency injection.
@@ -21,7 +21,7 @@ import (
 func Cacheable() sdk.Definition {
 	return sdk.Definition{
 		Name:    "cache.Cacheable",
-		Summary: "Declares a named generated HTTP cache boundary.",
+		Summary: "Declares a named generated typed cache boundary.",
 		Targets: []sdk.Target{sdk.TargetMethod},
 		Arguments: []sdk.Argument{{
 			Name:        "name",
@@ -30,7 +30,7 @@ func Cacheable() sdk.Definition {
 			Required:    true,
 		}},
 		Examples: []sdk.Example{{
-			Title: "Cached route",
+			Title: "Cached typed method",
 			Code:  "// @Cacheable(name=\"orders.by-id\")",
 		}},
 		Compatibility: sdk.Compatibility{

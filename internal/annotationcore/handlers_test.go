@@ -14,6 +14,7 @@ import (
 	managementannotation "github.com/spice-framework/spice/annotation/management"
 	modulithannotation "github.com/spice-framework/spice/annotation/modulith"
 	observabilityannotation "github.com/spice-framework/spice/annotation/observability"
+	retryannotation "github.com/spice-framework/spice/annotation/retry"
 	scheduleannotation "github.com/spice-framework/spice/annotation/schedule"
 	"github.com/spice-framework/spice/annotation/sdk"
 	securityannotation "github.com/spice-framework/spice/annotation/security"
@@ -54,6 +55,8 @@ func TestOfficialHandlersReturnTypedContributions(t *testing.T) {
 		handlerCaseWithArguments("event listener", eventannotation.EventListenerHandler, "event", "Listener", sdk.ContributionEventListener, toolArgument("order", sdk.KindInteger, int64(3))),
 		handlerCaseWithArguments("fixed delay", scheduleannotation.FixedDelayHandler, "schedule", "FixedDelay", sdk.ContributionSchedule, stringToolArgument("delay", "5m"), stringToolArgument("initialDelay", "1s"), toolArgument("continueOnError", sdk.KindBoolean, true)),
 		handlerCaseWithArguments("authorize", securityannotation.AuthorizeHandler, "security", "Authorize", sdk.ContributionAuthorization, toolArgument("authenticated", sdk.KindBoolean, true), toolArgument("anyRoles", sdk.KindList, []string{"operator"}), toolArgument("allRoles", sdk.KindList, []string{"member"}), toolArgument("allScopes", sdk.KindList, []string{"orders.read"})),
+		handlerCaseWithArguments("retryable", retryannotation.RetryableHandler, "retry", "Retryable", sdk.ContributionRetry, toolArgument("maxAttempts", sdk.KindInteger, int64(4)), stringToolArgument("initialBackoff", "10ms"), stringToolArgument("maxBackoff", "1s"), toolArgument("multiplier", sdk.KindInteger, int64(2)), toolArgument("classifier", sdk.KindIdentifier, "IsTransient")),
+		handlerCaseWithArguments("observed method", observabilityannotation.ObservedHandler, "observability", "Observed", sdk.ContributionObservation, stringToolArgument("name", "orders.place")),
 		handlerCaseWithArguments("management", managementannotation.ManagementEnableHandler, "management", "Enable", sdk.ContributionBootstrap, toolArgument("expose", sdk.KindList, []string{"health", "info"})),
 		handlerCase("logging", observabilityannotation.ObservabilityLoggingHandler, "observability", "Logging", sdk.ContributionBootstrap),
 	}

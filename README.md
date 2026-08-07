@@ -71,6 +71,23 @@ overwrites source, downloads modules, invokes Go, or initializes version
 control. The original `spice new --module ...` application form remains
 supported.
 
+## Service method policies
+
+Interface-bound singleton services can declare `@data.Transactional`,
+`@security.Authorize`, `@cache.Cacheable`, `@retry.Retryable`, and
+`@observability.Observed` on exported methods whose first parameter is exact
+`context.Context` and whose final result is `error`. The compiler generates one
+direct-call decorator and injects only the explicitly declared `@Implements`
+interface. Injecting the raw concrete service is a compile-time error.
+
+Policies have one stable nesting order: observation, authorization, cache,
+retry, transaction, then the concrete target call. Cache hits therefore skip
+retry and transaction; authorization guards cache access; each retry attempt
+owns its own transaction; observation covers the complete logical call. The
+generated implementation uses no reflection, runtime proxy, service locator,
+or package-global registry. `ApplicationOptions` owns retry, cache,
+authorization, and method observers per application instance.
+
 ## Develop
 
 The repository requires exactly Go 1.26.5. Use:
@@ -144,8 +161,8 @@ the proof finishes.
 
 The repository retains the filtered history of the compiler/tooling boundary.
 Its public-core bridge is pinned to
-`github.com/spice-framework/spice@v0.1.0-preview.1.0.20260807010518-0cacff461fbb`
-(commit `0cacff461fbb66a21b1f5c02dca61f81e2d7509a`). The Apache-2.0 license and
+`github.com/spice-framework/spice@v0.1.0-preview.1.0.20260807031220-45e4f9d3e12d`
+(commit `45e4f9d3e12dff29adeeece5adf65046e2eaad67`). The Apache-2.0 license and
 pinned quality-tool versions were carried from the extracted source history,
 then the module identities and standalone gate were adapted here. No migration
 script or machine-specific replacement is part of the published tree.

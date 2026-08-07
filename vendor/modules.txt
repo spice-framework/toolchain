@@ -1,4 +1,4 @@
-# github.com/spice-framework/spice v0.1.0-preview.1.0.20260807010518-0cacff461fbb
+# github.com/spice-framework/spice v0.1.0-preview.1.0.20260807031220-45e4f9d3e12d
 ## explicit; go 1.26.0
 github.com/spice-framework/spice/annotation
 github.com/spice-framework/spice/annotation/async
@@ -12,6 +12,7 @@ github.com/spice-framework/spice/annotation/lifecycle
 github.com/spice-framework/spice/annotation/management
 github.com/spice-framework/spice/annotation/modulith
 github.com/spice-framework/spice/annotation/observability
+github.com/spice-framework/spice/annotation/retry
 github.com/spice-framework/spice/annotation/schedule
 github.com/spice-framework/spice/annotation/sdk
 github.com/spice-framework/spice/annotation/sdk/protocol

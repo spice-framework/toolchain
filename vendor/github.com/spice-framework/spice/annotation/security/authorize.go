@@ -9,7 +9,8 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 )
 
-// Authorize attaches a secure-deny authorization policy to one HTTP route.
+// Authorize attaches a secure-deny authorization policy to one HTTP route or
+// interface-bound managed service method.
 //
 // At least one authentication, role, scope, or expression requirement is
 // required.
@@ -26,7 +27,7 @@ import (
 func Authorize() sdk.Definition {
 	return sdk.Definition{
 		Name:    "security.Authorize",
-		Summary: "Declares a generated secure-deny route authorization policy.",
+		Summary: "Declares a generated secure-deny method authorization policy.",
 		Targets: []sdk.Target{sdk.TargetMethod},
 		Arguments: []sdk.Argument{
 			{
@@ -75,7 +76,7 @@ func Authorize() sdk.Definition {
 	}
 }
 
-// AuthorizeHandler contributes a generated secure-deny route policy.
+// AuthorizeHandler contributes a generated secure-deny method policy.
 func AuthorizeHandler(
 	_ context.Context,
 	invocation sdk.Invocation,

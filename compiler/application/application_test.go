@@ -15,13 +15,44 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 	runtimeconfig "github.com/spice-framework/spice/config"
 	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
+	"github.com/spice-framework/toolchain/compiler/graph"
 	"github.com/spice-framework/toolchain/compiler/lifecycle"
 	"github.com/spice-framework/toolchain/compiler/load"
+	compilerpolicy "github.com/spice-framework/toolchain/compiler/policy"
 	"github.com/spice-framework/toolchain/compiler/provider"
 	"github.com/spice-framework/toolchain/compiler/resolve"
 	"github.com/spice-framework/toolchain/internal/testannotation"
 	"github.com/spice-framework/toolchain/internal/testsupport"
 )
+
+func TestPolicyProviderOrderAddsManagerDependencyAndRejectsCycles(t *testing.T) {
+	t.Parallel()
+	manager := provider.Provider{SymbolID: "manager", Name: "manager"}
+	service := provider.Provider{SymbolID: "service", Name: "service"}
+	consumer := provider.Provider{SymbolID: "consumer", Name: "consumer"}
+	policies := []compilerpolicy.Service{{
+		Provider: service, ManagerProviderID: manager.SymbolID,
+	}}
+	ordered, diagnostic := orderProvidersForPolicies(
+		[]provider.Provider{service, consumer, manager},
+		[]graph.Edge{{ConsumerID: consumer.SymbolID, DependencyID: service.SymbolID}},
+		policies,
+	)
+	if diagnostic != nil || !slices.Equal(
+		providerNames(ordered),
+		[]string{"manager", "service", "consumer"},
+	) {
+		t.Fatalf("ordered = %v, diagnostic = %v", providerNames(ordered), diagnostic)
+	}
+	ordered, diagnostic = orderProvidersForPolicies(
+		[]provider.Provider{service, manager},
+		[]graph.Edge{{ConsumerID: manager.SymbolID, DependencyID: service.SymbolID}},
+		policies,
+	)
+	if ordered != nil || diagnostic == nil || diagnostic.Kind != "policy-dependency-cycle" {
+		t.Fatalf("cycle = %v, %#v", providerNames(ordered), diagnostic)
+	}
+}
 
 func TestBuildAssemblesDeterministicApplicationIR(t *testing.T) {
 	root := writeModule(t, map[string]string{

@@ -152,14 +152,21 @@ func integrationContributions(
 			Async: &sdk.AsyncContribution{},
 		}}, true
 	case "cache.Cacheable":
+		name := stringArgument(value.Arguments, "name")
+		if name == "" {
+			name = "fixture"
+		}
 		return []sdk.Contribution{{
 			Kind:  sdk.ContributionCache,
-			Cache: &sdk.CacheContribution{Name: "fixture"},
+			Cache: &sdk.CacheContribution{Name: name},
 		}}, true
 	case "data.Transactional":
 		return []sdk.Contribution{{
-			Kind:        sdk.ContributionTransaction,
-			Transaction: &sdk.TransactionContribution{},
+			Kind: sdk.ContributionTransaction,
+			Transaction: &sdk.TransactionContribution{
+				Isolation: stringArgument(value.Arguments, "isolation"),
+				ReadOnly:  booleanArgument(value.Arguments, "readOnly"),
+			},
 		}}, true
 	case "event.Topic":
 		return []sdk.Contribution{{
@@ -181,9 +188,43 @@ func integrationContributions(
 			},
 		}}, true
 	case "security.Authorize":
+		contribution := sdk.Contribution{
+			Kind: sdk.ContributionAuthorization,
+			Authorization: &sdk.AuthorizationContribution{
+				Authenticated: booleanArgument(value.Arguments, "authenticated"),
+				AnyRoles:      stringListArgument(value.Arguments, "anyRoles"),
+				AllRoles:      stringListArgument(value.Arguments, "allRoles"),
+				AllScopes:     stringListArgument(value.Arguments, "allScopes"),
+				Expression:    stringArgument(value.Arguments, "expression"),
+			},
+		}
+		if err := contribution.Validate(); err != nil {
+			contribution.Authorization = &sdk.AuthorizationContribution{}
+		}
+		return []sdk.Contribution{contribution}, true
+	case "retry.Retryable":
+		maxAttempts := integerArgument(value.Arguments, "maxAttempts", 3)
+		initialBackoff := stringArgument(value.Arguments, "initialBackoff")
+		if initialBackoff == "" {
+			initialBackoff = "100ms"
+		}
+		maxBackoff := stringArgument(value.Arguments, "maxBackoff")
+		if maxBackoff == "" {
+			maxBackoff = "1s"
+		}
 		return []sdk.Contribution{{
-			Kind:          sdk.ContributionAuthorization,
-			Authorization: &sdk.AuthorizationContribution{},
+			Kind: sdk.ContributionRetry,
+			Retry: &sdk.RetryContribution{
+				MaxAttempts: maxAttempts, InitialBackoff: initialBackoff,
+				MaxBackoff: maxBackoff,
+				Multiplier: integerArgument(value.Arguments, "multiplier", 2),
+				Classifier: identifierArgument(value.Arguments, "classifier"),
+			},
+		}}, true
+	case "observability.Observed":
+		return []sdk.Contribution{{
+			Kind:        sdk.ContributionObservation,
+			Observation: &sdk.ObservationContribution{Name: stringArgument(value.Arguments, "name")},
 		}}, true
 	default:
 		return nil, false
@@ -350,6 +391,24 @@ func stringArgument(
 		}
 	}
 	return ""
+}
+
+func booleanArgument(arguments []annotation.Argument, name string) bool {
+	for _, argument := range arguments {
+		if argument.Name == name && argument.Value.Kind == annotation.KindBoolean {
+			return argument.Value.Boolean
+		}
+	}
+	return false
+}
+
+func integerArgument(arguments []annotation.Argument, name string, fallback int64) int64 {
+	for _, argument := range arguments {
+		if argument.Name == name && argument.Value.Kind == annotation.KindInteger {
+			return argument.Value.Integer
+		}
+	}
+	return fallback
 }
 
 func identifierArgument(

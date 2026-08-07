@@ -13,6 +13,7 @@ import (
 	managementannotation "github.com/spice-framework/spice/annotation/management"
 	modulithannotation "github.com/spice-framework/spice/annotation/modulith"
 	observabilityannotation "github.com/spice-framework/spice/annotation/observability"
+	retryannotation "github.com/spice-framework/spice/annotation/retry"
 	scheduleannotation "github.com/spice-framework/spice/annotation/schedule"
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/spice/annotation/sdk/protocol"
@@ -55,6 +56,8 @@ func TestEveryOfficialDescriptorHasOneDeclaredToolHandler(t *testing.T) {
 		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/modulith", Name: "Module"}, modulithannotation.Module()},
 		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/modulith", Name: "NamedInterface"}, modulithannotation.NamedInterface()},
 		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/observability", Name: "Logging"}, observabilityannotation.Logging()},
+		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/observability", Name: "Observed"}, observabilityannotation.Observed()},
+		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/retry", Name: "Retryable"}, retryannotation.Retryable()},
 		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/schedule", Name: "FixedDelay"}, scheduleannotation.FixedDelay()},
 		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/security", Name: "Authorize"}, securityannotation.Authorize()},
 		{sdk.Symbol{Package: "github.com/spice-framework/spice/annotation/web", Name: "Controller"}, webannotation.Controller()},
