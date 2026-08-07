@@ -153,6 +153,43 @@ type Broken struct{}
 	}
 }
 
+func TestVerifyJavaStructuredProfile(t *testing.T) {
+	root := writeGoSource(t, `package sample
+
+type First struct{}
+type Second struct{}
+
+func helper() {}
+`)
+	code, stdout, stderr := runModule(root, "verify", ".")
+	if code != 0 || stdout == "" || stderr != "" {
+		t.Fatalf(
+			"default profile: code=%d stdout=%q stderr=%q",
+			code,
+			stdout,
+			stderr,
+		)
+	}
+
+	code, stdout, stderr = runModule(
+		root,
+		"verify",
+		"--profile=java-structured",
+		".",
+	)
+	if code != 1 || stdout != "" ||
+		!strings.Contains(stderr, "[spice.style.one-type-per-file]") ||
+		!strings.Contains(stderr, "[spice.style.free-function]") ||
+		!strings.Contains(stderr, "style profile error") {
+		t.Fatalf(
+			"java-structured: code=%d stdout=%q stderr=%q",
+			code,
+			stdout,
+			stderr,
+		)
+	}
+}
+
 func TestVerifyRejectsInvalidFormattingOptions(t *testing.T) {
 	t.Parallel()
 	for _, arguments := range [][]string{
@@ -160,6 +197,9 @@ func TestVerifyRejectsInvalidFormattingOptions(t *testing.T) {
 		{"verify", "--format=yaml"},
 		{"verify", "--format=json", "--format=text"},
 		{"verify", "--unknown"},
+		{"verify", "--profile"},
+		{"verify", "--profile=java"},
+		{"verify", "--profile=java-structured", "--profile=java-structured"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := Run(arguments, &stdout, &stderr)

@@ -34,6 +34,20 @@ go tool github.com/spice-framework/toolchain/cmd/spice generate ./...
 go tool github.com/spice-framework/toolchain/cmd/spice build ./...
 ```
 
+Applications that want class-oriented source organization can enable the
+compiler-enforced profile:
+
+```text
+go tool github.com/spice-framework/toolchain/cmd/spice verify --profile=java-structured ./...
+```
+
+The profile keeps valid Go while enforcing one named type per production file,
+receiver-method and constructor co-location, type-associated static factories,
+`package.go`, explicit managed-interface relationships, and the absence of
+package helpers or mutable globals. [`CODE_STYLE.md`](CODE_STYLE.md) is the
+normative rule and diagnostic reference. The LSP accepts the same profile in
+its Spice settings and offers source generation for validated `@Enum` helpers.
+
 `spice new` writes both tool declarations and independently pins the public core
 and toolchain module versions. It never downloads modules implicitly.
 

@@ -22,6 +22,7 @@ import (
 	compilercache "github.com/spice-framework/toolchain/compiler/cache"
 	"github.com/spice-framework/toolchain/compiler/configuration"
 	"github.com/spice-framework/toolchain/compiler/controller"
+	compilerenum "github.com/spice-framework/toolchain/compiler/enum"
 	compilerevent "github.com/spice-framework/toolchain/compiler/event"
 	"github.com/spice-framework/toolchain/compiler/graph"
 	"github.com/spice-framework/toolchain/compiler/lifecycle"
@@ -58,6 +59,8 @@ const (
 	StageTransaction Stage = "transaction"
 	// StageEvent identifies typed event topic and listener validation.
 	StageEvent Stage = "event"
+	// StageEnum identifies closed enum declaration validation.
+	StageEnum Stage = "enum"
 	// StageModule identifies application-module architecture validation.
 	StageModule Stage = "module"
 	// StageConfiguration identifies typed configuration validation.
@@ -149,6 +152,7 @@ type Model struct {
 	jobs         []compilerschedule.Job
 	asyncTasks   []compilerasync.Task
 	events       []compilerevent.Topic
+	enums        []compilerenum.Type
 	transactions []compilertransaction.Boundary
 	caches       []compilercache.Boundary
 	configTypes  []configuration.Type
@@ -210,6 +214,11 @@ func (m Model) AsyncTasks() []compilerasync.Task {
 // Events returns generated typed event topics in stable marker identity order.
 func (m Model) Events() []compilerevent.Topic {
 	return append([]compilerevent.Topic(nil), m.events...)
+}
+
+// Enums returns validated closed enum declarations in stable symbol order.
+func (m Model) Enums() []compilerenum.Type {
+	return append([]compilerenum.Type(nil), m.enums...)
 }
 
 // Transactions returns immutable generated transaction boundaries in stable
@@ -324,6 +333,13 @@ func BuildWithOptions(
 		model.diagnostics = moduleDiagnostics(diagnostics)
 		return model
 	}
+
+	enumCatalog := compilerenum.Build(program, resolution)
+	if diagnostics := enumCatalog.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = enumDiagnostics(diagnostics)
+		return model
+	}
+	model.enums = enumCatalog.Types()
 
 	configurationCatalog := configuration.Build(program, resolution, model.moduleModel)
 	if diagnostics := configurationCatalog.Diagnostics(); len(diagnostics) != 0 {
@@ -1363,6 +1379,22 @@ func configurationDiagnostics(diagnostics []configuration.Diagnostic) []Diagnost
 	for index, diagnostic := range diagnostics {
 		result[index] = Diagnostic{
 			Stage:            StageConfiguration,
+			Position:         diagnostic.Position,
+			PhysicalPosition: diagnostic.PhysicalPosition,
+			SymbolID:         diagnostic.SymbolID,
+			Kind:             diagnostic.Kind,
+			Message:          diagnostic.Message,
+		}
+	}
+	sortDiagnostics(result)
+	return result
+}
+
+func enumDiagnostics(diagnostics []compilerenum.Diagnostic) []Diagnostic {
+	result := make([]Diagnostic, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		result[index] = Diagnostic{
+			Stage:            StageEnum,
 			Position:         diagnostic.Position,
 			PhysicalPosition: diagnostic.PhysicalPosition,
 			SymbolID:         diagnostic.SymbolID,

@@ -1129,6 +1129,47 @@ func TestServiceCacheIsBoundedAndResultsAreDefensive(t *testing.T) {
 	}
 }
 
+func TestServiceExposesDefensiveEnumMetadata(t *testing.T) {
+	t.Parallel()
+	root := writeServiceModule(t)
+	writeServiceFixtureFile(t, root, "orders/status.go", `package orders
+
+// @import { Enum } from "github.com/spice-framework/spice/annotation/core"
+
+// @Enum
+type Status string
+
+const (
+	StatusPending Status = "pending"
+	StatusPaid Status = "paid"
+)
+`)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{WorkspaceRoot: root})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if !result.Diagnostics().Empty() {
+		t.Fatalf("Analyze() diagnostics = %v", result.Diagnostics().Items())
+	}
+	enums := result.Enums()
+	if len(enums) != 1 ||
+		enums[0].Name != "Status" ||
+		enums[0].Underlying != "string" ||
+		len(enums[0].Members) != 2 ||
+		enums[0].Location.Path == "" {
+		t.Fatalf("Enums() = %#v", enums)
+	}
+	enums[0].Members[0].Name = "changed"
+	if result.Enums()[0].Members[0].Name != "StatusPending" {
+		t.Fatal("Enums() did not return defensive member metadata")
+	}
+}
+
 func TestServiceRejectsStaleSequencedAnalysis(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -818,9 +818,11 @@ func TestAnalysisSettingsAndModuleRootBoundaries(t *testing.T) {
 	settings, err := normalizeAnalysisSettings(&analysisSettings{
 		Target:   "Commerce",
 		Patterns: []string{"./cmd/...", "./modules/..."},
+		Profile:  "java-structured",
 	})
 	if err != nil ||
 		settings.Target != "Commerce" ||
+		settings.Profile != "java-structured" ||
 		!slices.Equal(
 			settings.Patterns,
 			[]string{"./cmd/...", "./modules/..."},
@@ -831,6 +833,7 @@ func TestAnalysisSettingsAndModuleRootBoundaries(t *testing.T) {
 		{Target: " Commerce"},
 		{Patterns: []string{""}},
 		{Patterns: []string{" ./..."}},
+		{Profile: "java"},
 	} {
 		if _, normalizeErr := normalizeAnalysisSettings(&invalid); normalizeErr == nil {
 			t.Errorf(
