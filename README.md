@@ -1,5 +1,7 @@
 # Spice Toolchain
 
+Unified documentation: [spiceframework.dev/toolchain](https://spiceframework.dev/toolchain/).
+
 This repository contains Spice's compile-time developer toolchain: the
 compiler, generator, command-line interface, language server, scaffold support,
 and official annotation protocol executable. Runtime APIs, public annotation
