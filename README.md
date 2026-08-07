@@ -110,8 +110,8 @@ the proof finishes.
 
 The repository retains the filtered history of the compiler/tooling boundary.
 Its public-core bridge is pinned to
-`github.com/spice-framework/spice@v0.1.0-preview.1.0.20260806200749-524424a04df0`
-(commit `524424a04df0646796a718016dbe210b754d7a8d`). The Apache-2.0 license and
+`github.com/spice-framework/spice@v0.1.0-preview.1.0.20260807010518-0cacff461fbb`
+(commit `0cacff461fbb66a21b1f5c02dca61f81e2d7509a`). The Apache-2.0 license and
 pinned quality-tool versions were carried from the extracted source history,
 then the module identities and standalone gate were adapted here. No migration
 script or machine-specific replacement is part of the published tree.

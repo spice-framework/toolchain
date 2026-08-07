@@ -7,23 +7,23 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 )
 
-// Configuration declares a constructible factory bean that owns @Bean methods.
+// Component declares a constructible generic managed bean.
 //
-// A configuration type is constructed through the same direct compile-time
-// constructor selection as Service and Component. Annotated methods are then
-// invoked directly on that instance. Use @ConfigurationProperties for typed
-// external configuration values.
+// Use Component when a managed type is not application-service logic, a data
+// repository, an HTTP controller, or a configuration factory. Spice selects
+// and calls an ordinary Go constructor directly; it does not scan packages or
+// use reflection. Component supports the same bean identity, scope, ordering,
+// selection, and explicit interface-binding annotations as Service.
 //
-//	// @import { Bean, Configuration } from "github.com/spice-framework/spice/annotation/core"
-//	// @Configuration
-//	type DatabaseConfiguration struct{}
+//	// @import { Component } from "github.com/spice-framework/spice/annotation/core"
+//	// @Component
+//	type PasswordHasher struct{}
 //
-//	// @Bean
-//	func (*DatabaseConfiguration) Database(properties DatabaseProperties) (*sql.DB, error)
-func Configuration() sdk.Definition {
+//	func NewPasswordHasher() *PasswordHasher
+func Component() sdk.Definition {
 	return sdk.Definition{
-		Name:    "core.Configuration",
-		Summary: "Declares a constructible configuration and bean factory type.",
+		Name:    "core.Component",
+		Summary: "Declares a constructible generic managed bean.",
 		Targets: []sdk.Target{sdk.TargetType},
 		Arguments: []sdk.Argument{
 			{
@@ -44,8 +44,8 @@ func Configuration() sdk.Definition {
 			},
 		},
 		Examples: []sdk.Example{{
-			Title: "Configuration factory",
-			Code:  "// @Configuration\ntype DatabaseConfiguration struct{}\n\n// @Bean\nfunc (*DatabaseConfiguration) Database(properties DatabaseProperties) (*sql.DB, error)",
+			Title: "Generic component",
+			Code:  "// @Component\ntype PasswordHasher struct{}\n\nfunc NewPasswordHasher() *PasswordHasher",
 		}},
 		Compatibility: sdk.Compatibility{
 			Since:        "0.2.0",
@@ -53,20 +53,20 @@ func Configuration() sdk.Definition {
 		},
 		Implementation: sdk.Implementation{
 			Tool:     coretool.Path,
-			Handler:  ConfigurationHandler,
+			Handler:  ComponentHandler,
 			Protocol: sdk.ProtocolV1Alpha2,
 		},
 	}
 }
 
-// ConfigurationHandler contributes configuration-factory construction metadata.
-func ConfigurationHandler(
+// ComponentHandler contributes generic component construction metadata.
+func ComponentHandler(
 	_ context.Context,
 	invocation sdk.Invocation,
 ) (sdk.Result, error) {
 	if err := invocation.RequireDescriptor(
 		"github.com/spice-framework/spice/annotation/core",
-		"Configuration",
+		"Component",
 	); err != nil {
 		return sdk.Result{}, err
 	}
@@ -91,7 +91,7 @@ func ConfigurationHandler(
 	return sdk.OneContribution(sdk.Contribution{
 		Kind: sdk.ContributionStereotype,
 		Stereotype: &sdk.StereotypeContribution{
-			Role:        "configuration",
+			Role:        "component",
 			Construct:   true,
 			Constructor: constructor,
 			Name:        name,

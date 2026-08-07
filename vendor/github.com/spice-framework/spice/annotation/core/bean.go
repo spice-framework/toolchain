@@ -7,7 +7,7 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 )
 
-// Bean marks a package-level provider function.
+// Bean marks a provider function or a method on a @Configuration type.
 //
 // Spice derives dependencies and output from exact Go type identity. A
 // provider may additionally return lifecycle.Cleanup and error. Cleanup is
@@ -17,12 +17,15 @@ import (
 //
 //	// @import { Bean } from "github.com/spice-framework/spice/annotation/core"
 //	// @Bean
-//	func NewStore(config Config) (*Store, lifecycle.Cleanup, error)
+//	type StoreConfiguration struct{}
+//
+//	// @Bean
+//	func (*StoreConfiguration) Store(config Config) (*Store, lifecycle.Cleanup, error)
 func Bean() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Bean",
 		Summary: "Declares an exact-type dependency provider.",
-		Targets: []sdk.Target{sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetFunction, sdk.TargetMethod},
 		Arguments: []sdk.Argument{
 			{
 				Name:        "name",
@@ -37,8 +40,8 @@ func Bean() sdk.Definition {
 			},
 		},
 		Examples: []sdk.Example{{
-			Title: "Provider",
-			Code:  "// @Bean\nfunc NewStore(config Config) (*Store, error)",
+			Title: "Configuration method provider",
+			Code:  "// @Bean\nfunc (*StoreConfiguration) Store(config Config) (*Store, error)",
 		}},
 		Compatibility: sdk.Compatibility{
 			Since:        "0.1.0",

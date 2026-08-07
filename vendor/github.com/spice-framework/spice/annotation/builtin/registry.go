@@ -7,7 +7,8 @@ import "github.com/spice-framework/spice/annotation"
 func Registry() annotation.Registry {
 	return annotation.MustRegistry(
 		annotation.Definition{Name: "Application", Targets: annotation.Targets(annotation.TargetFunction)},
-		annotation.Definition{Name: "Bean", Targets: annotation.Targets(annotation.TargetFunction)},
+		annotation.Definition{Name: "Bean", Targets: annotation.Targets(annotation.TargetFunction, annotation.TargetMethod)},
+		annotation.Definition{Name: "Component", Targets: annotation.Targets(annotation.TargetType)},
 		annotation.Definition{
 			Name:    "async.Execute",
 			Targets: annotation.Targets(annotation.TargetMethod),
@@ -26,10 +27,15 @@ func Registry() annotation.Registry {
 		annotation.Definition{
 			Name:    "Configuration",
 			Targets: annotation.Targets(annotation.TargetType),
+		},
+		annotation.Definition{
+			Name:    "ConfigurationProperties",
+			Targets: annotation.Targets(annotation.TargetType),
 			Arguments: []annotation.ArgumentDefinition{
 				{Name: "prefix", Kinds: []annotation.Kind{annotation.KindString}},
 			},
 		},
+		annotation.Definition{Name: "Enum", Targets: annotation.Targets(annotation.TargetType)},
 		annotation.Definition{
 			Name:    "Controller",
 			Targets: annotation.Targets(annotation.TargetType),
@@ -63,7 +69,7 @@ func Registry() annotation.Registry {
 		},
 		annotation.Definition{
 			Name:    "event.Topic",
-			Targets: annotation.Targets(annotation.TargetFunction),
+			Targets: annotation.Targets(annotation.TargetType, annotation.TargetFunction),
 		},
 		annotation.Definition{
 			Name:    "Get",

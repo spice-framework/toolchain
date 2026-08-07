@@ -480,9 +480,9 @@ package orders
 `)
 	writeServiceFixtureFile(t, root, "orders/config.go", `package orders
 
-// @import { Bean, Configuration } from "github.com/spice-framework/spice/annotation/core"
+// @import { Bean, ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
 
-// @Configuration(prefix="orders")
+// @ConfigurationProperties(prefix="orders")
 type Settings struct {
 	Limit int `+"`spice:\"limit,default=100\"`"+`
 }
@@ -1543,9 +1543,9 @@ package orders
 `,
 		"orders/config.go": `package orders
 
-// @import { Configuration } from "github.com/spice-framework/spice/annotation/core"
+// @import { ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
 
-// @Configuration(prefix="orders")
+// @ConfigurationProperties(prefix="orders")
 type Settings struct {
 	Limit int ` + "`spice:\"limit,default=100\"`" + `
 }

@@ -164,7 +164,7 @@ func TestRenderRejectsGeneratedCacheConfigurationCollisions(t *testing.T) {
 
 import "context"
 
-// @Configuration(prefix="spice.cache.products.by-id")
+// @ConfigurationProperties(prefix="spice.cache.products.by-id")
 type Settings struct {
 	` + test.field + `
 }

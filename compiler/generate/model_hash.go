@@ -73,6 +73,7 @@ type modelHashDependency struct {
 type modelHashProvider struct {
 	ID            string                `json:"id"`
 	Source        provider.Source       `json:"source"`
+	Role          string                `json:"role,omitempty"`
 	SourceID      string                `json:"source_id,omitempty"`
 	SourceVersion string                `json:"source_version,omitempty"`
 	Module        string                `json:"module,omitempty"`
@@ -258,6 +259,7 @@ func modelHash(
 		value.Providers = append(value.Providers, modelHashProvider{
 			ID:            item.SymbolID,
 			Source:        item.Source,
+			Role:          item.Role,
 			SourceID:      item.SourceID,
 			SourceVersion: item.SourceVersion,
 			Module:        providerModules[item.SymbolID],

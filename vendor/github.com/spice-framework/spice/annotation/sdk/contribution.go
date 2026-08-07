@@ -19,6 +19,7 @@ const (
 	ContributionProvider       ContributionKind = "provider"
 	ContributionBeanMetadata   ContributionKind = "bean-metadata"
 	ContributionConfiguration  ContributionKind = "configuration"
+	ContributionEnum           ContributionKind = "enum"
 	ContributionController     ContributionKind = "controller"
 	ContributionRoute          ContributionKind = "route"
 	ContributionModule         ContributionKind = "module"
@@ -90,6 +91,11 @@ type BeanMetadataContribution struct {
 type ConfigurationContribution struct {
 	Prefix string `json:"prefix,omitempty"`
 }
+
+// EnumContribution marks one named scalar type whose same-file constants form
+// its complete legal value set. The compiler derives members and underlying
+// values from the typed Go program.
+type EnumContribution struct{}
 
 // ControllerContribution marks one HTTP controller declaration.
 type ControllerContribution struct {
@@ -203,6 +209,7 @@ type Contribution struct {
 	Provider       *ProviderContribution
 	BeanMetadata   *BeanMetadataContribution
 	Configuration  *ConfigurationContribution
+	Enum           *EnumContribution
 	Controller     *ControllerContribution
 	Route          *RouteContribution
 	Module         *ModuleContribution
@@ -266,6 +273,8 @@ func validateFoundationContribution(
 			"configuration",
 			contribution.Configuration.Prefix,
 		), true
+	case ContributionEnum:
+		return requirePayload(contribution.Enum, "enum"), true
 	case ContributionController:
 		if err := requirePayload(
 			contribution.Controller,
@@ -518,6 +527,7 @@ func (contribution Contribution) Clone() Contribution {
 		)
 	}
 	result.Configuration = clonePointer(contribution.Configuration)
+	result.Enum = clonePointer(contribution.Enum)
 	result.Controller = clonePointer(contribution.Controller)
 	result.Route = clonePointer(contribution.Route)
 	result.Module = clonePointer(contribution.Module)
@@ -565,6 +575,7 @@ func (contribution Contribution) payloadCount() int {
 		contribution.Provider != nil,
 		contribution.BeanMetadata != nil,
 		contribution.Configuration != nil,
+		contribution.Enum != nil,
 		contribution.Controller != nil,
 		contribution.Route != nil,
 		contribution.Module != nil,

@@ -89,9 +89,14 @@ func foundationContributions(
 		return []sdk.Contribution{
 			providerContribution(value.Arguments),
 		}, true
-	case "Service", "Repository":
+	case "Component", "Configuration", "Service", "Repository":
 		role := "service"
-		if value.Name == "Repository" {
+		switch value.Name {
+		case "Component":
+			role = "component"
+		case "Configuration":
+			role = "configuration"
+		case "Repository":
 			role = "repository"
 		}
 		return []sdk.Contribution{
@@ -102,10 +107,15 @@ func foundationContributions(
 			Kind:       sdk.ContributionController,
 			Controller: &sdk.ControllerContribution{},
 		}}, true
-	case "Configuration":
+	case "ConfigurationProperties":
 		return []sdk.Contribution{{
 			Kind:          sdk.ContributionConfiguration,
 			Configuration: &sdk.ConfigurationContribution{},
+		}}, true
+	case "Enum":
+		return []sdk.Contribution{{
+			Kind: sdk.ContributionEnum,
+			Enum: &sdk.EnumContribution{},
 		}}, true
 	case "Module":
 		return []sdk.Contribution{{

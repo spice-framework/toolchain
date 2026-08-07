@@ -1127,12 +1127,12 @@ package orders
 `,
 		"orders/config.go": `package orders
 
-// @Configuration(prefix="orders")
+// @ConfigurationProperties(prefix="orders")
 type Settings struct {
 	Limit int ` + "`spice:\"limit,default=100\"`" + `
 }
 
-// @import { Configuration } from "github.com/spice-framework/spice/annotation/core"
+// @import { ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
 `,
 	}
 	for relative, content := range files {

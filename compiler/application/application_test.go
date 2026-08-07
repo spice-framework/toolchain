@@ -646,7 +646,7 @@ func TestBuildReportsUpstreamStageWithoutContinuing(t *testing.T) {
 			name: "configuration",
 			source: `package app
 
-// @Configuration(prefix="server")
+// @ConfigurationProperties(prefix="server")
 type Settings struct {
 	Port uint ` + "`spice:\"port\"`" + `
 }
@@ -779,7 +779,7 @@ func TestBuildIncludesTypedConfigurationInApplicationIR(t *testing.T) {
 // @Module
 package app
 
-// @Configuration(prefix="server")
+// @ConfigurationProperties(prefix="server")
 type Settings struct {
 	Port int ` + "`spice:\"port,default=8080\"`" + `
 }

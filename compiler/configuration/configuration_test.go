@@ -28,7 +28,7 @@ type Level string
 type WorkerCount int8
 type StringAlias = string
 
-// @Configuration(prefix="server")
+// @ConfigurationProperties(prefix="server")
 type Settings struct {
 	Host StringAlias ` + "`spice:\"host,default=localhost\"`" + `
 	Debug bool ` + "`spice:\"debug,default=true\"`" + `
@@ -100,30 +100,30 @@ func TestBuildReportsInvalidConfigurationDeclarations(t *testing.T) {
 		body string
 		want string
 	}{
-		{name: "alias", body: "type Base struct{}\n\n// @Configuration\ntype Settings = Base\n", want: "aliases are not supported"},
-		{name: "non struct", body: "// @Configuration\ntype Settings string\n", want: "must have a struct underlying type"},
-		{name: "generic", body: "// @Configuration\ntype Settings[T any] struct{}\n", want: "must not declare type parameters"},
-		{name: "private type", body: "// @Configuration\ntype settings struct{}\n", want: "must be exported"},
-		{name: "missing tag", body: "// @Configuration\ntype Settings struct { Host string }\n", want: "requires a spice tag"},
-		{name: "embedded", body: "type Base struct{}\n\n// @Configuration\ntype Settings struct { Base }\n", want: "is embedded"},
-		{name: "tagged private", body: "// @Configuration\ntype Settings struct { private string `spice:\"private\"` }\n", want: "is unexported"},
-		{name: "unsupported", body: "// @Configuration\ntype Settings struct { Ratio float64 `spice:\"ratio\"` }\n", want: "unsupported type"},
-		{name: "private field type", body: "type level string\n\n// @Configuration\ntype Settings struct { Level level `spice:\"level\"` }\n", want: "uses unexported type"},
-		{name: "bad prefix", body: "// @Configuration(prefix=\"Bad\")\ntype Settings struct { Host string `spice:\"host\"` }\n", want: "key \"Bad.host\""},
-		{name: "bad key", body: "// @Configuration\ntype Settings struct { Host string `spice:\"Bad\"` }\n", want: "key \"Bad\""},
-		{name: "empty key", body: "// @Configuration\ntype Settings struct { Host string `spice:\",required\"` }\n", want: "requires a property key"},
-		{name: "empty option", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,\"` }\n", want: "contains an empty option"},
-		{name: "unknown option", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,wat\"` }\n", want: "unknown option"},
-		{name: "duplicate option", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,secret,secret\"` }\n", want: "repeats option"},
-		{name: "required value", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,required=true\"` }\n", want: "does not accept a value"},
-		{name: "secret value", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,secret=true\"` }\n", want: "does not accept a value"},
-		{name: "default without value marker", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,default\"` }\n", want: "requires a value"},
-		{name: "env without value", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,env\"` }\n", want: "requires a value"},
-		{name: "empty env", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,env=\"` }\n", want: "requires a value"},
-		{name: "invalid env", body: "// @Configuration\ntype Settings struct { Host string `spice:\"host,env=server_host\"` }\n", want: "environment variable"},
-		{name: "invalid bool", body: "// @Configuration\ntype Settings struct { Debug bool `spice:\"debug,default=maybe\"` }\n", want: "default is invalid"},
-		{name: "invalid duration", body: "import \"time\"\n\n// @Configuration\ntype Settings struct { Timeout time.Duration `spice:\"timeout,default=soon\"` }\n", want: "default is invalid"},
-		{name: "int8 overflow", body: "// @Configuration\ntype Settings struct { Workers int8 `spice:\"workers,default=128\"` }\n", want: "outside the range of int8"},
+		{name: "alias", body: "type Base struct{}\n\n// @ConfigurationProperties\ntype Settings = Base\n", want: "aliases are not supported"},
+		{name: "non struct", body: "// @ConfigurationProperties\ntype Settings string\n", want: "must have a struct underlying type"},
+		{name: "generic", body: "// @ConfigurationProperties\ntype Settings[T any] struct{}\n", want: "must not declare type parameters"},
+		{name: "private type", body: "// @ConfigurationProperties\ntype settings struct{}\n", want: "must be exported"},
+		{name: "missing tag", body: "// @ConfigurationProperties\ntype Settings struct { Host string }\n", want: "requires a spice tag"},
+		{name: "embedded", body: "type Base struct{}\n\n// @ConfigurationProperties\ntype Settings struct { Base }\n", want: "is embedded"},
+		{name: "tagged private", body: "// @ConfigurationProperties\ntype Settings struct { private string `spice:\"private\"` }\n", want: "is unexported"},
+		{name: "unsupported", body: "// @ConfigurationProperties\ntype Settings struct { Ratio float64 `spice:\"ratio\"` }\n", want: "unsupported type"},
+		{name: "private field type", body: "type level string\n\n// @ConfigurationProperties\ntype Settings struct { Level level `spice:\"level\"` }\n", want: "uses unexported type"},
+		{name: "bad prefix", body: "// @ConfigurationProperties(prefix=\"Bad\")\ntype Settings struct { Host string `spice:\"host\"` }\n", want: "key \"Bad.host\""},
+		{name: "bad key", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"Bad\"` }\n", want: "key \"Bad\""},
+		{name: "empty key", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\",required\"` }\n", want: "requires a property key"},
+		{name: "empty option", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,\"` }\n", want: "contains an empty option"},
+		{name: "unknown option", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,wat\"` }\n", want: "unknown option"},
+		{name: "duplicate option", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,secret,secret\"` }\n", want: "repeats option"},
+		{name: "required value", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,required=true\"` }\n", want: "does not accept a value"},
+		{name: "secret value", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,secret=true\"` }\n", want: "does not accept a value"},
+		{name: "default without value marker", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,default\"` }\n", want: "requires a value"},
+		{name: "env without value", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,env\"` }\n", want: "requires a value"},
+		{name: "empty env", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,env=\"` }\n", want: "requires a value"},
+		{name: "invalid env", body: "// @ConfigurationProperties\ntype Settings struct { Host string `spice:\"host,env=server_host\"` }\n", want: "environment variable"},
+		{name: "invalid bool", body: "// @ConfigurationProperties\ntype Settings struct { Debug bool `spice:\"debug,default=maybe\"` }\n", want: "default is invalid"},
+		{name: "invalid duration", body: "import \"time\"\n\n// @ConfigurationProperties\ntype Settings struct { Timeout time.Duration `spice:\"timeout,default=soon\"` }\n", want: "default is invalid"},
+		{name: "int8 overflow", body: "// @ConfigurationProperties\ntype Settings struct { Workers int8 `spice:\"workers,default=128\"` }\n", want: "outside the range of int8"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -139,18 +139,18 @@ func TestBuildReportsInvalidConfigurationDeclarations(t *testing.T) {
 func TestBuildReportsDuplicateDeclarationsKeysAndEnvironmentVariables(t *testing.T) {
 	source := `package app
 
-// @Configuration
-// @Configuration
+// @ConfigurationProperties
+// @ConfigurationProperties
 type Repeated struct {
 	Ignored string ` + "`spice:\"-\"`" + `
 }
 
-// @Configuration
+// @ConfigurationProperties
 type First struct {
 	Host string ` + "`spice:\"server.host,env=SERVER_HOST\"`" + `
 }
 
-// @Configuration
+// @ConfigurationProperties
 type Second struct {
 	Host string ` + "`spice:\"server.host\"`" + `
 	Token string ` + "`spice:\"server.token,env=SERVER_HOST\"`" + `
@@ -177,7 +177,7 @@ func TestBuildDefendsAgainstInvalidPipelineInput(t *testing.T) {
 
 	program, resolution, modules := loadFixture(t, `package app
 
-// @Configuration
+// @ConfigurationProperties
 type Settings struct {
 	Host string `+"`spice:\"host\"`"+`
 }
@@ -189,7 +189,7 @@ type Settings struct {
 
 	functionProgram, functionResolution, functionModules := loadFixture(t, `package app
 
-// @Configuration
+// @ConfigurationProperties
 func Settings() {}
 `)
 	if diagnostics := Build(functionProgram, functionResolution, functionModules).Diagnostics(); !containsDiagnostic(diagnostics, "must target a named struct") {
@@ -200,7 +200,7 @@ func Settings() {}
 func TestConfigurationPrefixRejectsUnvalidatedArguments(t *testing.T) {
 	program, resolution, modules := loadFixture(t, `package app
 
-// @Configuration(foo="bar")
+// @ConfigurationProperties(foo="bar")
 type Settings struct{}
 `)
 	if diagnostics := Build(program, resolution, modules).Diagnostics(); !containsDiagnostic(diagnostics, "accepts only the optional") {
@@ -209,7 +209,7 @@ type Settings struct{}
 
 	program, resolution, modules = loadFixture(t, `package app
 
-// @Configuration(prefix="a", other="b")
+// @ConfigurationProperties(prefix="a", other="b")
 type Settings struct{}
 `)
 	if diagnostics := Build(program, resolution, modules).Diagnostics(); !containsDiagnostic(diagnostics, "accepts only the optional") {

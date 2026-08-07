@@ -8,22 +8,28 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 )
 
-// Topic marks a provider function that declares one typed event topic.
+// Topic marks an event payload type as one typed event topic.
 //
-// The topic's exact payload type and ownership come from the Go signature and
-// application module. Generated publishing remains explicit and observable.
+// The payload's exact type identity and ownership come from its Go declaration
+// and application module. Spice contributes a synthetic event.Publisher[T]
+// provider. Generated publishing remains explicit and observable.
 //
 //	// @import { Topic } from "github.com/spice-framework/spice/annotation/event"
 //	// @Topic
-//	func OrderChangedTopic() event.Topic[OrderChanged]
+//	type OrderChanged struct {
+//		OrderID string
+//	}
+//
+// Package-level function topics remain temporarily accepted for pre-0.2
+// migration. New applications should annotate the payload type.
 func Topic() sdk.Definition {
 	return sdk.Definition{
 		Name:    "event.Topic",
 		Summary: "Declares a typed application event topic.",
-		Targets: []sdk.Target{sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
 		Examples: []sdk.Example{{
-			Title: "Typed topic",
-			Code:  "// @Topic\nfunc OrderChangedTopic() event.Topic[OrderChanged]",
+			Title: "Type-owned topic",
+			Code:  "// @Topic\ntype OrderChanged struct {\n\tOrderID string\n}",
 		}},
 		Compatibility: sdk.Compatibility{
 			Since:        "0.1.0",

@@ -18,6 +18,7 @@ import (
 	"github.com/spice-framework/spice/event"
 )
 
+// @event.Topic
 type OrderPlaced struct {
 	ID string
 }
@@ -29,11 +30,6 @@ func NewListener() *Listener { return &Listener{} }
 
 // @event.Listener(order=5)
 func (*Listener) Handle(context.Context, OrderPlaced) error { return nil }
-
-// @event.Topic
-func OrderEvents(*Listener) event.Publisher[OrderPlaced] {
-	panic("event marker bodies must never execute")
-}
 
 type Service struct {
 	Publisher event.Publisher[OrderPlaced]
@@ -54,7 +50,7 @@ func Application(*Service) {}
 	}
 	if got, want := providerNames(model.Providers()), []string{
 		"NewListener",
-		"OrderEvents",
+		"OrderPlaced",
 		"NewService",
 	}; !slices.Equal(got, want) {
 		t.Fatalf("provider order = %v, want %v", got, want)
@@ -67,7 +63,7 @@ func Application(*Service) {}
 	}
 	events := model.Events()
 	if len(events) != 1 ||
-		events[0].Name != "OrderEvents" ||
+		events[0].Name != "OrderPlaced" ||
 		len(events[0].Listeners()) != 1 ||
 		events[0].Listeners()[0].Method.Name != "Handle" {
 		t.Fatalf("Events() = %#v", events)
@@ -99,6 +95,7 @@ import (
 	"github.com/spice-framework/spice/event"
 )
 
+// @event.Topic
 type OrderPlaced struct{}
 type Listener struct{}
 
@@ -109,9 +106,6 @@ func NewListener(event.Publisher[OrderPlaced]) *Listener {
 
 // @event.Listener
 func (*Listener) Handle(context.Context, OrderPlaced) error { return nil }
-
-// @event.Topic
-func OrderEvents(*Listener) event.Publisher[OrderPlaced] { return nil }
 
 // @Application
 func Application(*Listener) {}

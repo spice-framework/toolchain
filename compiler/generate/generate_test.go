@@ -1120,7 +1120,7 @@ import (
 
 type WorkerCount int8
 
-// @Configuration(prefix="server")
+// @ConfigurationProperties(prefix="server")
 type Settings struct {
 	Host string ` + "`spice:\"host,default=localhost\"`" + `
 	Port WorkerCount ` + "`spice:\"port,required,env=SERVER_PORT\"`" + `
@@ -1140,8 +1140,11 @@ func Captured() Settings {
 	return captured
 }
 
+// @Configuration
+type ServerConfiguration struct{}
+
 // @Bean
-func NewServer(settings Settings) *Server {
+func (*ServerConfiguration) Server(settings Settings) *Server {
 	captured = settings
 	return &Server{Settings: settings}
 }
@@ -1182,7 +1185,7 @@ func Configured(*components.Server) {}
 		t,
 		source,
 		"spiceComponents.Bind",
-		"spiceComponents.Construct",
+		"spiceComponents.ConstructServer_",
 	)
 	componentSource := generatedSourceUnitContent(
 		t,
@@ -1194,7 +1197,7 @@ func Configured(*components.Server) {}
 		"components.WorkerCount(rawValue)",
 		"shared.Level(rawValue)",
 		"if int64(convertedValue) != rawValue",
-		"components.NewServer(dependency0)",
+		"dependency0.Server(dependency1)",
 	} {
 		if !bytes.Contains(componentSource, []byte(expected)) {
 			t.Fatalf(
@@ -1769,7 +1772,7 @@ func TestRenderRejectsFrameworkOwnedConfigurationKey(t *testing.T) {
 
 import "time"
 
-// @Configuration(prefix="spice")
+// @ConfigurationProperties(prefix="spice")
 type Settings struct {
 	ShutdownTimeout time.Duration ` + "`spice:\"shutdown-timeout,default=1s\"`" + `
 }
@@ -1798,7 +1801,7 @@ func TestRenderRejectsFrameworkOwnedAsyncConfiguration(t *testing.T) {
 
 import "context"
 
-// @Configuration(prefix="spice.async")
+// @ConfigurationProperties(prefix="spice.async")
 type Settings struct {
 	MaxConcurrency int ` + "`spice:\"max-concurrency,default=1\"`" + `
 }
@@ -3936,7 +3939,7 @@ type Settings struct {
 	FailStart bool ` + "`spice:\"fail-start,default=false\"`" + `
 }
 
-// @Configuration(prefix="command")
+// @ConfigurationProperties(prefix="command")
 type Configuration Settings
 
 type Resource struct{}

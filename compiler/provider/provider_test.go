@@ -359,6 +359,73 @@ type Allocated struct{}
 	}
 }
 
+func TestConfigurationMethodBeanAddsReceiverDependency(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/configurationbean\n\ngo 1.26.0\n",
+		"configuration.go": `package configurationbean
+
+type Dependency struct{}
+type Product struct{ Dependency Dependency }
+
+// @Bean
+func DependencyProvider() Dependency { return Dependency{} }
+
+// @Configuration
+type Factory struct{}
+
+// @Bean(name="product")
+func (*Factory) Product(dependency Dependency) (Product, error) {
+	return Product{Dependency: dependency}, nil
+}
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	catalog := buildQuiet(t, program, resolved)
+	if diagnostics := catalog.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("Build() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	factory := providerByName(catalog.Providers(), "factory")
+	if factory == nil || factory.Role != "configuration" ||
+		factory.Construction != ConstructionAllocate {
+		t.Fatalf("configuration provider = %#v", factory)
+	}
+	product := providerByName(catalog.Providers(), "product")
+	if product == nil || product.Constructor.Kind != load.SymbolMethod ||
+		!product.ReturnsError || len(product.Dependencies) != 2 ||
+		product.Dependencies[0].TypeID !=
+			"*example.com/configurationbean.Factory" ||
+		product.Dependencies[1].TypeID !=
+			"example.com/configurationbean.Dependency" {
+		t.Fatalf("method bean provider = %#v", product)
+	}
+}
+
+func TestConfigurationMethodBeanRequiresConfigurationOwner(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"go.mod": "module example.com/invalidmethodbean\n\ngo 1.26.0\n",
+		"service.go": `package invalidmethodbean
+
+type Product struct{}
+
+// @Service
+type Factory struct{}
+
+// @Bean
+func (*Factory) Product() Product { return Product{} }
+`,
+	})
+	program, resolved := loadAndResolve(t, root, ".")
+	diagnostics := buildQuiet(t, program, resolved).Diagnostics()
+	if len(diagnostics) != 1 ||
+		diagnostics[0].Kind != "configuration-method-owner" ||
+		!strings.Contains(
+			diagnostics[0].Message,
+			"exactly one constructible @Configuration provider, found 0",
+		) {
+		t.Fatalf("Build() diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestStereotypeValidationFailsClosed(t *testing.T) {
 	root := writeModule(t, map[string]string{
 		"go.mod": "module example.com/badstereotypes\n\ngo 1.26.0\n",
@@ -597,7 +664,7 @@ func (A) Method() B { return B{} }
 		"at most one error result",
 		"variadic provider functions are not supported",
 		"generic provider functions are not supported",
-		"must target a package-level function",
+		"requires exactly one constructible @Configuration provider",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("diagnostics missing %q:\n%s", expected, joined)

@@ -134,7 +134,7 @@ func NewConsumer(value Original) Consumer { panic("must not execute") }
 	}
 }
 
-func TestRunVerifyRejectsBeanTargetBeforeCatalog(t *testing.T) {
+func TestRunVerifyRejectsBeanMethodWithoutConfigurationOwner(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -142,21 +142,21 @@ func TestRunVerifyRejectsBeanTargetBeforeCatalog(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "method",
+			name: "missing configuration owner",
 			source: `package sample
 
 type Config struct{}
 // @Bean
 func (Config) Provider() Config { return Config{} }
 `,
-			expected: "allowed target: function",
+			expected: "requires exactly one constructible @Configuration provider, found 0",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			code, stdout, stderr := runModule(writeGoSource(t, test.source), "verify", ".")
-			if code != 1 || stdout != "" || !strings.Contains(stderr, test.expected) || strings.Contains(stderr, "provider catalog error") {
+			if code != 1 || stdout != "" || !strings.Contains(stderr, test.expected) || !strings.Contains(stderr, "provider catalog error") {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
 		})

@@ -25,9 +25,10 @@ func TestBuildCompilesTypedTopicsAndListeners(t *testing.T) {
 import (
 	"context"
 
-	"github.com/spice-framework/spice/event"
+	_ "github.com/spice-framework/spice/event"
 )
 
+// @event.Topic
 type OrderPlaced struct {
 	ID string
 }
@@ -55,10 +56,6 @@ func (*Inventory) Reserve(context.Context, OrderPlaced) error {
 	panic("listener methods must not execute during analysis")
 }
 
-// @event.Topic
-func OrderEvents(audit *Audit, inventory *Inventory) event.Publisher[OrderPlaced] {
-	panic("event topic marker bodies must not execute during analysis")
-}
 `,
 	})
 	program, resolution, providers, modules := loadEventInputs(t, root)
@@ -71,7 +68,7 @@ func OrderEvents(audit *Audit, inventory *Inventory) event.Publisher[OrderPlaced
 		t.Fatalf("Topics() = %#v", topics)
 	}
 	topic := topics[0]
-	if topic.Name != "OrderEvents" ||
+	if topic.Name != "OrderPlaced" ||
 		topic.ProviderID == "" ||
 		topic.Module != "example.com/events/orders" ||
 		topic.PublisherTypeID !=
@@ -92,8 +89,10 @@ func OrderEvents(audit *Audit, inventory *Inventory) event.Publisher[OrderPlaced
 		synthetic[0].Source != provider.SourceEvent ||
 		!synthetic[0].ReturnsError ||
 		len(synthetic[0].Dependencies) != 2 ||
-		synthetic[0].Dependencies[0].Name != "audit" ||
-		synthetic[0].Dependencies[1].Name != "inventory" {
+		synthetic[0].Dependencies[0].TypeID !=
+			"*example.com/events/orders.Audit" ||
+		synthetic[0].Dependencies[1].TypeID !=
+			"*example.com/events/orders.Inventory" {
 		t.Fatalf("Providers() = %#v", synthetic)
 	}
 

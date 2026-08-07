@@ -110,6 +110,8 @@ func foundationContributionPayload(
 		return value.BeanMetadata, true
 	case sdk.ContributionConfiguration:
 		return value.Configuration, true
+	case sdk.ContributionEnum:
+		return value.Enum, true
 	case sdk.ContributionController:
 		return value.Controller, true
 	case sdk.ContributionRoute:
@@ -192,6 +194,9 @@ func foundationContributionDestination(
 	case sdk.ContributionConfiguration:
 		value.Configuration = &sdk.ConfigurationContribution{}
 		return value, value.Configuration, true
+	case sdk.ContributionEnum:
+		value.Enum = &sdk.EnumContribution{}
+		return value, value.Enum, true
 	case sdk.ContributionController:
 		value.Controller = &sdk.ControllerContribution{}
 		return value, value.Controller, true

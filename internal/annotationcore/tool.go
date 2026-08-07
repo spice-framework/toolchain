@@ -190,6 +190,11 @@ func handlerRegistrations() []handlerRegistration {
 			coreannotation.Service,
 		),
 		newHandlerRegistration(
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Component"},
+			sdk.ContributionStereotype,
+			coreannotation.Component,
+		),
+		newHandlerRegistration(
 			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Repository"},
 			sdk.ContributionStereotype,
 			coreannotation.Repository,
@@ -246,8 +251,18 @@ func handlerRegistrations() []handlerRegistration {
 		),
 		newHandlerRegistration(
 			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Configuration"},
-			sdk.ContributionConfiguration,
+			sdk.ContributionStereotype,
 			coreannotation.Configuration,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "ConfigurationProperties"},
+			sdk.ContributionConfiguration,
+			coreannotation.ConfigurationProperties,
+		),
+		newHandlerRegistration(
+			sdk.Symbol{Package: descriptorModulePath + "/annotation/core", Name: "Enum"},
+			sdk.ContributionEnum,
+			coreannotation.Enum,
 		),
 		newHandlerRegistration(
 			sdk.Symbol{Package: descriptorModulePath + "/annotation/web", Name: "Controller"},

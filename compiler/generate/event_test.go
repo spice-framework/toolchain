@@ -52,7 +52,7 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 		"EventObservers",
 		"[]spiceevent.Observer",
 		"spiceevent.NewTopic(",
-		`ID:     "spice:symbol:v1|function|33:example.com/eventgenerated/events|0:|11:OrderEvents"`,
+		`ID:     "spice:symbol:v1|type|33:example.com/eventgenerated/events|0:|11:OrderPlaced"`,
 		`Module: "example.com/eventgenerated/events"`,
 		"[]spiceevent.Subscriber[events.OrderPlaced]",
 		`ID:     "spice:symbol:v1|method|33:example.com/eventgenerated/events|9:Inventory|7:Reserve"`,
@@ -62,7 +62,7 @@ func TestRenderGeneratesExecutableTypedEventTopics(t *testing.T) {
 		"Order:  20",
 		"Handle: audit.Record",
 		"options.EventObservers...",
-		"var orderEvents spiceevent.Publisher[events.OrderPlaced]",
+		"var orderPlaced spiceevent.Publisher[events.OrderPlaced]",
 	} {
 		if !bytes.Contains(firstSource, []byte(required)) {
 			t.Fatalf("generated event source missing %q:\n%s", required, firstSource)
@@ -164,6 +164,7 @@ var state struct {
 	current *Service
 }
 
+// @event.Topic
 type OrderPlaced struct {
 	ID string
 }
@@ -200,11 +201,6 @@ func NewInventory() (*Inventory, lifecycle.Cleanup) {
 func (*Inventory) Reserve(_ context.Context, placed OrderPlaced) error {
 	appendTrace("inventory " + placed.ID)
 	return nil
-}
-
-// @event.Topic
-func OrderEvents(*Audit, *Inventory) event.Publisher[OrderPlaced] {
-	panic("event topic marker bodies must never execute")
 }
 
 type Service struct {
