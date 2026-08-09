@@ -146,6 +146,31 @@ retained starter builder, or this repository's binary-release builder. Starter
 workflows authorize an exact verifier version with an ordinary root `go.mod`
 `tool` directive and run it in vendor-only offline mode.
 
+Generic `go-module-v1` releases use the separate
+`cmd/spice-go-release-verify` boundary. It accepts only the four explicitly
+reviewed Spice Agent module policies, rejects starters and distribution
+profiles, and independently binds repository, source, module, version, commit,
+committed release intent, required module selections, vendor selection,
+archive bytes, release metadata, checksums, and SPDX 2.3 contents. It runs only
+an archive-materialized copy of the exact Git tree: dependencies are downloaded
+into verifier-private caches through `https://proxy.golang.org` and
+`sum.golang.org`, the committed vendor tree is compared byte-for-byte and
+mode-for-mode with a fresh authenticated regeneration, and the isolated tree
+then passes offline vendor-only listing and a `-trimpath` build. Candidate
+`go.mod` and `go.sum` changes during authentication fail closed. Public graph
+authentication uses a private alternate modfile and sumfile inside the isolated
+workspace, so Go may complete checksum evidence without changing those tidy
+candidate files. CGO, credentials, private-module exceptions, workspace
+selection, and ambient Go configuration are disabled. One validated absolute Go executable and
+verifier-private Go path, caches, temporary storage, and disabled telemetry
+remain fixed across every command.
+The command imports neither the development catalog nor its renderer. The
+organization workflow must pin the development renderer and this verifier from
+separate immutable commits before keyless attestation. A successful invocation
+copies exactly the four verified artifact bytes into a required, previously
+absent verifier-owned output directory; attestation must never consume the
+renderer directory directly.
+
 The separately explicit `make release-acceptance` proof is network-capable by
 design and is not part of `make verify`. It clones the central development
 signer and starter-oidc at repository-pinned commit IDs, creates a clean

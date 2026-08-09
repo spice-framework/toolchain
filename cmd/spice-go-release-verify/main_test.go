@@ -1,0 +1,53 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"strings"
+	"testing"
+)
+
+func TestRunRejectsInvalidArguments(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		wantCode  int
+		wantError string
+	}{
+		{name: "unknown flag", arguments: []string{"-unknown"}, wantCode: 2, wantError: "flag provided"},
+		{name: "positional", arguments: []string{"extra"}, wantCode: 2, wantError: "unexpected arguments"},
+		{name: "missing required", wantCode: 2, wantError: "are required"},
+		{
+			name: "unsupported profile",
+			arguments: []string{
+				"-artifacts", "missing", "-verified-output", "verified", "-root", "missing", "-repository", "spice-agent",
+				"-source", "https://github.com/spice-framework/spice-agent",
+				"-module", "github.com/spice-framework/spice-agent", "-version", "v0.1.0-preview.1",
+				"-commit", strings.Repeat("a", 40), "-profile", "go-distribution-v1",
+			},
+			wantCode: 1, wantError: "unsupported",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), test.arguments, &stdout, &stderr)
+			if code != test.wantCode || !strings.Contains(stderr.String(), test.wantError) {
+				t.Fatalf("run() = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestWriteExitHandlesWriterFailure(t *testing.T) {
+	t.Parallel()
+	if code := writeExit(failingWriter{}, 2, "failure"); code != 1 {
+		t.Fatalf("writeExit() = %d", code)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }

@@ -1,0 +1,138 @@
+// Package goreleaseverify independently verifies catalog-authorized generic
+// Go module release artifacts. It deliberately does not import the development
+// repository or any release renderer.
+package goreleaseverify
+
+import "time"
+
+const (
+	ProfileGoModule = "go-module-v1"
+
+	metadataSchema = 1
+	artifactSchema = 1
+
+	maxArtifactBytes = 256 << 20
+	maxArchiveBytes  = 256 << 20
+	maxChecksums     = 64 << 10
+	maxControlFile   = 1 << 20
+	maxModuleGraph   = 16 << 20
+	maxGitTree       = 16 << 20
+	maxDiagnostic    = 32 << 10
+	maxArchiveSource = 256 << 20
+	maxTreeEntries   = 100_000
+	maxVendorFiles   = 100_000
+	maxVendorBytes   = 512 << 20
+
+	rendererIdentity = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
+	spiceVersion     = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
+	toolchainVersion = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
+	agentVersion     = "v0.1.0-preview.1"
+)
+
+// Config contains separately trusted release identity and untrusted artifact
+// locations. Policy is selected only from the verifier's compiled allowlist.
+type Config struct {
+	Directory       string
+	Repository      string
+	RepositoryName  string
+	CanonicalSource string
+	Module          string
+	Version         string
+	Commit          string
+	Profile         string
+	VerifiedOutput  string
+}
+
+// Result summarizes a successfully verified generic Go module release.
+type Result struct {
+	Files   []string
+	Commit  string
+	Epoch   time.Time
+	Module  string
+	Profile string
+}
+
+type releasePolicy struct {
+	repository      string
+	module          string
+	source          string
+	version         string
+	metadataFile    string
+	requiredModules []selectedModule
+}
+
+// These policies intentionally duplicate the development catalog. The
+// organization release workflow pins both implementations so one repository
+// cannot expand release authority on its own.
+var releasePolicies = map[string]releasePolicy{
+	"spice-agent": {
+		repository: "spice-agent", module: "github.com/spice-framework/spice-agent",
+		source: "https://github.com/spice-framework/spice-agent", version: "v0.1.0-preview.1",
+		metadataFile: "spice-release.json",
+		requiredModules: []selectedModule{
+			{path: "github.com/spice-framework/spice", version: spiceVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+		},
+	},
+	"spice-agent-provider-openai": {
+		repository: "spice-agent-provider-openai", module: "github.com/spice-framework/spice-agent-provider-openai",
+		source: "https://github.com/spice-framework/spice-agent-provider-openai", version: "v0.1.0-preview.1",
+		metadataFile: "spice-release.json",
+		requiredModules: []selectedModule{
+			{path: "github.com/spice-framework/spice", version: spiceVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice-agent", version: agentVersion},
+		},
+	},
+	"spice-agent-tools-coding": {
+		repository: "spice-agent-tools-coding", module: "github.com/spice-framework/spice-agent-tools-coding",
+		source: "https://github.com/spice-framework/spice-agent-tools-coding", version: "v0.1.0-preview.1",
+		metadataFile: "spice-release.json",
+		requiredModules: []selectedModule{
+			{path: "github.com/spice-framework/spice", version: spiceVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice-agent", version: agentVersion},
+		},
+	},
+	"spice-agent-tui": {
+		repository: "spice-agent-tui", module: "github.com/spice-framework/spice-agent-tui",
+		source: "https://github.com/spice-framework/spice-agent-tui", version: "v0.1.0-preview.1",
+		metadataFile: "spice-release.json",
+		requiredModules: []selectedModule{
+			{path: "github.com/spice-framework/spice", version: spiceVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+		},
+	},
+}
+
+type releaseIntent struct {
+	Schema     int    `json:"schema"`
+	Profile    string `json:"profile"`
+	Repository string `json:"repository"`
+	Module     string `json:"module"`
+	Version    string `json:"version"`
+}
+
+type releaseMetadata struct {
+	Schema          int            `json:"schema"`
+	Profile         string         `json:"profile"`
+	Repository      string         `json:"repository"`
+	Module          string         `json:"module"`
+	Source          string         `json:"source"`
+	Version         string         `json:"version"`
+	Commit          string         `json:"commit"`
+	SourceDateEpoch int64          `json:"source_date_epoch"`
+	Go              string         `json:"go"`
+	Artifacts       []artifactFact `json:"artifacts"`
+}
+
+type artifactFact struct {
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
+	Size   int    `json:"size"`
+}
+
+type selectedModule struct {
+	path    string
+	version string
+}

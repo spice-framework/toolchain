@@ -31,6 +31,13 @@ to `github.com/spice-framework/spice`.
   builder. It authenticates signed library artifacts against an external trust
   anchor and exact Git objects; it never re-renders artifacts or trusts the
   emitted public key as its own anchor.
+- `spice-go-release-verify` must remain independent of the development catalog
+  and generic renderer. Its closed policy allowlist, artifact parser, source
+  checks, exact dependency pins, public checksum authentication, isolated
+  archive materialization, vendor regeneration, SBOM reconstruction, offline
+  build proof, and verifier-owned output handoff are a separately reviewed
+  release-authority boundary. It must never build the caller worktree or allow
+  renderer-owned bytes to cross into attestation directly.
 
 ## Feedback loop
 

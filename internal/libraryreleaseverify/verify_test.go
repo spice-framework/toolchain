@@ -908,6 +908,17 @@ func TestLimitedBufferReportsTruncation(t *testing.T) {
 	if _, err := gitOutput(context.Background(), t.TempDir(), 1); err == nil {
 		t.Fatal("gitOutput(no arguments) error = nil")
 	}
+	repository := t.TempDir()
+	runGit(t, repository, "init", "--quiet")
+	runGit(t, repository, "config", "user.name", "Spice Tests")
+	runGit(t, repository, "config", "user.email", "tests@spice.invalid")
+	writeTestFile(t, repository, "README.md", []byte("fixture\n"))
+	runGit(t, repository, "add", ".")
+	runGit(t, repository, "commit", "--quiet", "-m", "fixture")
+	if _, err := gitOutput(context.Background(), repository, 1, "rev-parse", "HEAD"); err == nil ||
+		!strings.Contains(err.Error(), "output exceeds") {
+		t.Fatalf("gitOutput(truncated) error = %v", err)
+	}
 }
 
 func TestParsePublicKeyRejectsNoncanonicalData(t *testing.T) {

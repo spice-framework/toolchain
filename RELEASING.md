@@ -162,6 +162,71 @@ aliases and invalid UTF-8 from producing different extraction results across
 Linux, macOS, and Windows. File contents remain unrestricted. The verifier also
 rejects ASCII case-folded path collisions independently of the producer.
 
+## Generic Go-module verification
+
+`cmd/spice-go-release-verify` is the independent pre-attestation verifier for
+the closed `go-module-v1` profile. The organization workflow supplies every
+trusted identity explicitly:
+
+```text
+spice-go-release-verify \
+  -artifacts=<directory> \
+  -verified-output=<required-absent-directory> \
+  -root=<exact-clean-candidate> \
+  -repository=<catalog-name> \
+  -source=https://github.com/spice-framework/<repository> \
+  -module=github.com/spice-framework/<repository> \
+  -version=<catalog-version> \
+  -commit=<exact-object-id> \
+  -profile=go-module-v1
+```
+
+`-artifacts` is untrusted renderer output. `-verified-output` must not already
+exist; after every verification and final input re-list succeeds, the verifier
+atomically claims that absent directory name without replacement, writes only
+the four policy-named bytes with safe modes, and removes any incomplete output
+before reporting failure. The
+organization workflow uploads, attests, and publishes only that verifier-owned
+directory.
+
+The verifier carries its own reviewed allowlist for `spice-agent`,
+`spice-agent-provider-openai`, `spice-agent-tools-coding`, and
+`spice-agent-tui`, including their required module identities. A required
+tool-only module may retain Go's `// indirect` marker; its canonical `require`
+entry remains inspectable beside the `tool` directive. This deliberately
+duplicates development catalog policy so one repository cannot
+expand release authority by itself. Any repository, version, dependency, or
+profile change requires separately reviewed development and toolchain commits.
+
+Verification requires a clean checkout whose exact tag and `HEAD` resolve to
+the supplied commit and whose origin matches the canonical source. It reads
+control data from 100644 Git blobs, rejects replacements, checks Go 1.26.0 and
+toolchain Go 1.26.5 declarations, requires the exact reviewed
+Spice/toolchain/agent versions, and extracts the already byte-verified source
+archive into a private workspace. It authenticates the complete selected graph
+in fresh module and build caches through only the public Go proxy and checksum
+database using a private alternate modfile and sumfile, verifies the cache,
+regenerates vendor, and compares every committed
+vendor byte and executable mode. Any `go.mod` or `go.sum` mutation fails. It
+then runs `go list` and `go build -trimpath` against that isolated tree with
+vendor-only network-disabled settings, CGO disabled, credentials removed, and
+ambient Go configuration removed. One absolute, resolved Go executable is
+bound before verification; private `GOPATH`, module/build caches, temporary
+storage, and disabled Go telemetry prevent host-state mutation. The verifier
+never builds in the caller worktree and rechecks source identity after all
+work. Portable source paths, case collisions, any committed source-tree or
+artifact symlink,
+missing files, extras, oversized files, checksum drift,
+noncanonical JSON, archive differences, metadata differences, and SBOM
+differences all fail closed.
+
+The output is not cryptographically trusted merely because this command
+passes. The separately pinned organization workflow next creates keyless
+Sigstore provenance over the verified bytes and verifies that bundle against
+the exact caller source and reusable-workflow identity before publication.
+`go-distribution-v1` remains unsupported until its own independent binary and
+archive contract exists.
+
 ## Cross-producer acceptance
 
 The network-capable cross-producer proof is deliberately separate from the

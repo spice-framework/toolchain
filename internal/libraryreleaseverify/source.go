@@ -554,14 +554,14 @@ func gitOutput(
 }
 
 type limitedBuffer struct {
-	bytes.Buffer
+	content   bytes.Buffer
 	maximum   int
 	truncated bool
 }
 
 func (buffer *limitedBuffer) Write(content []byte) (int, error) {
 	written := len(content)
-	remaining := buffer.maximum - buffer.Len()
+	remaining := buffer.maximum - buffer.content.Len()
 	if remaining <= 0 {
 		buffer.truncated = true
 		return written, nil
@@ -570,10 +570,14 @@ func (buffer *limitedBuffer) Write(content []byte) (int, error) {
 		content = content[:remaining]
 		buffer.truncated = true
 	}
-	_, _ = buffer.Buffer.Write(content)
+	_, _ = buffer.content.Write(content)
 	return written, nil
 }
 
+func (buffer *limitedBuffer) Bytes() []byte {
+	return buffer.content.Bytes()
+}
+
 func (buffer *limitedBuffer) String() string {
-	return strings.TrimSpace(buffer.Buffer.String())
+	return strings.TrimSpace(buffer.content.String())
 }
