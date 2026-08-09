@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -64,7 +65,89 @@ func (workspace isolatedWorkspace) Close() error {
 	if workspace.base == "" {
 		return nil
 	}
-	return os.RemoveAll(workspace.base)
+	return removeIsolatedWorkspace(workspace.base, workspaceCleanupOperations{
+		removeAll:    os.RemoveAll,
+		makeWritable: makeWorkspaceWritable,
+	})
+}
+
+type workspaceCleanupOperations struct {
+	removeAll    func(string) error
+	makeWritable func(string) error
+}
+
+func removeIsolatedWorkspace(path string, operations workspaceCleanupOperations) error {
+	initialErr := operations.removeAll(path)
+	if initialErr == nil {
+		return nil
+	}
+	repairErr := operations.makeWritable(path)
+	retryErr := operations.removeAll(path)
+	if retryErr == nil {
+		return nil
+	}
+	failures := []error{
+		fmt.Errorf("remove isolated verifier workspace: %w", initialErr),
+	}
+	if repairErr != nil {
+		failures = append(failures, fmt.Errorf("restore isolated verifier workspace permissions: %w", repairErr))
+	}
+	failures = append(failures, fmt.Errorf("remove isolated verifier workspace after permission repair: %w", retryErr))
+	return errors.Join(failures...)
+}
+
+func makeWorkspaceWritable(name string) (resultErr error) {
+	parent, openErr := os.OpenRoot(filepath.Dir(name))
+	if openErr != nil {
+		return fmt.Errorf("open isolated workspace parent: %w", openErr)
+	}
+	defer func() { resultErr = errors.Join(resultErr, parent.Close()) }()
+	base := filepath.Base(name)
+	info, statErr := parent.Lstat(base)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return nil
+	}
+	if statErr != nil {
+		return fmt.Errorf("inspect isolated workspace root: %w", statErr)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("isolated workspace root is not a directory")
+	}
+	if chmodErr := parent.Chmod(base, writableMode(info)); chmodErr != nil {
+		return fmt.Errorf("restore owner access to isolated workspace root: %w", chmodErr)
+	}
+	root, rootErr := parent.OpenRoot(base)
+	if rootErr != nil {
+		return fmt.Errorf("open isolated workspace root: %w", rootErr)
+	}
+	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+	return fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("visit %q: %w", name, walkErr)
+		}
+		if name == "." {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		entryInfo, infoErr := entry.Info()
+		if infoErr != nil {
+			return fmt.Errorf("inspect %q: %w", name, infoErr)
+		}
+		if chmodErr := root.Chmod(name, writableMode(entryInfo)); chmodErr != nil {
+			return fmt.Errorf("restore owner access to %q: %w", name, chmodErr)
+		}
+		return nil
+	})
+}
+
+func writableMode(info fs.FileInfo) os.FileMode {
+	mode := info.Mode().Perm() | 0o600
+	if info.IsDir() {
+		mode |= 0o100
+	}
+	return mode
 }
 
 func extractTrustedArchive(

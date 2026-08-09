@@ -240,6 +240,10 @@ artifact symlink,
 missing files, extras, oversized files, checksum drift,
 noncanonical JSON, archive differences, metadata differences, and SBOM
 differences all fail closed.
+Go's downloaded module cache intentionally contains read-only files and
+directories. Verifier cleanup retries after restoring owner write/search
+access inside its private workspace, does not follow symlinks, and still fails
+the release operation if the workspace cannot be removed.
 
 The output is not cryptographically trusted merely because this command
 passes. The separately pinned organization workflow next creates keyless

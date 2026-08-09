@@ -165,6 +165,11 @@ candidate files. CGO, credentials, private-module exceptions, workspace
 selection, and ambient Go configuration are disabled. One validated absolute Go executable and
 verifier-private Go path, caches, temporary storage, and disabled telemetry
 remain fixed across every command.
+Downloaded module-cache entries may be read-only by Go design. The verifier
+first attempts ordinary private-workspace removal, repairs only owner access
+inside that private tree when required, and retries removal without following
+symlinks. A persistent cleanup failure remains a verification error, so an
+apparently successful verification cannot silently leak temporary state.
 All four Agent module policies and the `spice-agent-coding` distribution policy
 require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
 sibling-module, release-version, metadata, binary, and payload selections remain

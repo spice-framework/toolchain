@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,6 +381,120 @@ func TestOwnedOutputWorkspaceAndVendorBoundaries(t *testing.T) {
 	}
 	if err := (isolatedWorkspace{}).Close(); err != nil {
 		t.Fatalf("empty isolatedWorkspace.Close() error = %v", err)
+	}
+}
+
+func TestIsolatedWorkspaceCloseRemovesReadOnlyModuleCache(t *testing.T) {
+	t.Parallel()
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	moduleDirectory := filepath.Join(workspaceRoot, "module-cache", "golang.org", "x", "sync@v0.22.0")
+	if err := os.MkdirAll(moduleDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	patents := filepath.Join(moduleDirectory, "PATENTS")
+	writeFile(t, patents, []byte("license evidence\n"))
+	if err := os.Chmod(patents, 0o400); err != nil {
+		t.Fatalf("make %q read-only: %v", patents, err)
+	}
+	for _, path := range []string{moduleDirectory, filepath.Dir(moduleDirectory)} {
+		if err := os.Chmod(path, 0o555); err != nil {
+			t.Fatalf("make %q read-only: %v", path, err)
+		}
+	}
+	workspace := isolatedWorkspace{base: workspaceRoot}
+	if err := workspace.Close(); err != nil {
+		t.Fatalf("Close(read-only module cache) error = %v", err)
+	}
+	if _, err := os.Lstat(workspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("isolated workspace remains after Close: %v", err)
+	}
+}
+
+func TestWorkspacePermissionRepairRestoresParentBeforeDescending(t *testing.T) {
+	t.Parallel()
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	nested := filepath.Join(workspaceRoot, "module-cache", "module@v1.0.0")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moduleFile := filepath.Join(nested, "module.go")
+	writeFile(t, moduleFile, []byte("package module\n"))
+	if err := os.Chmod(moduleFile, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{nested, filepath.Dir(nested), workspaceRoot} {
+		if err := os.Chmod(path, 0o400); err != nil {
+			t.Fatalf("remove owner search permission from %q: %v", path, err)
+		}
+	}
+	if err := makeWorkspaceWritable(workspaceRoot); err != nil {
+		t.Fatalf("makeWorkspaceWritable(no-search parent) error = %v", err)
+	}
+	if err := os.WriteFile(moduleFile, []byte("package repaired\n"), 0o600); err != nil {
+		t.Fatalf("write repaired module file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(nested, "child"), 0o700); err != nil {
+		t.Fatalf("create child in repaired module directory: %v", err)
+	}
+	if err := (isolatedWorkspace{base: workspaceRoot}).Close(); err != nil {
+		t.Fatalf("Close(repaired workspace) error = %v", err)
+	}
+}
+
+func TestIsolatedWorkspaceCleanupRetriesAfterPermissionFailure(t *testing.T) {
+	t.Parallel()
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	permissionErr := errors.New("read-only module cache")
+	removeCalls := 0
+	repairCalls := 0
+	err := removeIsolatedWorkspace(workspaceRoot, workspaceCleanupOperations{
+		removeAll: func(path string) error {
+			removeCalls++
+			if removeCalls == 1 {
+				return permissionErr
+			}
+			return os.RemoveAll(path)
+		},
+		makeWritable: func(path string) error {
+			repairCalls++
+			return makeWorkspaceWritable(path)
+		},
+	})
+	if err != nil {
+		t.Fatalf("removeIsolatedWorkspace(transient permission failure) error = %v", err)
+	}
+	if removeCalls != 2 || repairCalls != 1 {
+		t.Fatalf("cleanup calls = remove %d, repair %d", removeCalls, repairCalls)
+	}
+	if _, err := os.Lstat(workspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("isolated workspace remains after retry: %v", err)
+	}
+}
+
+func TestIsolatedWorkspaceCleanupReportsPersistentFailure(t *testing.T) {
+	t.Parallel()
+	initialFailure := errors.New("initial removal")
+	repairFailure := errors.New("permission repair")
+	retryFailure := errors.New("retry removal")
+	removeCalls := 0
+	err := removeIsolatedWorkspace("workspace", workspaceCleanupOperations{
+		removeAll: func(string) error {
+			removeCalls++
+			if removeCalls == 1 {
+				return initialFailure
+			}
+			return retryFailure
+		},
+		makeWritable: func(string) error { return repairFailure },
+	})
+	if !errors.Is(err, initialFailure) || !errors.Is(err, repairFailure) || !errors.Is(err, retryFailure) {
+		t.Fatalf("removeIsolatedWorkspace(persistent failure) error = %v", err)
+	}
+	if removeCalls != 2 {
+		t.Fatalf("cleanup remove calls = %d, want 2", removeCalls)
 	}
 }
 
