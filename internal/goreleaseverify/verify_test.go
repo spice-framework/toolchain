@@ -210,24 +210,26 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 			t.Errorf("policy %s version = %q, want %q", repository, got, version)
 		}
 	}
-	if got := distributionPolicies["spice-agent-coding"].version; got != agentExtensionVersion {
-		t.Errorf("distribution version = %q, want %q", got, agentExtensionVersion)
+	if got := distributionPolicies["spice-agent-coding"].version; got != agentDistributionVersion {
+		t.Errorf("distribution version = %q, want %q", got, agentDistributionVersion)
 	}
 }
 
 func TestAgentPreviewFourRecoveryPreservesEveryOtherVersionPin(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"Agent foundation": "v0.1.0-preview.2",
-		"Agent core":       "v0.1.0-preview.4",
-		"Agent extensions": "v0.1.0-preview.1",
-		"module toolchain": "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
+		"Agent foundation":   "v0.1.0-preview.2",
+		"Agent core":         "v0.1.0-preview.4",
+		"Agent extensions":   "v0.1.0-preview.1",
+		"Agent distribution": "v0.1.0-preview.2",
+		"module toolchain":   "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
 	}
 	actual := map[string]string{
-		"Agent foundation": agentFoundationVersion,
-		"Agent core":       agentCoreVersion,
-		"Agent extensions": agentExtensionVersion,
-		"module toolchain": toolchainVersion,
+		"Agent foundation":   agentFoundationVersion,
+		"Agent core":         agentCoreVersion,
+		"Agent extensions":   agentExtensionVersion,
+		"Agent distribution": agentDistributionVersion,
+		"module toolchain":   toolchainVersion,
 	}
 	for name, version := range want {
 		if actual[name] != version {

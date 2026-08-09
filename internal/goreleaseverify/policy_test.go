@@ -26,7 +26,7 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 			Repository: "spice-agent-coding",
 			Source:     "https://github.com/spice-framework/spice-agent-coding",
 			Module:     "github.com/spice-framework/spice-agent-coding",
-			Version:    agentExtensionVersion,
+			Version:    agentDistributionVersion,
 			Profile:    ProfileDistribution,
 		},
 	} {
@@ -42,6 +42,21 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 				t.Fatalf("CheckPolicy(exact) = %#v, want %#v", authorization, want)
 			}
 		})
+	}
+}
+
+func TestCheckPolicyRejectsStaleDistributionPreviewOne(t *testing.T) {
+	t.Parallel()
+	request := PolicyRequest{
+		Repository: "spice-agent-coding",
+		Source:     "https://github.com/spice-framework/spice-agent-coding",
+		Module:     "github.com/spice-framework/spice-agent-coding",
+		Version:    agentExtensionVersion,
+		Profile:    ProfileDistribution,
+	}
+	authorization, err := CheckPolicy(request)
+	if err == nil || !strings.Contains(err.Error(), "do not match") || authorization != (PolicyAuthorization{}) {
+		t.Fatalf("CheckPolicy(stale distribution preview.1) = %#v, %v", authorization, err)
 	}
 }
 

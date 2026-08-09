@@ -69,6 +69,42 @@ func TestRunPolicyCheckAuthorizesExactModulePolicy(t *testing.T) {
 	}
 }
 
+func TestRunPolicyCheckAuthorizesExactDistributionPolicy(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"policy-check",
+		"--repository=spice-agent-coding",
+		"--source=https://github.com/spice-framework/spice-agent-coding",
+		"--module=github.com/spice-framework/spice-agent-coding",
+		"--version=v0.1.0-preview.2",
+		"--profile=go-distribution-v1",
+	}, &stdout, &stderr)
+	want := "{\"profile\":\"go-distribution-v1\",\"repository\":\"spice-agent-coding\"," +
+		"\"module\":\"github.com/spice-framework/spice-agent-coding\"," +
+		"\"version\":\"v0.1.0-preview.2\"," +
+		"\"source\":\"https://github.com/spice-framework/spice-agent-coding\"}\n"
+	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
+		t.Fatalf("run(distribution policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunPolicyCheckRejectsStaleDistributionPreviewOne(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"policy-check",
+		"--repository=spice-agent-coding",
+		"--source=https://github.com/spice-framework/spice-agent-coding",
+		"--module=github.com/spice-framework/spice-agent-coding",
+		"--version=v0.1.0-preview.1",
+		"--profile=go-distribution-v1",
+	}, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "do not match") {
+		t.Fatalf("run(stale distribution policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 	t.Parallel()
 	base := []string{
@@ -112,7 +148,7 @@ func TestRunPolicyCheckHandlesWriterFailure(t *testing.T) {
 		"-repository", "spice-agent-coding",
 		"-source", "https://github.com/spice-framework/spice-agent-coding",
 		"-module", "github.com/spice-framework/spice-agent-coding",
-		"-version", "v0.1.0-preview.1",
+		"-version", "v0.1.0-preview.2",
 		"-profile", "go-distribution-v1",
 	}, failingWriter{}, io.Discard)
 	if code != 1 {

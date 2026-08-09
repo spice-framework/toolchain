@@ -15,7 +15,7 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 		"-repository", "spice-agent-coding",
 		"-source", "https://github.com/spice-framework/spice-agent-coding",
 		"-module", "github.com/spice-framework/spice-agent-coding",
-		"-version", "v0.1.0-preview.1", "-commit", strings.Repeat("a", 40),
+		"-version", "v0.1.0-preview.2", "-commit", strings.Repeat("a", 40),
 		"-profile", "go-distribution-v1",
 	}
 	for _, test := range []struct {
@@ -28,6 +28,7 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 		{name: "positional", arguments: []string{"extra"}, wantCode: 2, wantError: "unexpected arguments"},
 		{name: "missing required", wantCode: 2, wantError: "are required"},
 		{name: "missing checkout", arguments: valid, wantCode: 1, wantError: "trusted repository"},
+		{name: "stale preview.1", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.1"), wantCode: 1, wantError: "do not match"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -38,6 +39,17 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func replaceDistributionArgument(arguments []string, flagName, value string) []string {
+	result := append([]string{}, arguments...)
+	for index := range len(result) - 1 {
+		if result[index] == flagName {
+			result[index+1] = value
+			return result
+		}
+	}
+	return result
 }
 
 func TestWriteDistributionExitHandlesWriterFailure(t *testing.T) {

@@ -25,11 +25,12 @@ const (
 	maxVendorFiles          = 100_000
 	maxVendorBytes          = 512 << 20
 
-	rendererIdentity       = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
-	agentFoundationVersion = "v0.1.0-preview.2"
-	toolchainVersion       = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
-	agentCoreVersion       = "v0.1.0-preview.4"
-	agentExtensionVersion  = "v0.1.0-preview.1"
+	rendererIdentity         = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
+	agentFoundationVersion   = "v0.1.0-preview.2"
+	toolchainVersion         = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
+	agentCoreVersion         = "v0.1.0-preview.4"
+	agentExtensionVersion    = "v0.1.0-preview.1"
+	agentDistributionVersion = "v0.1.0-preview.2"
 )
 
 // Config contains separately trusted release identity and untrusted artifact
@@ -116,7 +117,7 @@ var distributionPolicies = map[string]distributionPolicy{
 		repository:   "spice-agent-coding",
 		module:       "github.com/spice-framework/spice-agent-coding",
 		source:       "https://github.com/spice-framework/spice-agent-coding",
-		version:      "v0.1.0-preview.1",
+		version:      agentDistributionVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
 			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},

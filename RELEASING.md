@@ -232,11 +232,20 @@ distribution policy require
 and distribution policies require the recovered
 `github.com/spice-framework/spice-agent@v0.1.0-preview.4`; preview.1,
 preview.2, and preview.3 are rejected for that dependency. Provider,
-coding-tools, TUI, and distribution release
-versions remain `v0.1.0-preview.1`, and the distribution's provider,
-coding-tools, and TUI sibling selections remain preview.1. Every toolchain,
+coding-tools, and TUI release versions remain `v0.1.0-preview.1`; the
+distribution's provider, coding-tools, and TUI sibling selections also remain
+preview.1. The `spice-agent-coding` distribution's own recovery version is
+`v0.1.0-preview.2`. Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
+
+The immutable distribution preview.1 attempt failed in release run
+`31333877865` while validating the tagged candidate: `make -C candidate
+verify-release` found no `verify-release` target. Rendering never ran, and the
+independent verification, attestation, provenance-authorization, and publish
+jobs were skipped. Preview.2 is a new closed-policy authorization for the
+corrected candidate; preview.1 remains rejected and must never be moved or
+reused.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
@@ -292,7 +301,7 @@ spice-go-distribution-release-verify \
   -repository=spice-agent-coding \
   -source=https://github.com/spice-framework/spice-agent-coding \
   -module=github.com/spice-framework/spice-agent-coding \
-  -version=v0.1.0-preview.1 \
+  -version=v0.1.0-preview.2 \
   -commit=<exact-object-id> \
   -profile=go-distribution-v1
 ```

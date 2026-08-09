@@ -32,7 +32,7 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		{name: "repository", mutate: func(value *Config) { value.RepositoryName = "spice-agent" }},
 		{name: "module", mutate: func(value *Config) { value.Module = "example.com/other" }},
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "/fork" }},
-		{name: "version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }},
+		{name: "stale preview.1 version", mutate: func(value *Config) { value.Version = agentExtensionVersion }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -56,6 +56,9 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 	}
 	if !slices.Equal(policy.requiredModules, wantModules) {
 		t.Fatalf("distribution required modules = %#v, want %#v", policy.requiredModules, wantModules)
+	}
+	if policy.version != agentDistributionVersion {
+		t.Fatalf("distribution version = %q, want %q", policy.version, agentDistributionVersion)
 	}
 }
 

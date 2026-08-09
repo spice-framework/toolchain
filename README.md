@@ -173,8 +173,12 @@ symlinks. A persistent cleanup failure remains a verification error, so an
 apparently successful verification cannot silently leak temporary state.
 All four Agent module policies and the `spice-agent-coding` distribution policy
 require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
-sibling-module, release-version, metadata, binary, and payload selections remain
-independently pinned.
+sibling-module, metadata, binary, and payload selections remain independently
+pinned. The distribution's own authorized recovery version is
+`v0.1.0-preview.2`; preview.1 is rejected after release run `31333877865`
+stopped at the missing candidate `verify-release` target before rendering or
+artifact production. Provider, coding-tools, and TUI releases and all three
+distribution sibling selections remain preview.1.
 Provider, coding-tools, and distribution policies require
 `spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
 all non-Agent selections remain unchanged.
