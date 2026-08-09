@@ -159,25 +159,41 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	}
 }
 
-func TestCompiledPoliciesRejectStaleAgentPreviewOneSelections(t *testing.T) {
+func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 	t.Parallel()
-	stale := selectedModule{
-		path:    "github.com/spice-framework/spice-agent",
-		version: agentExtensionVersion,
-	}
 	recovered := selectedModule{
 		path:    "github.com/spice-framework/spice-agent",
 		version: agentCoreVersion,
 	}
 	for _, repository := range []string{"spice-agent-provider-openai", "spice-agent-tools-coding"} {
 		modules := releasePolicies[repository].requiredModules
-		if slices.Contains(modules, stale) || !slices.Contains(modules, recovered) {
-			t.Errorf("policy %s required modules = %#v, require recovered Agent and reject stale preview.1", repository, modules)
+		for _, staleVersion := range []string{
+			agentExtensionVersion,
+			"v0.1.0-preview.2",
+			"v0.1.0-preview.3",
+		} {
+			stale := selectedModule{path: "github.com/spice-framework/spice-agent", version: staleVersion}
+			if slices.Contains(modules, stale) {
+				t.Errorf("policy %s required modules = %#v, contains stale Agent %s", repository, modules, staleVersion)
+			}
+		}
+		if !slices.Contains(modules, recovered) {
+			t.Errorf("policy %s required modules = %#v, missing recovered Agent", repository, modules)
 		}
 	}
 	modules := distributionPolicies["spice-agent-coding"].requiredModules
-	if slices.Contains(modules, stale) || !slices.Contains(modules, recovered) {
-		t.Errorf("distribution required modules = %#v, require recovered Agent and reject stale preview.1", modules)
+	for _, staleVersion := range []string{
+		agentExtensionVersion,
+		"v0.1.0-preview.2",
+		"v0.1.0-preview.3",
+	} {
+		stale := selectedModule{path: "github.com/spice-framework/spice-agent", version: staleVersion}
+		if slices.Contains(modules, stale) {
+			t.Errorf("distribution required modules = %#v, contains stale Agent %s", modules, staleVersion)
+		}
+	}
+	if !slices.Contains(modules, recovered) {
+		t.Errorf("distribution required modules = %#v, missing recovered Agent", modules)
 	}
 }
 
@@ -196,6 +212,27 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	}
 	if got := distributionPolicies["spice-agent-coding"].version; got != agentExtensionVersion {
 		t.Errorf("distribution version = %q, want %q", got, agentExtensionVersion)
+	}
+}
+
+func TestAgentPreviewFourRecoveryPreservesEveryOtherVersionPin(t *testing.T) {
+	t.Parallel()
+	want := map[string]string{
+		"Agent foundation": "v0.1.0-preview.2",
+		"Agent core":       "v0.1.0-preview.4",
+		"Agent extensions": "v0.1.0-preview.1",
+		"module toolchain": "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
+	}
+	actual := map[string]string{
+		"Agent foundation": agentFoundationVersion,
+		"Agent core":       agentCoreVersion,
+		"Agent extensions": agentExtensionVersion,
+		"module toolchain": toolchainVersion,
+	}
+	for name, version := range want {
+		if actual[name] != version {
+			t.Errorf("%s version = %q, want %q", name, actual[name], version)
+		}
 	}
 }
 
@@ -320,6 +357,8 @@ func TestVerifyRejectsPolicyAndModuleViolations(t *testing.T) {
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "-fork" }, want: "do not match"},
 		{name: "module", mutate: func(value *Config) { value.Module += "/fork" }, want: "do not match"},
 		{name: "stale Agent preview.1 release", mutate: func(value *Config) { value.Version = agentExtensionVersion }, want: "do not match"},
+		{name: "stale Agent preview.2 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }, want: "do not match"},
+		{name: "stale Agent preview.3 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }, want: "do not match"},
 		{name: "version", mutate: func(value *Config) { value.Version = "v0.1.0" }, want: "do not match"},
 		{name: "commit", mutate: func(value *Config) { value.Commit = strings.ToUpper(value.Commit) }, want: "lowercase"},
 	}

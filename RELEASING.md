@@ -168,6 +168,34 @@ rejects ASCII case-folded path collisions independently of the producer.
 the closed `go-module-v1` profile. The organization workflow supplies every
 trusted identity explicitly:
 
+Before creating an immutable tag, compare the separately reviewed development
+plan with the independent compiled authorization:
+
+```text
+spice-go-release-verify policy-check \
+  --repository=spice-agent \
+  --source=https://github.com/spice-framework/spice-agent \
+  --module=github.com/spice-framework/spice-agent \
+  --version=v0.1.0-preview.4 \
+  --profile=go-module-v1
+```
+
+The command prints one deterministic single-line JSON object whose first four
+fields are directly machine-comparable with Development's shared
+`profile`/`repository`/`module`/`version` identity; `source` is the additional
+Toolchain trust field:
+
+```json
+{"profile":"go-module-v1","repository":"spice-agent","module":"github.com/spice-framework/spice-agent","version":"v0.1.0-preview.4","source":"https://github.com/spice-framework/spice-agent"}
+```
+
+It performs no Git,
+filesystem, artifact, module, or network operation. Invalid, missing,
+oversized, non-UTF-8, control-bearing, unknown, or stale inputs fail closed
+with bounded diagnostics. This is only a pre-tag policy comparison; it does not
+validate a candidate commit, dependency graph, artifact, or tag and never
+replaces the full verifier below.
+
 ```text
 spice-go-release-verify \
   -artifacts=<directory> \
@@ -190,7 +218,7 @@ organization workflow uploads, attests, and publishes only that verifier-owned
 directory.
 
 The verifier carries its own reviewed allowlist for dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.2`,
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.4`,
 `spice-agent-provider-openai`, `spice-agent-tools-coding`, and
 `spice-agent-tui`, including their required module identities. A required
 tool-only module may retain Go's `// indirect` marker; its canonical `require`
@@ -202,8 +230,9 @@ All four current Agent module policies and the `spice-agent-coding`
 distribution policy require
 `github.com/spice-framework/spice@v0.1.0-preview.2`. Provider, coding-tools,
 and distribution policies require the recovered
-`github.com/spice-framework/spice-agent@v0.1.0-preview.2`; preview.1 is rejected
-for that dependency. Provider, coding-tools, TUI, and distribution release
+`github.com/spice-framework/spice-agent@v0.1.0-preview.4`; preview.1,
+preview.2, and preview.3 are rejected for that dependency. Provider,
+coding-tools, TUI, and distribution release
 versions remain `v0.1.0-preview.1`, and the distribution's provider,
 coding-tools, and TUI sibling selections remain preview.1. Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed

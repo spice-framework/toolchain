@@ -28,7 +28,7 @@ const (
 	rendererIdentity       = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
 	agentFoundationVersion = "v0.1.0-preview.2"
 	toolchainVersion       = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
-	agentCoreVersion       = "v0.1.0-preview.2"
+	agentCoreVersion       = "v0.1.0-preview.4"
 	agentExtensionVersion  = "v0.1.0-preview.1"
 )
 
@@ -44,6 +44,26 @@ type Config struct {
 	Commit          string
 	Profile         string
 	VerifiedOutput  string
+}
+
+// PolicyRequest is the artifact-free identity checked before an immutable tag
+// is created. It never selects policy from ambient repository state.
+type PolicyRequest struct {
+	Repository string
+	Source     string
+	Module     string
+	Version    string
+	Profile    string
+}
+
+// PolicyAuthorization is the exact closed-policy identity authorized by the
+// independent verifier.
+type PolicyAuthorization struct {
+	Repository string
+	Source     string
+	Module     string
+	Version    string
+	Profile    string
 }
 
 // Result summarizes a successfully verified generic Go module release.

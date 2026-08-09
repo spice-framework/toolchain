@@ -126,18 +126,11 @@ func selectPolicy(config Config) (releasePolicy, error) {
 	if config.Profile != ProfileGoModule {
 		return releasePolicy{}, fmt.Errorf("release profile %q is unsupported; require %s", config.Profile, ProfileGoModule)
 	}
-	if strings.HasPrefix(config.RepositoryName, "starter-") {
-		return releasePolicy{}, errors.New("starter repositories must use the key-backed library release verifier")
+	request := policyRequestFromConfig(config)
+	if err := validatePolicyRequest(request); err != nil {
+		return releasePolicy{}, err
 	}
-	policy, found := releasePolicies[config.RepositoryName]
-	if !found {
-		return releasePolicy{}, fmt.Errorf("repository %q is not independently authorized for %s", config.RepositoryName, ProfileGoModule)
-	}
-	if config.Module != policy.module || config.CanonicalSource != policy.source ||
-		config.Version != policy.version {
-		return releasePolicy{}, errors.New("trusted release inputs do not match independent module policy")
-	}
-	return policy, nil
+	return selectModulePolicy(request)
 }
 
 func expectedAssetNames(policy releasePolicy) []string {

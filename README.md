@@ -148,7 +148,8 @@ workflows authorize an exact verifier version with an ordinary root `go.mod`
 
 Generic `go-module-v1` releases use the separate
 `cmd/spice-go-release-verify` boundary. It accepts only dependency-free
-`spice@v0.1.0-preview.2` and the four explicitly reviewed Spice Agent module
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.4`, and the other three
+explicitly reviewed Spice Agent module
 policies, rejects starters and distribution
 profiles, and independently binds repository, source, module, version, commit,
 committed release intent, required module selections, vendor selection,
@@ -174,6 +175,17 @@ All four Agent module policies and the `spice-agent-coding` distribution policy
 require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
 sibling-module, release-version, metadata, binary, and payload selections remain
 independently pinned.
+Provider, coding-tools, and distribution policies require
+`spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
+all non-Agent selections remain unchanged.
+Before creating an immutable tag, release operators can run
+`spice-go-release-verify policy-check` with the proposed repository, canonical
+source, module, version, and profile. This bounded, deterministic check reads
+only the verifier's compiled policy and performs no Git, filesystem, artifact,
+module, or network operation. Operators compare its exact authorization with
+the separately reviewed development plan through the deterministic JSON
+`profile`, `repository`, `module`, and `version` fields; Toolchain additionally
+binds `source`. Full post-tag verification remains mandatory.
 The dependency-free Spice policy omits both `go.sum` and vendor. It rejects
 requirements, tools, replacements, excludes, ignores, partial graph metadata,
 and every `vendor/` path, then independently proves the selected module and

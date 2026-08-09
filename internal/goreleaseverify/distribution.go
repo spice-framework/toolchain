@@ -113,19 +113,11 @@ func selectDistributionPolicy(config Config) (distributionPolicy, error) {
 			"release profile %q is unsupported; require %s", config.Profile, ProfileDistribution,
 		)
 	}
-	policy, found := distributionPolicies[config.RepositoryName]
-	if !found {
-		return distributionPolicy{}, fmt.Errorf(
-			"repository %q is not independently authorized for %s",
-			config.RepositoryName,
-			ProfileDistribution,
-		)
+	request := policyRequestFromConfig(config)
+	if err := validatePolicyRequest(request); err != nil {
+		return distributionPolicy{}, err
 	}
-	if config.Module != policy.module || config.CanonicalSource != policy.source ||
-		config.Version != policy.version {
-		return distributionPolicy{}, errors.New("trusted release inputs do not match independent distribution policy")
-	}
-	return policy, nil
+	return selectBinaryDistributionPolicy(request)
 }
 
 func distributionModulePolicy(policy distributionPolicy) releasePolicy {

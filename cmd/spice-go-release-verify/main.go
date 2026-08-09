@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,13 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {
+	if len(arguments) > 0 && arguments[0] == "policy-check" {
+		return runPolicyCheck(arguments[1:], stdout, stderr)
+	}
+	return runVerification(ctx, arguments, stdout, stderr)
+}
+
+func runVerification(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("spice-go-release-verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var artifacts, verifiedOutput, root, repository, source, module, version, commit, profile string
@@ -64,6 +72,65 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		return 1
 	}
 	return 0
+}
+
+func runPolicyCheck(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("spice-go-release-verify policy-check", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var repository, source, module, version, profile string
+	flags.StringVar(&repository, "repository", "", "closed-policy repository name")
+	flags.StringVar(&source, "source", "", "canonical HTTPS source URL")
+	flags.StringVar(&module, "module", "", "canonical Go module path")
+	flags.StringVar(&version, "version", "", "proposed release version")
+	flags.StringVar(&profile, "profile", "", "release profile")
+	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
+		return writeExit(stderr, 2, "invalid policy-check arguments")
+	}
+	if repository == "" || source == "" || module == "" || version == "" || profile == "" {
+		return writeExit(
+			stderr,
+			2,
+			"policy-check requires -repository, -source, -module, -version, and -profile",
+		)
+	}
+	authorization, err := goreleaseverify.CheckPolicy(goreleaseverify.PolicyRequest{
+		Repository: repository,
+		Source:     source,
+		Module:     module,
+		Version:    version,
+		Profile:    profile,
+	})
+	if err != nil {
+		return writeExit(stderr, 1, "%v", err)
+	}
+	payload, err := json.Marshal(policyCheckOutput{
+		Profile:    authorization.Profile,
+		Repository: authorization.Repository,
+		Module:     authorization.Module,
+		Version:    authorization.Version,
+		Source:     authorization.Source,
+	})
+	if err != nil {
+		return writeExit(stderr, 1, "encode authorized release policy")
+	}
+	payload = append(payload, '\n')
+	if len(payload) > maxPolicyCheckOutputBytes {
+		return writeExit(stderr, 1, "authorized release policy exceeds output bound")
+	}
+	if _, err := stdout.Write(payload); err != nil {
+		return 1
+	}
+	return 0
+}
+
+const maxPolicyCheckOutputBytes = 2 << 10
+
+type policyCheckOutput struct {
+	Profile    string `json:"profile"`
+	Repository string `json:"repository"`
+	Module     string `json:"module"`
+	Version    string `json:"version"`
+	Source     string `json:"source"`
 }
 
 func writeExit(writer io.Writer, code int, format string, arguments ...any) int {
