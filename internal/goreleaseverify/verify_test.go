@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	fixtureVersion         = "v0.1.0-preview.1"
-	historicalSpiceVersion = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
+	moduleFixtureVersion       = agentCoreVersion
+	distributionFixtureVersion = agentExtensionVersion
+	historicalSpiceVersion     = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
 )
 
 type releaseFixture struct {
@@ -150,11 +151,51 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 			}
 		}
 		if repository == "spice-agent-provider-openai" || repository == "spice-agent-tools-coding" {
-			want = append(want, selectedModule{path: "github.com/spice-framework/spice-agent", version: agentVersion})
+			want = append(want, selectedModule{path: "github.com/spice-framework/spice-agent", version: agentCoreVersion})
 		}
 		if !slices.Equal(policy.requiredModules, want) {
 			t.Errorf("policy %s required modules = %#v, want %#v", repository, policy.requiredModules, want)
 		}
+	}
+}
+
+func TestCompiledPoliciesRejectStaleAgentPreviewOneSelections(t *testing.T) {
+	t.Parallel()
+	stale := selectedModule{
+		path:    "github.com/spice-framework/spice-agent",
+		version: agentExtensionVersion,
+	}
+	recovered := selectedModule{
+		path:    "github.com/spice-framework/spice-agent",
+		version: agentCoreVersion,
+	}
+	for _, repository := range []string{"spice-agent-provider-openai", "spice-agent-tools-coding"} {
+		modules := releasePolicies[repository].requiredModules
+		if slices.Contains(modules, stale) || !slices.Contains(modules, recovered) {
+			t.Errorf("policy %s required modules = %#v, require recovered Agent and reject stale preview.1", repository, modules)
+		}
+	}
+	modules := distributionPolicies["spice-agent-coding"].requiredModules
+	if slices.Contains(modules, stale) || !slices.Contains(modules, recovered) {
+		t.Errorf("distribution required modules = %#v, require recovered Agent and reject stale preview.1", modules)
+	}
+}
+
+func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
+	t.Parallel()
+	want := map[string]string{
+		"spice-agent":                 agentCoreVersion,
+		"spice-agent-provider-openai": agentExtensionVersion,
+		"spice-agent-tools-coding":    agentExtensionVersion,
+		"spice-agent-tui":             agentExtensionVersion,
+	}
+	for repository, version := range want {
+		if got := releasePolicies[repository].version; got != version {
+			t.Errorf("policy %s version = %q, want %q", repository, got, version)
+		}
+	}
+	if got := distributionPolicies["spice-agent-coding"].version; got != agentExtensionVersion {
+		t.Errorf("distribution version = %q, want %q", got, agentExtensionVersion)
 	}
 }
 
@@ -278,6 +319,7 @@ func TestVerifyRejectsPolicyAndModuleViolations(t *testing.T) {
 		{name: "unknown", mutate: func(value *Config) { value.RepositoryName = "spice-agent-unknown" }, want: "not independently authorized"},
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "-fork" }, want: "do not match"},
 		{name: "module", mutate: func(value *Config) { value.Module += "/fork" }, want: "do not match"},
+		{name: "stale Agent preview.1 release", mutate: func(value *Config) { value.Version = agentExtensionVersion }, want: "do not match"},
 		{name: "version", mutate: func(value *Config) { value.Version = "v0.1.0" }, want: "do not match"},
 		{name: "commit", mutate: func(value *Config) { value.Commit = strings.ToUpper(value.Commit) }, want: "lowercase"},
 	}
@@ -469,14 +511,14 @@ require (
 	if variant == "symlink" {
 		writeFile(t, filepath.Join(root, "latest"), []byte("README.md"))
 	}
-	writeFile(t, filepath.Join(root, "spice-release.json"), []byte(`{
+	writeFile(t, filepath.Join(root, "spice-release.json"), []byte(fmt.Sprintf(`{
   "schema": 1,
   "profile": "go-module-v1",
   "repository": "spice-agent",
   "module": "github.com/spice-framework/spice-agent",
-  "version": "v0.1.0-preview.1"
+  "version": %q
 }
-`))
+`, policy.version)))
 	runGit(t, root, "init", "-q")
 	runGit(t, root, "config", "user.name", "Spice Test")
 	runGit(t, root, "config", "user.email", "test@spice.invalid")
@@ -506,7 +548,7 @@ require (
 		"GIT_AUTHOR_DATE=2026-08-07T00:00:00Z",
 		"GIT_COMMITTER_DATE=2026-08-07T00:00:00Z",
 	}, "commit", "-q", "-m", "fixture")
-	runGit(t, root, "tag", fixtureVersion)
+	runGit(t, root, "tag", moduleFixtureVersion)
 	commit := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
 	config := Config{
 		Directory: artifacts, Repository: root, RepositoryName: policy.repository,
@@ -528,7 +570,7 @@ require (
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := "spice-agent_0.1.0-preview.1"
+	base := "spice-agent_" + strings.TrimPrefix(policy.version, "v")
 	archiveName := base + "_source.tar.gz"
 	sbomName := base + "_sbom.spdx.json"
 	metadataName := base + "_release.json"

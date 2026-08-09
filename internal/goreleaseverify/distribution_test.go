@@ -49,10 +49,10 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 	wantModules := []selectedModule{
 		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
 		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
-		{path: "github.com/spice-framework/spice-agent", version: agentVersion},
-		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentVersion},
-		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentVersion},
-		{path: "github.com/spice-framework/spice-agent-tui", version: agentVersion},
+		{path: "github.com/spice-framework/spice-agent", version: agentCoreVersion},
+		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentExtensionVersion},
+		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentExtensionVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: agentExtensionVersion},
 	}
 	if !slices.Equal(policy.requiredModules, wantModules) {
 		t.Fatalf("distribution required modules = %#v, want %#v", policy.requiredModules, wantModules)
@@ -254,7 +254,7 @@ func newDistributionVerifierFixture(t *testing.T) distributionVerifierFixture {
 	}
 	policy := distributionPolicy{
 		repository: "distribution-fixture", module: "example.com/distribution-fixture",
-		source: "https://github.com/spice-framework/distribution-fixture", version: fixtureVersion,
+		source: "https://github.com/spice-framework/distribution-fixture", version: distributionFixtureVersion,
 		metadataFile:    "spice-release.json",
 		requiredModules: []selectedModule{{path: "example.com/dependency", version: "v1.0.0"}},
 		binaries:        []distributionBinary{{name: "fixture", packagePath: "./cmd/fixture"}},

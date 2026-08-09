@@ -409,7 +409,7 @@ func TestVerifiedOutputPublishNeverReplacesLateTarget(t *testing.T) {
 func TestArchiveMaterializationBoundaries(t *testing.T) {
 	t.Parallel()
 	policy := releasePolicies["spice-agent"]
-	prefix := "spice-agent_0.1.0-preview.1/"
+	prefix := "spice-agent_0.1.0-preview.2/"
 	source := sourceIdentity{entries: []gitEntry{{name: "README.md", mode: "100644"}}}
 	rootEntry := archiveTestEntry{header: tar.Header{Name: prefix, Typeflag: tar.TypeDir, Mode: 0o775}}
 	regular := archiveTestEntry{
@@ -514,7 +514,7 @@ func TestTrustedGitCommandAndRevalidationBoundaries(t *testing.T) {
 	if _, err := readGitBlob(t.Context(), executable, "README.md", maxControlFile); err == nil {
 		t.Fatal("readGitBlob(executable) error = nil")
 	}
-	if err := revalidateSource(t.Context(), source, fixtureVersion); err != nil {
+	if err := revalidateSource(t.Context(), source, moduleFixtureVersion); err != nil {
 		t.Fatalf("revalidateSource(valid) error = %v", err)
 	}
 
@@ -540,8 +540,8 @@ func TestTrustedGitCommandAndRevalidationBoundaries(t *testing.T) {
 		t.Fatalf("gitOutput(truncated) error = %v", err)
 	}
 
-	runGit(t, fixture.root, "tag", "-d", fixtureVersion)
-	if err := revalidateSource(t.Context(), source, fixtureVersion); err == nil {
+	runGit(t, fixture.root, "tag", "-d", moduleFixtureVersion)
+	if err := revalidateSource(t.Context(), source, moduleFixtureVersion); err == nil {
 		t.Fatal("revalidateSource(deleted tag) error = nil")
 	}
 }

@@ -190,7 +190,7 @@ organization workflow uploads, attests, and publishes only that verifier-owned
 directory.
 
 The verifier carries its own reviewed allowlist for dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent`,
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.2`,
 `spice-agent-provider-openai`, `spice-agent-tools-coding`, and
 `spice-agent-tui`, including their required module identities. A required
 tool-only module may retain Go's `// indirect` marker; its canonical `require`
@@ -200,9 +200,14 @@ expand release authority by itself. Any repository, version, dependency, or
 profile change requires separately reviewed development and toolchain commits.
 All four current Agent module policies and the `spice-agent-coding`
 distribution policy require
-`github.com/spice-framework/spice@v0.1.0-preview.2`. Their toolchain,
-sibling-module, release-version, metadata, binary, and payload selections remain
-separately reviewed and unchanged.
+`github.com/spice-framework/spice@v0.1.0-preview.2`. Provider, coding-tools,
+and distribution policies require the recovered
+`github.com/spice-framework/spice-agent@v0.1.0-preview.2`; preview.1 is rejected
+for that dependency. Provider, coding-tools, TUI, and distribution release
+versions remain `v0.1.0-preview.1`, and the distribution's provider,
+coding-tools, and TUI sibling selections remain preview.1. Every toolchain,
+metadata, binary, payload, and target selection remains separately reviewed
+and unchanged.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
