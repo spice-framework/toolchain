@@ -169,6 +169,95 @@ func authenticateVendorAndBuild(
 	return nil
 }
 
+func verifyDependencyFreeAndBuild(
+	ctx context.Context,
+	workspace isolatedWorkspace,
+	policy releasePolicy,
+	runner goRunner,
+) error {
+	if runner == nil {
+		return errors.New("verify dependency-free Go module: runner is nil")
+	}
+	goMod, err := readWorkspaceFile(workspace.source, "go.mod", maxModuleGraph)
+	if err != nil {
+		return err
+	}
+	if filesystemErr := requireDependencyFreeFilesystem(workspace.source); filesystemErr != nil {
+		return filesystemErr
+	}
+	environment := trustedGoEnvironment(os.Environ(), workspace, false)
+	version, err := runner.Output(ctx, workspace.source, environment, "version")
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(string(version))
+	if len(fields) < 3 || fields[2] != "go1.26.5" {
+		return fmt.Errorf("go release verifier requires go1.26.5, got %q", strings.TrimSpace(string(version)))
+	}
+	modules, err := runner.Output(
+		ctx,
+		workspace.source,
+		environment,
+		"list",
+		"-mod=readonly",
+		"-m",
+		"-f={{.Path}}@{{.Version}}",
+		"all",
+	)
+	if err != nil {
+		return fmt.Errorf("inspect dependency-free selected module graph: %w", err)
+	}
+	if string(modules) != policy.module+"@\n" {
+		return fmt.Errorf("dependency-free selected module graph is %q, require only %s", modules, policy.module)
+	}
+	packages, err := runner.Output(
+		ctx,
+		workspace.source,
+		environment,
+		"list",
+		"-mod=readonly",
+		"-deps",
+		"-f={{with .Module}}{{.Path}}@{{.Version}}{{end}}",
+		"./...",
+	)
+	if err != nil {
+		return fmt.Errorf("inspect dependency-free package graph: %w", err)
+	}
+	mainIdentity := policy.module + "@"
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(packages), "\r\n", "\n"), "\n") {
+		if line != "" && line != mainIdentity {
+			return fmt.Errorf("dependency-free package graph selected unexpected module %q", line)
+		}
+	}
+	if _, err := runner.Output(
+		ctx,
+		workspace.source,
+		environment,
+		"build",
+		"-mod=readonly",
+		"-trimpath",
+		"./...",
+	); err != nil {
+		return fmt.Errorf("build dependency-free module with read-only graph: %w", err)
+	}
+	if err := requireWorkspaceFile(workspace.source, "go.mod", goMod); err != nil {
+		return err
+	}
+	return requireDependencyFreeFilesystem(workspace.source)
+}
+
+func requireDependencyFreeFilesystem(root string) error {
+	for _, name := range []string{"go.sum", "vendor"} {
+		if _, err := os.Lstat(filepath.Join(root, name)); !errors.Is(err, os.ErrNotExist) {
+			if err == nil {
+				return fmt.Errorf("dependency-free isolated source unexpectedly contains %s", name)
+			}
+			return fmt.Errorf("inspect dependency-free isolated source %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func writeAuthenticationFile(root, name string, content []byte) (resultErr error) {
 	if filepath.Base(name) != name || name == "." || name == ".." {
 		return fmt.Errorf("private dependency authentication file name %q is unsafe", name)

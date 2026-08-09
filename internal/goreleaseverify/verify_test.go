@@ -139,9 +139,12 @@ func TestVerifyRequiresAbsentOwnedOutputAndRelistsInput(t *testing.T) {
 func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	t.Parallel()
 	for repository, policy := range releasePolicies {
-		want := []selectedModule{
-			{path: "github.com/spice-framework/spice", version: spiceVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+		var want []selectedModule
+		if repository != "spice" {
+			want = []selectedModule{
+				{path: "github.com/spice-framework/spice", version: spiceVersion},
+				{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			}
 		}
 		if repository == "spice-agent-provider-openai" || repository == "spice-agent-tools-coding" {
 			want = append(want, selectedModule{path: "github.com/spice-framework/spice-agent", version: agentVersion})

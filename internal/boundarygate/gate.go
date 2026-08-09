@@ -30,6 +30,7 @@ var checkedPackages = []string{
 	"./cmd/spice",
 	"./cmd/spice-annotation-core",
 	"./cmd/spice-bootstrap",
+	"./cmd/spice-go-distribution-release-verify",
 	"./cmd/spice-go-release-verify",
 	"./cmd/spice-library-release-verify",
 	"./cmd/spice-release",
@@ -430,6 +431,7 @@ func (gate verifier) buildTools(ctx context.Context) error {
 		{name: "spice", packagePath: "./cmd/spice"},
 		{name: "spice-annotation-core", packagePath: "./cmd/spice-annotation-core"},
 		{name: "spice-bootstrap", packagePath: "./cmd/spice-bootstrap"},
+		{name: "spice-go-distribution-release-verify", packagePath: "./cmd/spice-go-distribution-release-verify"},
 		{name: "spice-go-release-verify", packagePath: "./cmd/spice-go-release-verify"},
 		{name: "spice-library-release-verify", packagePath: "./cmd/spice-library-release-verify"},
 		{name: "spice-release", packagePath: "./cmd/spice-release"},
@@ -449,6 +451,7 @@ func (gate verifier) bootstrapDependencies(ctx context.Context) error {
 		"./cmd/spice",
 		"./cmd/spice-annotation-core",
 		"./cmd/spice-bootstrap",
+		"./cmd/spice-go-distribution-release-verify",
 		"./cmd/spice-go-release-verify",
 		"./cmd/spice-library-release-verify",
 		"./cmd/spice-release",
@@ -466,6 +469,7 @@ func (gate verifier) bootstrapDependencies(ctx context.Context) error {
 			for _, forbidden := range []string{
 				identity.ToolchainModule + "/internal/release",
 				"github.com/spice-framework/development/internal/gorelease",
+				"github.com/spice-framework/development/internal/distributionrelease",
 				"github.com/spice-framework/development/internal/libraryrelease",
 			} {
 				if slices.Contains(dependencies, forbidden) {

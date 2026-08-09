@@ -17,8 +17,17 @@ func validateCommittedModule(
 	source sourceIdentity,
 	policy releasePolicy,
 ) ([]selectedModule, error) {
+	return validateCommittedModuleForProfile(ctx, source, policy, ProfileGoModule)
+}
+
+func validateCommittedModuleForProfile(
+	ctx context.Context,
+	source sourceIdentity,
+	policy releasePolicy,
+	profile string,
+) ([]selectedModule, error) {
 	for _, name := range []string{
-		"LICENSE", "README.md", "go.mod", "go.sum", policy.metadataFile, "vendor/modules.txt",
+		"LICENSE", "README.md", "go.mod", policy.metadataFile,
 	} {
 		if _, err := readGitBlob(ctx, source, name, maxModuleGraph); err != nil {
 			return nil, err
@@ -33,7 +42,7 @@ func validateCommittedModule(
 		return nil, fmt.Errorf("decode committed Go release intent: %w", decodeErr)
 	}
 	wantIntent := releaseIntent{
-		Schema: metadataSchema, Profile: ProfileGoModule, Repository: policy.repository,
+		Schema: metadataSchema, Profile: profile, Repository: policy.repository,
 		Module: policy.module, Version: policy.version,
 	}
 	if intent != wantIntent {
@@ -56,6 +65,12 @@ func validateCommittedModule(
 	}
 	if len(parsed.Replace) != 0 {
 		return nil, errors.New("committed Go module must not contain replace directives")
+	}
+	if len(parsed.Tool) != 0 && len(policy.requiredModules) == 0 {
+		return nil, errors.New("dependency-free Go module must not contain tool directives")
+	}
+	if len(policy.requiredModules) == 0 && (len(parsed.Exclude) != 0 || len(parsed.Ignore) != 0) {
+		return nil, errors.New("dependency-free Go module must not contain exclude or ignore directives")
 	}
 	direct := make(map[string]string, len(parsed.Require))
 	selected := make([]selectedModule, 0, len(parsed.Require))
@@ -84,6 +99,17 @@ func validateCommittedModule(
 			)
 		}
 	}
+	if len(policy.requiredModules) == 0 {
+		if len(selected) != 0 {
+			return nil, errors.New("dependency-free Go module must not select module requirements")
+		}
+		return validateDependencyFreeGraphFiles(source)
+	}
+	for _, name := range []string{"go.sum", "vendor/modules.txt"} {
+		if _, blobErr := readGitBlob(ctx, source, name, maxModuleGraph); blobErr != nil {
+			return nil, blobErr
+		}
+	}
 	vendorData, err := readGitBlob(ctx, source, "vendor/modules.txt", maxModuleGraph)
 	if err != nil {
 		return nil, err
@@ -99,6 +125,23 @@ func validateCommittedModule(
 		return strings.Compare(left.path, right.path)
 	})
 	return vendored, nil
+}
+
+func validateDependencyFreeGraphFiles(source sourceIdentity) ([]selectedModule, error) {
+	_, sumFound := findEntry(source.entries, "go.sum")
+	_, vendorMetadataFound := findEntry(source.entries, "vendor/modules.txt")
+	if sumFound != vendorMetadataFound {
+		return nil, errors.New("dependency-free Go module must omit both go.sum and vendor/modules.txt or provide both")
+	}
+	if sumFound {
+		return nil, errors.New("dependency-free Go module graph metadata is noncanonical; omit go.sum and vendor")
+	}
+	for _, entry := range source.entries {
+		if strings.HasPrefix(entry.name, "vendor/") {
+			return nil, fmt.Errorf("dependency-free Go module contains unexpected vendor path %q", entry.name)
+		}
+	}
+	return nil, nil
 }
 
 func canonicalVersion(version string) bool {

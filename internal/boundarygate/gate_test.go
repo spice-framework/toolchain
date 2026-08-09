@@ -77,6 +77,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		"go list -mod=readonly -m all",
 		"go vet ./...",
 		"go build -trimpath -o ",
+		" ./cmd/spice-go-distribution-release-verify",
 		" ./cmd/spice-go-release-verify",
 		" ./cmd/spice-library-release-verify",
 		" ./cmd/spice-release",
@@ -102,6 +103,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		"./cmd/spice",
 		"./cmd/spice-annotation-core",
 		"./cmd/spice-bootstrap",
+		"./cmd/spice-go-distribution-release-verify",
 		"./cmd/spice-go-release-verify",
 		"./cmd/spice-library-release-verify",
 		"./cmd/spice-release",
@@ -283,6 +285,11 @@ func TestVendorAndBootstrapBoundariesRejectDrift(t *testing.T) {
 			command    string
 			dependency string
 		}{
+			{
+				name:       "distribution verifier and generic renderer",
+				command:    "./cmd/spice-go-distribution-release-verify",
+				dependency: "github.com/spice-framework/development/internal/distributionrelease",
+			},
 			{
 				name:       "Go module verifier and generic renderer",
 				command:    "./cmd/spice-go-release-verify",

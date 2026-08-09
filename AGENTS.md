@@ -38,6 +38,12 @@ to `github.com/spice-framework/spice`.
   build proof, and verifier-owned output handoff are a separately reviewed
   release-authority boundary. It must never build the caller worktree or allow
   renderer-owned bytes to cross into attestation directly.
+- `spice-go-distribution-release-verify` is the separate binary-distribution
+  authority boundary. It independently authenticates the exact tagged source
+  and vendor graph, rebuilds every closed-policy target and linked identity,
+  and reconstructs archives, metadata, SBOM, and checksums without importing
+  or executing the development renderer. Only its newly claimed output may be
+  attested.
 
 ## Feedback loop
 

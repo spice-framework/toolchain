@@ -6,22 +6,24 @@ package goreleaseverify
 import "time"
 
 const (
-	ProfileGoModule = "go-module-v1"
+	ProfileGoModule     = "go-module-v1"
+	ProfileDistribution = "go-distribution-v1"
 
 	metadataSchema = 1
 	artifactSchema = 1
 
-	maxArtifactBytes = 256 << 20
-	maxArchiveBytes  = 256 << 20
-	maxChecksums     = 64 << 10
-	maxControlFile   = 1 << 20
-	maxModuleGraph   = 16 << 20
-	maxGitTree       = 16 << 20
-	maxDiagnostic    = 32 << 10
-	maxArchiveSource = 256 << 20
-	maxTreeEntries   = 100_000
-	maxVendorFiles   = 100_000
-	maxVendorBytes   = 512 << 20
+	maxArtifactBytes        = 256 << 20
+	maxArchiveBytes         = 256 << 20
+	maxChecksums            = 64 << 10
+	maxControlFile          = 1 << 20
+	maxModuleGraph          = 16 << 20
+	maxGitTree              = 16 << 20
+	maxDiagnostic           = 32 << 10
+	maxArchiveSource        = 256 << 20
+	maxDistributionArtifact = 512 << 20
+	maxTreeEntries          = 100_000
+	maxVendorFiles          = 100_000
+	maxVendorBytes          = 512 << 20
 
 	rendererIdentity = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
 	spiceVersion     = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
@@ -61,10 +63,78 @@ type releasePolicy struct {
 	requiredModules []selectedModule
 }
 
+type distributionPolicy struct {
+	repository      string
+	module          string
+	source          string
+	version         string
+	metadataFile    string
+	requiredModules []selectedModule
+	binaries        []distributionBinary
+	targets         []distributionTarget
+	payloadFiles    []string
+	versionSymbol   string
+	commitSymbol    string
+}
+
+type distributionBinary struct {
+	name        string
+	packagePath string
+}
+
+type distributionTarget struct {
+	goos   string
+	goarch string
+}
+
+// The distribution policy deliberately duplicates the development catalog.
+// The organization workflow pins the renderer and verifier independently, so
+// neither repository can expand release authority by itself.
+var distributionPolicies = map[string]distributionPolicy{
+	"spice-agent-coding": {
+		repository:   "spice-agent-coding",
+		module:       "github.com/spice-framework/spice-agent-coding",
+		source:       "https://github.com/spice-framework/spice-agent-coding",
+		version:      "v0.1.0-preview.1",
+		metadataFile: "spice-release.json",
+		requiredModules: []selectedModule{
+			{path: "github.com/spice-framework/spice", version: "v0.1.0-preview.1.0.20260807202519-bfddbd47d2d0"},
+			{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
+			{path: "github.com/spice-framework/spice-agent", version: agentVersion},
+			{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentVersion},
+			{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentVersion},
+			{path: "github.com/spice-framework/spice-agent-tui", version: agentVersion},
+		},
+		binaries: []distributionBinary{
+			{name: "spice-agent", packagePath: "./cmd/spice-agent"},
+			{name: "spice-agentd", packagePath: "./cmd/spice-agentd"},
+		},
+		targets: []distributionTarget{
+			{goos: "linux", goarch: "amd64"},
+			{goos: "linux", goarch: "arm64"},
+			{goos: "darwin", goarch: "amd64"},
+			{goos: "darwin", goarch: "arm64"},
+			{goos: "windows", goarch: "amd64"},
+			{goos: "windows", goarch: "arm64"},
+		},
+		payloadFiles: []string{
+			"LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "docs/configuration.md",
+			"docs/installation.md", "docs/security.md", "protocol-descriptors.pb",
+		},
+		versionSymbol: "github.com/spice-framework/spice-agent-coding/internal/distribution.Version",
+		commitSymbol:  "github.com/spice-framework/spice-agent-coding/internal/distribution.Commit",
+	},
+}
+
 // These policies intentionally duplicate the development catalog. The
 // organization release workflow pins both implementations so one repository
 // cannot expand release authority on its own.
 var releasePolicies = map[string]releasePolicy{
+	"spice": {
+		repository: "spice", module: "github.com/spice-framework/spice",
+		source: "https://github.com/spice-framework/spice", version: "v0.1.0-preview.2",
+		metadataFile: "spice-release.json",
+	},
 	"spice-agent": {
 		repository: "spice-agent", module: "github.com/spice-framework/spice-agent",
 		source: "https://github.com/spice-framework/spice-agent", version: "v0.1.0-preview.1",

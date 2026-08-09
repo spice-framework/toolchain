@@ -219,7 +219,11 @@ func TestDevCommandKeepsLastKnownGoodAndRecovers(t *testing.T) {
 	if err := os.WriteFile(mainPath, []byte(broken), 0o600); err != nil {
 		t.Fatalf("WriteFile(broken main.go) error = %v", err)
 	}
-	waitForBufferText(t, output, "revision 2 failed")
+	// Watchers may coalesce or duplicate filesystem notifications, so the
+	// invalid source is not guaranteed to own revision 2. The stable compiler
+	// diagnostic proves the failed revision without coupling this executable
+	// test to a particular watcher event count.
+	waitForBufferText(t, output, "[spice.resolution.annotation-import]")
 	waitForBufferText(t, output, "last-known-good revision 1")
 
 	if err := os.WriteFile(mainPath, original, 0o600); err != nil {

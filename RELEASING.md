@@ -189,7 +189,8 @@ before reporting failure. The
 organization workflow uploads, attests, and publishes only that verifier-owned
 directory.
 
-The verifier carries its own reviewed allowlist for `spice-agent`,
+The verifier carries its own reviewed allowlist for dependency-free
+`spice@v0.1.0-preview.2`, `spice-agent`,
 `spice-agent-provider-openai`, `spice-agent-tools-coding`, and
 `spice-agent-tui`, including their required module identities. A required
 tool-only module may retain Go's `// indirect` marker; its canonical `require`
@@ -197,6 +198,16 @@ entry remains inspectable beside the `tool` directive. This deliberately
 duplicates development catalog policy so one repository cannot
 expand release authority by itself. Any repository, version, dependency, or
 profile change requires separately reviewed development and toolchain commits.
+
+The Spice foundation policy is the sole zero-required-module policy. It may
+omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
+accepted only when `go.mod` has no requirements, tools, replacements,
+excludes, or ignores; the Git tree has no `vendor/` path; and isolated,
+network-disabled `go list -mod=readonly -m all`, package dependency listing,
+and `go build -mod=readonly -trimpath ./...` prove that only the main module is
+selected. Empty or stale graph files are not treated as equivalent evidence;
+the dependency-free canonical form omits them. Any later dependency requires
+an explicit non-empty policy and the authenticated vendor path.
 
 Verification requires a clean checkout whose exact tag and `HEAD` resolve to
 the supplied commit and whose origin matches the canonical source. It reads
@@ -224,8 +235,44 @@ The output is not cryptographically trusted merely because this command
 passes. The separately pinned organization workflow next creates keyless
 Sigstore provenance over the verified bytes and verifies that bundle against
 the exact caller source and reusable-workflow identity before publication.
-`go-distribution-v1` remains unsupported until its own independent binary and
-archive contract exists.
+
+## Generic Go-distribution verification
+
+`cmd/spice-go-distribution-release-verify` is the independent
+pre-attestation verifier for the closed `go-distribution-v1` profile:
+
+```text
+spice-go-distribution-release-verify \
+  -artifacts=<directory> \
+  -verified-output=<required-absent-directory> \
+  -root=<exact-clean-candidate> \
+  -repository=spice-agent-coding \
+  -source=https://github.com/spice-framework/spice-agent-coding \
+  -module=github.com/spice-framework/spice-agent-coding \
+  -version=v0.1.0-preview.1 \
+  -commit=<exact-object-id> \
+  -profile=go-distribution-v1
+```
+
+The verifier has its own compiled policy for the exact module selections, two
+command packages, six Linux/macOS/Windows amd64/arm64 targets, seven committed
+payloads, and two typed identity symbols. It authenticates the source and
+module graph exactly as the Go-module verifier does, regenerates vendor from
+the public proxy and checksum database in private caches, and then disables
+network access. Every binary is independently rebuilt with CGO disabled,
+`-trimpath`, no VCS metadata, an empty build ID, and only the policy-owned
+version/commit linker assignments. Exact data symbols are proved with
+`go tool nm`; host binaries must return the canonical `--version` line.
+
+The verifier independently reconstructs the deterministic tar.gz and zip
+archives from those binaries and exact committed payload bytes, as well as the
+canonical release metadata, SPDX 2.3 SBOM, and checksums. Missing, extra,
+oversized, changed, non-regular, or noncanonical artifacts fail. Source and
+artifact identity are rechecked after all builds. Only the bytes copied into a
+newly claimed verifier-owned output directory may proceed to keyless
+attestation and publication. The implementation imports neither the
+development catalog nor `internal/distributionrelease` and never executes the
+renderer.
 
 ## Cross-producer acceptance
 

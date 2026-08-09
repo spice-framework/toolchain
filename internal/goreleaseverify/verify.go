@@ -73,7 +73,11 @@ func verify(ctx context.Context, config Config, runner goRunner) (_ Result, resu
 		return Result{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, workspace.Close()) }()
-	if authenticationErr := authenticateVendorAndBuild(ctx, workspace, source, runner); authenticationErr != nil {
+	if len(policy.requiredModules) == 0 {
+		if graphErr := verifyDependencyFreeAndBuild(ctx, workspace, policy, runner); graphErr != nil {
+			return Result{}, graphErr
+		}
+	} else if authenticationErr := authenticateVendorAndBuild(ctx, workspace, source, runner); authenticationErr != nil {
 		return Result{}, authenticationErr
 	}
 	expectedSBOMBytes, err := marshalCanonical(expectedSBOM(policy, source.commit, source.epoch, modules))
