@@ -819,6 +819,7 @@ func (gate verifier) command(
 	executable string,
 	arguments ...string,
 ) ([]byte, error) {
+	environment = standaloneEnvironment(environment)
 	if _, err := fmt.Fprintf(gate.output, "    %s %s\n", executable, strings.Join(arguments, " ")); err != nil {
 		return nil, err
 	}
@@ -839,6 +840,18 @@ func (gate verifier) command(
 	command.Stderr = &stderr
 	err := command.Run()
 	return commandResult(executable, arguments, stdout.Bytes(), stderr.Bytes(), err)
+}
+
+func standaloneEnvironment(overrides map[string]string) map[string]string {
+	result := make(map[string]string, len(overrides)+1)
+	for name, value := range overrides {
+		if strings.EqualFold(name, "GOWORK") {
+			continue
+		}
+		result[name] = value
+	}
+	result["GOWORK"] = "off"
+	return result
 }
 
 func commandResult(executable string, arguments []string, stdout, stderr []byte, err error) ([]byte, error) {

@@ -42,3 +42,16 @@ func TestCoreDirectoryResolvesAndCachesPinnedModule(t *testing.T) {
 		t.Fatalf("selected go.mod does not identify core: %s", content)
 	}
 }
+
+func TestStandaloneModuleEnvironmentDisablesWorkspace(t *testing.T) {
+	t.Parallel()
+	input := []string{"PATH=trusted", "GOWORK=ambient.work", "gowork=another.work", "GOFLAGS=-trimpath"}
+	actual := standaloneModuleEnvironment(input)
+	if len(actual) != 3 || actual[0] != "PATH=trusted" || actual[1] != "GOFLAGS=-trimpath" ||
+		actual[2] != "GOWORK=off" {
+		t.Fatalf("standaloneModuleEnvironment() = %#v", actual)
+	}
+	if input[1] != "GOWORK=ambient.work" || input[2] != "gowork=another.work" {
+		t.Fatalf("standaloneModuleEnvironment() mutated input: %#v", input)
+	}
+}

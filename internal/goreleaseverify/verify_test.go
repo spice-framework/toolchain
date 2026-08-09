@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-const fixtureVersion = "v0.1.0-preview.1"
+const (
+	fixtureVersion         = "v0.1.0-preview.1"
+	historicalSpiceVersion = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
+)
 
 type releaseFixture struct {
 	root      string
@@ -142,7 +145,7 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 		var want []selectedModule
 		if repository != "spice" {
 			want = []selectedModule{
-				{path: "github.com/spice-framework/spice", version: spiceVersion},
+				{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
 				{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
 			}
 		}
@@ -307,6 +310,7 @@ func TestVerifyRejectsMissingPolicyModuleAndReplacement(t *testing.T) {
 	}{
 		{name: "missing", variant: "missing", want: "does not require policy module"},
 		{name: "replace", variant: "replace", want: "must not contain replace directives"},
+		{name: "old Spice version", variant: "old-spice-version", want: "independent policy requires"},
 		{name: "wrong version", variant: "wrong-version", want: "independent policy requires"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -394,6 +398,11 @@ func TestCommandHelpersRejectMissingArguments(t *testing.T) {
 
 func newReleaseFixture(t *testing.T, variant string) *releaseFixture {
 	t.Helper()
+	policy := releasePolicies["spice-agent"]
+	fixtureSpiceVersion := policy.requiredModules[0].version
+	if variant == "old-spice-version" {
+		fixtureSpiceVersion = historicalSpiceVersion
+	}
 	parent := t.TempDir()
 	root := filepath.Join(parent, "repository")
 	artifacts := filepath.Join(parent, "artifacts")
@@ -413,7 +422,7 @@ func newReleaseFixture(t *testing.T, variant string) *releaseFixture {
 		toolchainRequirement = ""
 	}
 	if variant == "replace" {
-		replacement = "\nreplace github.com/spice-framework/spice => github.com/spice-framework/spice " + spiceVersion + "\n"
+		replacement = "\nreplace github.com/spice-framework/spice => github.com/spice-framework/spice " + fixtureSpiceVersion + "\n"
 	}
 	if variant == "wrong-version" {
 		toolchainRequirement = "github.com/spice-framework/toolchain v0.1.0-preview.1"
@@ -428,10 +437,10 @@ require (
 	github.com/spice-framework/spice %s%s
 	%s
 )
-	%s`, spiceVersion, requirementSuffix, toolchainRequirement, replacement)))
+	%s`, fixtureSpiceVersion, requirementSuffix, toolchainRequirement, replacement)))
 	sum := "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	canonicalGoSum := []byte(
-		"github.com/spice-framework/spice " + spiceVersion + "/go.mod " + sum + "\n" +
+		"github.com/spice-framework/spice " + fixtureSpiceVersion + "/go.mod " + sum + "\n" +
 			"github.com/spice-framework/toolchain " + toolchainVersion + "/go.mod " + sum + "\n",
 	)
 	committedGoSum := slices.Clone(canonicalGoSum)
@@ -440,7 +449,7 @@ require (
 	}
 	writeFile(t, filepath.Join(root, "go.sum"), committedGoSum)
 	canonicalVendor := []byte(
-		"# github.com/spice-framework/spice " + spiceVersion + "\n## explicit; go 1.26.0\n" +
+		"# github.com/spice-framework/spice " + fixtureSpiceVersion + "\n## explicit; go 1.26.0\n" +
 			"# github.com/spice-framework/toolchain " + toolchainVersion + "\n## explicit; go 1.26.0\n",
 	)
 	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), canonicalVendor)
@@ -499,7 +508,6 @@ require (
 	}, "commit", "-q", "-m", "fixture")
 	runGit(t, root, "tag", fixtureVersion)
 	commit := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
-	policy := releasePolicies["spice-agent"]
 	config := Config{
 		Directory: artifacts, Repository: root, RepositoryName: policy.repository,
 		CanonicalSource: policy.source, Module: policy.module, Version: policy.version,
@@ -513,7 +521,7 @@ require (
 		t.Fatal(err)
 	}
 	modules := []selectedModule{
-		{path: "github.com/spice-framework/spice", version: spiceVersion},
+		{path: "github.com/spice-framework/spice", version: fixtureSpiceVersion},
 		{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
 	}
 	sbom, err := marshalCanonical(expectedSBOM(policy, commit, epoch, modules))

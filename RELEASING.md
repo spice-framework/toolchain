@@ -198,6 +198,11 @@ entry remains inspectable beside the `tool` directive. This deliberately
 duplicates development catalog policy so one repository cannot
 expand release authority by itself. Any repository, version, dependency, or
 profile change requires separately reviewed development and toolchain commits.
+All four current Agent module policies and the `spice-agent-coding`
+distribution policy require
+`github.com/spice-framework/spice@v0.1.0-preview.2`. Their toolchain,
+sibling-module, release-version, metadata, binary, and payload selections remain
+separately reviewed and unchanged.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is

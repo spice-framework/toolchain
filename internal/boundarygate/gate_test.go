@@ -33,6 +33,9 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		executable string,
 		arguments ...string,
 	) ([]byte, error) {
+		if environment["GOWORK"] != "off" {
+			t.Fatalf("standalone command environment = %#v", environment)
+		}
 		calls = append(calls, executable+" "+strings.Join(arguments, " "))
 		switch {
 		case executable == "go" && slices.Equal(arguments, []string{"version"}):
@@ -632,6 +635,18 @@ func TestMergedEnvironmentOverridesCaseInsensitively(t *testing.T) {
 	}
 	if values["SPICE_BOUNDARY_GATE_TEST"] != "new" || values["SPICE_ONLY_OVERRIDE"] != "value" {
 		t.Fatalf("mergedEnvironment() = %#v", values)
+	}
+}
+
+func TestStandaloneEnvironmentDisablesWorkspaceWithoutMutatingOverrides(t *testing.T) {
+	t.Parallel()
+	overrides := map[string]string{"gowork": "ambient.work", "GOPROXY": "off"}
+	actual := standaloneEnvironment(overrides)
+	if len(actual) != 2 || actual["GOWORK"] != "off" || actual["GOPROXY"] != "off" {
+		t.Fatalf("standaloneEnvironment() = %#v", actual)
+	}
+	if overrides["gowork"] != "ambient.work" {
+		t.Fatalf("standaloneEnvironment() mutated overrides: %#v", overrides)
 	}
 }
 

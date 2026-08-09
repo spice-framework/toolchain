@@ -46,6 +46,17 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 	if len(expectedDistributionAssetNames(policy)) != len(policy.targets)+3 {
 		t.Fatal("distribution asset allowlist does not bind every target")
 	}
+	wantModules := []selectedModule{
+		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
+		{path: "github.com/spice-framework/spice-agent", version: agentVersion},
+		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentVersion},
+		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: agentVersion},
+	}
+	if !slices.Equal(policy.requiredModules, wantModules) {
+		t.Fatalf("distribution required modules = %#v, want %#v", policy.requiredModules, wantModules)
+	}
 }
 
 func TestDistributionArchiveAndMetadataAreDeterministic(t *testing.T) {

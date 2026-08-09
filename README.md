@@ -165,6 +165,10 @@ candidate files. CGO, credentials, private-module exceptions, workspace
 selection, and ambient Go configuration are disabled. One validated absolute Go executable and
 verifier-private Go path, caches, temporary storage, and disabled telemetry
 remain fixed across every command.
+All four Agent module policies and the `spice-agent-coding` distribution policy
+require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
+sibling-module, release-version, metadata, binary, and payload selections remain
+independently pinned.
 The dependency-free Spice policy omits both `go.sum` and vendor. It rejects
 requirements, tools, replacements, excludes, ignores, partial graph metadata,
 and every `vendor/` path, then independently proves the selected module and

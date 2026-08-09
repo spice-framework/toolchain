@@ -3,6 +3,8 @@ package testsupport
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -41,9 +43,10 @@ func CoreDirectory(t testingTB) string {
 			"-f={{.Dir}}",
 			identity.CoreModule,
 		)
+		command.Env = standaloneModuleEnvironment(os.Environ())
 		output, err := command.CombinedOutput()
 		if err != nil {
-			coreDirectoryErr = err
+			coreDirectoryErr = fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 			return
 		}
 		coreDirectory = filepath.Clean(strings.TrimSpace(string(output)))
@@ -55,4 +58,16 @@ func CoreDirectory(t testingTB) string {
 		t.Fatalf("resolve pinned Spice core module: empty directory")
 	}
 	return coreDirectory
+}
+
+func standaloneModuleEnvironment(environment []string) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if found && strings.EqualFold(name, "GOWORK") {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, "GOWORK=off")
 }
