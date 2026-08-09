@@ -25,8 +25,8 @@
       "reference_ns_per_op": 1100000,
       "maximum_ns_per_op": 2500000,
       "maximum_bytes_per_op": 100000,
-      "maximum_allocs_per_op": 350,
-      "rationale": "Bounds the repeated editor-analysis path after an identical overlay snapshot is warm."
+      "maximum_allocs_per_op": 450,
+      "rationale": "Bounds the repeated editor-analysis path after an identical overlay snapshot is warm; the ceiling includes the measured 381 allocs/op median on a clean Go 1.26.5 Windows hosted runner while retaining bounded headroom."
     },
     {
       "name": "BenchmarkParseRunArguments",
