@@ -33,6 +33,7 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		{name: "module", mutate: func(value *Config) { value.Module = "example.com/other" }},
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "/fork" }},
 		{name: "stale preview.1 version", mutate: func(value *Config) { value.Version = agentExtensionVersion }},
+		{name: "stale preview.2 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -49,7 +50,7 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 	wantModules := []selectedModule{
 		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
 		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
-		{path: "github.com/spice-framework/spice-agent", version: agentCoreVersion},
+		{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
 		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentExtensionVersion},
 		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentExtensionVersion},
 		{path: "github.com/spice-framework/spice-agent-tui", version: agentExtensionVersion},

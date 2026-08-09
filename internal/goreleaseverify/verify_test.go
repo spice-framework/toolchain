@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	moduleFixtureVersion       = agentCoreVersion
+	moduleFixtureVersion       = agentCoreReleaseVersion
 	distributionFixtureVersion = agentExtensionVersion
 	historicalSpiceVersion     = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
 )
@@ -151,7 +151,7 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 			}
 		}
 		if repository == "spice-agent-provider-openai" || repository == "spice-agent-tools-coding" {
-			want = append(want, selectedModule{path: "github.com/spice-framework/spice-agent", version: agentCoreVersion})
+			want = append(want, selectedModule{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion})
 		}
 		if !slices.Equal(policy.requiredModules, want) {
 			t.Errorf("policy %s required modules = %#v, want %#v", repository, policy.requiredModules, want)
@@ -163,7 +163,7 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 	t.Parallel()
 	recovered := selectedModule{
 		path:    "github.com/spice-framework/spice-agent",
-		version: agentCoreVersion,
+		version: agentCoreDependencyVersion,
 	}
 	for _, repository := range []string{"spice-agent-provider-openai", "spice-agent-tools-coding"} {
 		modules := releasePolicies[repository].requiredModules
@@ -200,7 +200,7 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"spice-agent":                 agentCoreVersion,
+		"spice-agent":                 agentCoreReleaseVersion,
 		"spice-agent-provider-openai": agentExtensionVersion,
 		"spice-agent-tools-coding":    agentExtensionVersion,
 		"spice-agent-tui":             agentExtensionVersion,
@@ -215,18 +215,20 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	}
 }
 
-func TestAgentPreviewFourRecoveryPreservesEveryOtherVersionPin(t *testing.T) {
+func TestAgentPreviewFiveAndDistributionPreviewThreePreserveEveryDependencyPin(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"Agent foundation":   "v0.1.0-preview.2",
-		"Agent core":         "v0.1.0-preview.4",
+		"Agent core release": "v0.1.0-preview.5",
+		"Agent dependency":   "v0.1.0-preview.4",
 		"Agent extensions":   "v0.1.0-preview.1",
-		"Agent distribution": "v0.1.0-preview.2",
+		"Agent distribution": "v0.1.0-preview.3",
 		"module toolchain":   "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
 	}
 	actual := map[string]string{
 		"Agent foundation":   agentFoundationVersion,
-		"Agent core":         agentCoreVersion,
+		"Agent core release": agentCoreReleaseVersion,
+		"Agent dependency":   agentCoreDependencyVersion,
 		"Agent extensions":   agentExtensionVersion,
 		"Agent distribution": agentDistributionVersion,
 		"module toolchain":   toolchainVersion,
@@ -361,6 +363,7 @@ func TestVerifyRejectsPolicyAndModuleViolations(t *testing.T) {
 		{name: "stale Agent preview.1 release", mutate: func(value *Config) { value.Version = agentExtensionVersion }, want: "do not match"},
 		{name: "stale Agent preview.2 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }, want: "do not match"},
 		{name: "stale Agent preview.3 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }, want: "do not match"},
+		{name: "stale Agent preview.4 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.4" }, want: "do not match"},
 		{name: "version", mutate: func(value *Config) { value.Version = "v0.1.0" }, want: "do not match"},
 		{name: "commit", mutate: func(value *Config) { value.Commit = strings.ToUpper(value.Commit) }, want: "lowercase"},
 	}

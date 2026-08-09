@@ -148,7 +148,7 @@ workflows authorize an exact verifier version with an ordinary root `go.mod`
 
 Generic `go-module-v1` releases use the separate
 `cmd/spice-go-release-verify` boundary. It accepts only dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.4`, and the other three
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.5`, and the other three
 explicitly reviewed Spice Agent module
 policies, rejects starters and distribution
 profiles, and independently binds repository, source, module, version, commit,
@@ -174,14 +174,17 @@ apparently successful verification cannot silently leak temporary state.
 All four Agent module policies and the `spice-agent-coding` distribution policy
 require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
 sibling-module, metadata, binary, and payload selections remain independently
-pinned. The distribution's own authorized recovery version is
-`v0.1.0-preview.2`; preview.1 is rejected after release run `31333877865`
+pinned. The distribution's next authorized version is `v0.1.0-preview.3`;
+preview.1 is rejected after release run `31333877865`
 stopped at the missing candidate `verify-release` target before rendering or
-artifact production. Provider, coding-tools, and TUI releases and all three
-distribution sibling selections remain preview.1.
+artifact production. Published preview.2 remains immutable; preview.3 adds the
+candidate-owned installed-archive execution gate before attestation. Provider,
+coding-tools, and TUI releases and all three distribution sibling selections
+remain preview.1.
 Provider, coding-tools, and distribution policies require
 `spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
-all non-Agent selections remain unchanged.
+that dependency graph remains unchanged while the Agent module's own release
+authorization advances independently to preview.5.
 Before creating an immutable tag, release operators can run
 `spice-go-release-verify policy-check` with the proposed repository, canonical
 source, module, version, and profile. This bounded, deterministic check reads

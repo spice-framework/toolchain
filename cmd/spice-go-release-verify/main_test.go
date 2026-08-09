@@ -57,12 +57,12 @@ func TestRunPolicyCheckAuthorizesExactModulePolicy(t *testing.T) {
 		"--repository=spice-agent",
 		"--source=https://github.com/spice-framework/spice-agent",
 		"--module=github.com/spice-framework/spice-agent",
-		"--version=v0.1.0-preview.4",
+		"--version=v0.1.0-preview.5",
 		"--profile=go-module-v1",
 	}, &stdout, &stderr)
 	want := "{\"profile\":\"go-module-v1\",\"repository\":\"spice-agent\"," +
 		"\"module\":\"github.com/spice-framework/spice-agent\"," +
-		"\"version\":\"v0.1.0-preview.4\"," +
+		"\"version\":\"v0.1.0-preview.5\"," +
 		"\"source\":\"https://github.com/spice-framework/spice-agent\"}\n"
 	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
 		t.Fatalf("run(policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
@@ -77,31 +77,33 @@ func TestRunPolicyCheckAuthorizesExactDistributionPolicy(t *testing.T) {
 		"--repository=spice-agent-coding",
 		"--source=https://github.com/spice-framework/spice-agent-coding",
 		"--module=github.com/spice-framework/spice-agent-coding",
-		"--version=v0.1.0-preview.2",
+		"--version=v0.1.0-preview.3",
 		"--profile=go-distribution-v1",
 	}, &stdout, &stderr)
 	want := "{\"profile\":\"go-distribution-v1\",\"repository\":\"spice-agent-coding\"," +
 		"\"module\":\"github.com/spice-framework/spice-agent-coding\"," +
-		"\"version\":\"v0.1.0-preview.2\"," +
+		"\"version\":\"v0.1.0-preview.3\"," +
 		"\"source\":\"https://github.com/spice-framework/spice-agent-coding\"}\n"
 	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
 		t.Fatalf("run(distribution policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
 
-func TestRunPolicyCheckRejectsStaleDistributionPreviewOne(t *testing.T) {
+func TestRunPolicyCheckRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{
-		"policy-check",
-		"--repository=spice-agent-coding",
-		"--source=https://github.com/spice-framework/spice-agent-coding",
-		"--module=github.com/spice-framework/spice-agent-coding",
-		"--version=v0.1.0-preview.1",
-		"--profile=go-distribution-v1",
-	}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "do not match") {
-		t.Fatalf("run(stale distribution policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2"} {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{
+			"policy-check",
+			"--repository=spice-agent-coding",
+			"--source=https://github.com/spice-framework/spice-agent-coding",
+			"--module=github.com/spice-framework/spice-agent-coding",
+			"--version=" + version,
+			"--profile=go-distribution-v1",
+		}, &stdout, &stderr)
+		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "do not match") {
+			t.Fatalf("run(stale distribution %s) = %d, stdout %q, stderr %q", version, code, stdout.String(), stderr.String())
+		}
 	}
 }
 
@@ -112,7 +114,7 @@ func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 		"-repository", "spice-agent",
 		"-source", "https://github.com/spice-framework/spice-agent",
 		"-module", "github.com/spice-framework/spice-agent",
-		"-version", "v0.1.0-preview.4",
+		"-version", "v0.1.0-preview.5",
 		"-profile", "go-module-v1",
 	}
 	for _, test := range []struct {
@@ -126,6 +128,7 @@ func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 		{name: "missing", arguments: []string{"policy-check"}, wantCode: 2, want: "policy-check requires"},
 		{name: "stale preview.2", arguments: replaceArgument(base, "-version", "v0.1.0-preview.2"), wantCode: 1, want: "do not match"},
 		{name: "stale preview.3", arguments: replaceArgument(base, "-version", "v0.1.0-preview.3"), wantCode: 1, want: "do not match"},
+		{name: "stale preview.4", arguments: replaceArgument(base, "-version", "v0.1.0-preview.4"), wantCode: 1, want: "do not match"},
 		{name: "bounded unknown", arguments: replaceArgument(base, "-repository", strings.Repeat("x", 512)), wantCode: 1, want: "not independently authorized"},
 		{name: "oversized", arguments: replaceArgument(base, "-repository", strings.Repeat("x", 2048)), wantCode: 1, want: "missing or invalid"},
 	} {
@@ -148,7 +151,7 @@ func TestRunPolicyCheckHandlesWriterFailure(t *testing.T) {
 		"-repository", "spice-agent-coding",
 		"-source", "https://github.com/spice-framework/spice-agent-coding",
 		"-module", "github.com/spice-framework/spice-agent-coding",
-		"-version", "v0.1.0-preview.2",
+		"-version", "v0.1.0-preview.3",
 		"-profile", "go-distribution-v1",
 	}, failingWriter{}, io.Discard)
 	if code != 1 {

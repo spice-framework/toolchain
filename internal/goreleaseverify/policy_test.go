@@ -19,7 +19,7 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 			Repository: "spice-agent",
 			Source:     "https://github.com/spice-framework/spice-agent",
 			Module:     "github.com/spice-framework/spice-agent",
-			Version:    agentCoreVersion,
+			Version:    agentCoreReleaseVersion,
 			Profile:    ProfileGoModule,
 		},
 		{
@@ -45,18 +45,20 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 	}
 }
 
-func TestCheckPolicyRejectsStaleDistributionPreviewOne(t *testing.T) {
+func TestCheckPolicyRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	request := PolicyRequest{
-		Repository: "spice-agent-coding",
-		Source:     "https://github.com/spice-framework/spice-agent-coding",
-		Module:     "github.com/spice-framework/spice-agent-coding",
-		Version:    agentExtensionVersion,
-		Profile:    ProfileDistribution,
-	}
-	authorization, err := CheckPolicy(request)
-	if err == nil || !strings.Contains(err.Error(), "do not match") || authorization != (PolicyAuthorization{}) {
-		t.Fatalf("CheckPolicy(stale distribution preview.1) = %#v, %v", authorization, err)
+	for _, version := range []string{agentExtensionVersion, "v0.1.0-preview.2"} {
+		request := PolicyRequest{
+			Repository: "spice-agent-coding",
+			Source:     "https://github.com/spice-framework/spice-agent-coding",
+			Module:     "github.com/spice-framework/spice-agent-coding",
+			Version:    version,
+			Profile:    ProfileDistribution,
+		}
+		authorization, err := CheckPolicy(request)
+		if err == nil || !strings.Contains(err.Error(), "do not match") || authorization != (PolicyAuthorization{}) {
+			t.Fatalf("CheckPolicy(stale distribution %s) = %#v, %v", version, authorization, err)
+		}
 	}
 }
 
@@ -66,7 +68,7 @@ func TestCheckPolicyRejectsUntrustedAndStaleIdentities(t *testing.T) {
 		Repository: "spice-agent",
 		Source:     "https://github.com/spice-framework/spice-agent",
 		Module:     "github.com/spice-framework/spice-agent",
-		Version:    agentCoreVersion,
+		Version:    agentCoreReleaseVersion,
 		Profile:    ProfileGoModule,
 	}
 	for _, test := range []struct {
@@ -85,6 +87,7 @@ func TestCheckPolicyRejectsUntrustedAndStaleIdentities(t *testing.T) {
 		{name: "module", mutate: func(value *PolicyRequest) { value.Module += "/fork" }, want: "do not match"},
 		{name: "stale preview.2", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.2" }, want: "do not match"},
 		{name: "stale preview.3", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.3" }, want: "do not match"},
+		{name: "stale preview.4", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.4" }, want: "do not match"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -104,7 +107,7 @@ func TestCheckPolicyHasBoundedDeterministicFailure(t *testing.T) {
 		Repository: strings.Repeat("x", maxPolicyInputBytes+1),
 		Source:     "https://github.com/spice-framework/spice-agent",
 		Module:     "github.com/spice-framework/spice-agent",
-		Version:    agentCoreVersion,
+		Version:    agentCoreReleaseVersion,
 		Profile:    ProfileGoModule,
 	}
 	_, left := CheckPolicy(request)

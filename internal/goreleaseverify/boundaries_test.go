@@ -524,7 +524,7 @@ func TestVerifiedOutputPublishNeverReplacesLateTarget(t *testing.T) {
 func TestArchiveMaterializationBoundaries(t *testing.T) {
 	t.Parallel()
 	policy := releasePolicies["spice-agent"]
-	prefix := "spice-agent_0.1.0-preview.4/"
+	prefix := "spice-agent_0.1.0-preview.5/"
 	source := sourceIdentity{entries: []gitEntry{{name: "README.md", mode: "100644"}}}
 	rootEntry := archiveTestEntry{header: tar.Header{Name: prefix, Typeflag: tar.TypeDir, Mode: 0o775}}
 	regular := archiveTestEntry{

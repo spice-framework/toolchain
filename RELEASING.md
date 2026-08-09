@@ -176,7 +176,7 @@ spice-go-release-verify policy-check \
   --repository=spice-agent \
   --source=https://github.com/spice-framework/spice-agent \
   --module=github.com/spice-framework/spice-agent \
-  --version=v0.1.0-preview.4 \
+  --version=v0.1.0-preview.5 \
   --profile=go-module-v1
 ```
 
@@ -186,7 +186,7 @@ fields are directly machine-comparable with Development's shared
 Toolchain trust field:
 
 ```json
-{"profile":"go-module-v1","repository":"spice-agent","module":"github.com/spice-framework/spice-agent","version":"v0.1.0-preview.4","source":"https://github.com/spice-framework/spice-agent"}
+{"profile":"go-module-v1","repository":"spice-agent","module":"github.com/spice-framework/spice-agent","version":"v0.1.0-preview.5","source":"https://github.com/spice-framework/spice-agent"}
 ```
 
 It performs no Git,
@@ -218,7 +218,7 @@ organization workflow uploads, attests, and publishes only that verifier-owned
 directory.
 
 The verifier carries its own reviewed allowlist for dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.4`,
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.5`,
 `spice-agent-provider-openai`, `spice-agent-tools-coding`, and
 `spice-agent-tui`, including their required module identities. A required
 tool-only module may retain Go's `// indirect` marker; its canonical `require`
@@ -234,8 +234,11 @@ and distribution policies require the recovered
 preview.2, and preview.3 are rejected for that dependency. Provider,
 coding-tools, and TUI release versions remain `v0.1.0-preview.1`; the
 distribution's provider, coding-tools, and TUI sibling selections also remain
-preview.1. The `spice-agent-coding` distribution's own recovery version is
-`v0.1.0-preview.2`. Every toolchain,
+preview.1. The `spice-agent-coding` distribution's next authorized version is
+`v0.1.0-preview.3`; published preview.2 remains immutable. The Agent module's
+own preview.5 authorization does not silently repin provider, coding-tools, or
+distribution dependencies, which remain on the exact released preview.4 graph.
+Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
 
@@ -243,9 +246,10 @@ The immutable distribution preview.1 attempt failed in release run
 `31333877865` while validating the tagged candidate: `make -C candidate
 verify-release` found no `verify-release` target. Rendering never ran, and the
 independent verification, attestation, provenance-authorization, and publish
-jobs were skipped. Preview.2 is a new closed-policy authorization for the
-corrected candidate; preview.1 remains rejected and must never be moved or
-reused.
+jobs were skipped. Preview.2 was the immutable corrected release. Preview.3 is
+a new closed-policy authorization for the candidate-owned installed-archive
+execution gate before attestation; prior tags remain rejected and must never be
+moved or reused.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
@@ -301,7 +305,7 @@ spice-go-distribution-release-verify \
   -repository=spice-agent-coding \
   -source=https://github.com/spice-framework/spice-agent-coding \
   -module=github.com/spice-framework/spice-agent-coding \
-  -version=v0.1.0-preview.2 \
+  -version=v0.1.0-preview.3 \
   -commit=<exact-object-id> \
   -profile=go-distribution-v1
 ```
