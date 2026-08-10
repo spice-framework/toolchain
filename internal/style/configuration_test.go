@@ -29,6 +29,14 @@ func TestLoadConfigurationIsStrictAndDefensive(t *testing.T) {
 	if again.SourceRoots[0] == "changed" {
 		t.Fatal("LoadConfiguration returned aliased source roots")
 	}
+	configuration.PackageVariableExceptions[0].Symbol = "changed"
+	again, err = LoadConfiguration(path)
+	if err != nil {
+		t.Fatalf("LoadConfiguration() third error = %v", err)
+	}
+	if again.PackageVariableExceptions[0].Symbol == "changed" {
+		t.Fatal("LoadConfiguration returned aliased package variable exceptions")
+	}
 }
 
 func TestLoadConfigurationRejectsMalformedBoundaries(t *testing.T) {
@@ -83,6 +91,12 @@ func TestLoadConfigurationRejectsMalformedBoundaries(t *testing.T) {
 		},
 		"negative function maximum": func(value string) string {
 			return strings.Replace(value, "\"maximum\": 1", "\"maximum\": -1", 1)
+		},
+		"empty variable type": func(value string) string {
+			return strings.Replace(value, "\"type\": \"embed.FS\"", "\"type\": \"\"", 1)
+		},
+		"empty variable issue": func(value string) string {
+			return strings.Replace(value, "\"issue\": \"STYLE-EMBED-001\"", "\"issue\": \"\"", 1)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

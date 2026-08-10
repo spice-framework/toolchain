@@ -70,7 +70,8 @@ func (styleScaffold) configurationContent() []byte {
       "symbolPattern": "^(Test|Benchmark|Fuzz|Example|TestMain)",
       "reason": "Go testing entrypoint"
     }
-  ]
+  ],
+  "packageVariableExceptions": []
 }
 `)
 }

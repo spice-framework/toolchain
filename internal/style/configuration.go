@@ -25,6 +25,7 @@ type Configuration struct {
 	PublicRoutes              []PublicRoute              `json:"publicRoutes"`
 	AllowedBoundaryFiles      []string                   `json:"allowedBoundaryFiles"`
 	PackageFunctionExceptions []PackageFunctionException `json:"packageFunctionExceptions"`
+	PackageVariableExceptions []PackageVariableException `json:"packageVariableExceptions"`
 }
 
 // LoadConfiguration reads and validates one bounded, strict configuration.
@@ -110,6 +111,11 @@ func (configuration Configuration) Validate() error {
 			return newConfigurationError(fmt.Sprintf("packageFunctionExceptions[%d]: %s", index, err))
 		}
 	}
+	for index, exception := range configuration.PackageVariableExceptions {
+		if err := exception.validate(); err != nil {
+			return newConfigurationError(fmt.Sprintf("packageVariableExceptions[%d]: %s", index, err))
+		}
+	}
 	return nil
 }
 
@@ -177,5 +183,6 @@ func (configuration Configuration) clone() Configuration {
 	configuration.PublicRoutes = slices.Clone(configuration.PublicRoutes)
 	configuration.AllowedBoundaryFiles = slices.Clone(configuration.AllowedBoundaryFiles)
 	configuration.PackageFunctionExceptions = slices.Clone(configuration.PackageFunctionExceptions)
+	configuration.PackageVariableExceptions = slices.Clone(configuration.PackageVariableExceptions)
 	return configuration
 }

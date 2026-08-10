@@ -50,5 +50,14 @@
       "maximum": 1,
       "reason": "Typed Spice event topic marker"
     }
+  ],
+  "packageVariableExceptions": [
+    {
+      "glob": "**/assets.go",
+      "symbol": "files",
+      "type": "embed.FS",
+      "reason": "Go embed requires a package variable",
+      "issue": "STYLE-EMBED-001"
+    }
   ]
 }

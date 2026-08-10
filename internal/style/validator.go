@@ -148,6 +148,9 @@ func (validator *Validator) validateFile(file *sourceFile) {
 	if validator.configuration.Rules.BanMutablePackageState != RuleLevelOff {
 		for _, variable := range file.variables {
 			for _, name := range variable.Names {
+				if validator.packageVariable(file.relative, name) {
+					continue
+				}
 				validator.report(name, "spice.style.package.mutable-global",
 					"mutable package state is forbidden; move ownership to a constructed type")
 			}
@@ -160,6 +163,21 @@ func (validator *Validator) validateFile(file *sourceFile) {
 		validator.validateSignature(function.Type)
 	}
 	validator.validateStoredContexts(file)
+}
+
+func (validator *Validator) packageVariable(relative string, identifier *ast.Ident) bool {
+	object, ok := validator.pass.TypesInfo.Defs[identifier].(*types.Var)
+	if !ok {
+		return false
+	}
+	actualType := types.TypeString(object.Type(), packageQualifier)
+	for _, exception := range validator.configuration.PackageVariableExceptions {
+		if globMatches(exception.Glob, relative) &&
+			exception.Symbol == identifier.Name && exception.Type == actualType {
+			return true
+		}
+	}
+	return false
 }
 
 func (validator *Validator) validatePackageFunction(file *sourceFile, function *ast.FuncDecl) {

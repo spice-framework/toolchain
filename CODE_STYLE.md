@@ -2200,7 +2200,7 @@ The same phase SHOULD feed:
 
 ---
 
-## 50. Proposed command contract
+## 50. Command contract
 
 The target command surface is:
 
@@ -2236,7 +2236,7 @@ profile identity and stable diagnostic namespace.
 
 ---
 
-## 51. Proposed style configuration
+## 51. Style configuration
 
 Use JSON to match Spice's existing manifest-oriented tooling and avoid configuration ambiguity.
 
@@ -2307,11 +2307,24 @@ Use JSON to match Spice's existing manifest-oriented tooling and avoid configura
       "symbolPattern": "^(Test|Benchmark|Fuzz|Example|TestMain)",
       "reason": "Go testing entrypoint"
     }
+  ],
+  "packageVariableExceptions": [
+    {
+      "glob": "internal/presentation/assets.go",
+      "symbol": "files",
+      "type": "embed.FS",
+      "reason": "Go embed requires a package variable",
+      "issue": "ARCH-123"
+    }
   ]
 }
 ```
 
 The configuration MUST fail on unknown fields and unsupported schema versions.
+Package-variable exceptions are exact interoperability boundaries: file glob,
+symbol, and resolved Go type must all match, and both a reason and issue/ADR
+identifier are mandatory. Symbol patterns, file-wide variable exceptions, and
+type wildcards are forbidden.
 
 ---
 
@@ -2434,9 +2447,10 @@ Never decide that a function is a bean merely because its comment contains the t
 
 ## 54. Suppression policy
 
-Suppressions are exceptional and auditable.
-
-Proposed syntax:
+Suppressions are exceptional and auditable. Schema-one enforcement supports
+only the exact configuration-owned function and variable exceptions above.
+The following declaration-local syntax is reserved for a later schema and is
+not accepted by current tooling:
 
 ```go
 //spicestyle:allow spice.style.function.package-level issue=ARCH-123
