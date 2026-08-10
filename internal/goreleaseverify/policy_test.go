@@ -47,7 +47,7 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 
 func TestCheckPolicyRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{agentExtensionVersion, "v0.1.0-preview.2"} {
+	for _, version := range []string{agentExtensionVersion, "v0.1.0-preview.2", "v0.1.0-preview.3"} {
 		request := PolicyRequest{
 			Repository: "spice-agent-coding",
 			Source:     "https://github.com/spice-framework/spice-agent-coding",

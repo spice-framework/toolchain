@@ -215,14 +215,14 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	}
 }
 
-func TestAgentPreviewFiveAndDistributionPreviewThreePreserveEveryDependencyPin(t *testing.T) {
+func TestAgentPreviewFiveAndDistributionPreviewFourPreserveEveryDependencyPin(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"Agent foundation":   "v0.1.0-preview.2",
 		"Agent core release": "v0.1.0-preview.5",
 		"Agent dependency":   "v0.1.0-preview.4",
 		"Agent extensions":   "v0.1.0-preview.1",
-		"Agent distribution": "v0.1.0-preview.3",
+		"Agent distribution": "v0.1.0-preview.4",
 		"module toolchain":   "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
 	}
 	actual := map[string]string{

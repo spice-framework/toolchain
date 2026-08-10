@@ -31,7 +31,7 @@ const (
 	agentCoreReleaseVersion    = "v0.1.0-preview.5"
 	agentCoreDependencyVersion = "v0.1.0-preview.4"
 	agentExtensionVersion      = "v0.1.0-preview.1"
-	agentDistributionVersion   = "v0.1.0-preview.3"
+	agentDistributionVersion   = "v0.1.0-preview.4"
 )
 
 // Config contains separately trusted release identity and untrusted artifact

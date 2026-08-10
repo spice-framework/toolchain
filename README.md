@@ -174,11 +174,15 @@ apparently successful verification cannot silently leak temporary state.
 All four Agent module policies and the `spice-agent-coding` distribution policy
 require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
 sibling-module, metadata, binary, and payload selections remain independently
-pinned. The distribution's next authorized version is `v0.1.0-preview.3`;
+pinned. The distribution's next authorized version is `v0.1.0-preview.4`;
 preview.1 is rejected after release run `31333877865`
 stopped at the missing candidate `verify-release` target before rendering or
-artifact production. Published preview.2 remains immutable; preview.3 adds the
-candidate-owned installed-archive execution gate before attestation. Provider,
+artifact production. Published preview.2 remains immutable. Preview.3 release
+run `31345003119` passed validation, rendering, and independent verification,
+then failed before attestation because Linux retained a stale preview.2
+installed-artifact expectation and Windows rejected a valid mixed-separator
+runner path. Preview.4 authorizes only the corrected candidate boundary.
+Provider,
 coding-tools, and TUI releases and all three distribution sibling selections
 remain preview.1.
 Provider, coding-tools, and distribution policies require

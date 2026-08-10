@@ -77,12 +77,12 @@ func TestRunPolicyCheckAuthorizesExactDistributionPolicy(t *testing.T) {
 		"--repository=spice-agent-coding",
 		"--source=https://github.com/spice-framework/spice-agent-coding",
 		"--module=github.com/spice-framework/spice-agent-coding",
-		"--version=v0.1.0-preview.3",
+		"--version=v0.1.0-preview.4",
 		"--profile=go-distribution-v1",
 	}, &stdout, &stderr)
 	want := "{\"profile\":\"go-distribution-v1\",\"repository\":\"spice-agent-coding\"," +
 		"\"module\":\"github.com/spice-framework/spice-agent-coding\"," +
-		"\"version\":\"v0.1.0-preview.3\"," +
+		"\"version\":\"v0.1.0-preview.4\"," +
 		"\"source\":\"https://github.com/spice-framework/spice-agent-coding\"}\n"
 	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
 		t.Fatalf("run(distribution policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
@@ -91,7 +91,7 @@ func TestRunPolicyCheckAuthorizesExactDistributionPolicy(t *testing.T) {
 
 func TestRunPolicyCheckRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2"} {
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"} {
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), []string{
 			"policy-check",
@@ -151,7 +151,7 @@ func TestRunPolicyCheckHandlesWriterFailure(t *testing.T) {
 		"-repository", "spice-agent-coding",
 		"-source", "https://github.com/spice-framework/spice-agent-coding",
 		"-module", "github.com/spice-framework/spice-agent-coding",
-		"-version", "v0.1.0-preview.3",
+		"-version", "v0.1.0-preview.4",
 		"-profile", "go-distribution-v1",
 	}, failingWriter{}, io.Discard)
 	if code != 1 {

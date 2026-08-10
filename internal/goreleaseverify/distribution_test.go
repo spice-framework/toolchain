@@ -34,6 +34,7 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "/fork" }},
 		{name: "stale preview.1 version", mutate: func(value *Config) { value.Version = agentExtensionVersion }},
 		{name: "stale preview.2 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }},
+		{name: "stale preview.3 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
