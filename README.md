@@ -217,11 +217,10 @@ remain preview.1.
 Provider, coding-tools, and distribution policies require
 `spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
 that dependency graph remains unchanged while the Agent module's own release
-authorization advances independently to preview.6. The preview.5 release is
-published by successful release run `31343998056` as a non-draft prerelease
-with its authenticated five-asset module set. Preview.6 is a distinct
-next-candidate authorization so subsequent Agent source never moves, replaces,
-or reuses the immutable preview.5 identity.
+advanced independently to preview.6. Successful release run `31428824060`
+published preview.6 as a non-draft prerelease with its authenticated five-asset
+module set. Its distinct immutable identity ensures subsequent Agent source
+never moves, replaces, or reuses preview.5 or preview.6.
 Before creating an immutable tag, release operators can run
 `spice-go-release-verify policy-check` with the proposed repository, canonical
 source, module, version, and profile. This bounded, deterministic check reads

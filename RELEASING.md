@@ -249,12 +249,12 @@ preview.1. The `spice-agent-coding` distribution's next authorized version is
 `v0.1.0-preview.4`; release run `31349650978` completed the Linux and Windows
 installed-byte gates, keyless attestation, provenance authentication, and
 protected publication. Published preview.2 remains immutable. The Agent
-module's own preview.6 authorization does not silently repin provider,
+module's own preview.6 release does not silently repin provider,
 coding-tools, or distribution dependencies, which remain on the exact released
-preview.4 graph. Agent preview.5 was published by successful release run
-`31343998056` with its authenticated five-asset module set. Preview.6 provides
-a separate next-candidate identity so later Agent source cannot move or reuse
-preview.5.
+preview.4 graph. Agent preview.6 was published by successful release run
+`31428824060` with its authenticated five-asset module set. Its separate
+immutable identity ensures later Agent source cannot move or reuse preview.5
+or preview.6.
 Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
