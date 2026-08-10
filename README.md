@@ -148,7 +148,7 @@ workflows authorize an exact verifier version with an ordinary root `go.mod`
 
 Generic `go-module-v1` releases use the separate
 `cmd/spice-go-release-verify` boundary. It accepts only dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.5`, and the other three
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.6`, and the other three
 explicitly reviewed Spice Agent module
 policies, rejects starters and distribution
 profiles, and independently binds repository, source, module, version, commit,
@@ -188,7 +188,11 @@ remain preview.1.
 Provider, coding-tools, and distribution policies require
 `spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
 that dependency graph remains unchanged while the Agent module's own release
-authorization advances independently to preview.5.
+authorization advances independently to preview.6. The preview.5 release is
+still waiting at its protected release-attestation boundary and is not treated
+as published by this policy change. Preview.6 is a distinct next-candidate
+authorization so subsequent Agent source never moves, replaces, or reuses the
+immutable preview.5 identity.
 Before creating an immutable tag, release operators can run
 `spice-go-release-verify policy-check` with the proposed repository, canonical
 source, module, version, and profile. This bounded, deterministic check reads

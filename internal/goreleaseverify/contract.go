@@ -28,7 +28,7 @@ const (
 	rendererIdentity           = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
 	agentFoundationVersion     = "v0.1.0-preview.2"
 	toolchainVersion           = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
-	agentCoreReleaseVersion    = "v0.1.0-preview.5"
+	agentCoreReleaseVersion    = "v0.1.0-preview.6"
 	agentCoreDependencyVersion = "v0.1.0-preview.4"
 	agentExtensionVersion      = "v0.1.0-preview.1"
 	agentDistributionVersion   = "v0.1.0-preview.4"

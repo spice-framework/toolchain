@@ -176,7 +176,7 @@ spice-go-release-verify policy-check \
   --repository=spice-agent \
   --source=https://github.com/spice-framework/spice-agent \
   --module=github.com/spice-framework/spice-agent \
-  --version=v0.1.0-preview.5 \
+  --version=v0.1.0-preview.6 \
   --profile=go-module-v1
 ```
 
@@ -186,7 +186,7 @@ fields are directly machine-comparable with Development's shared
 Toolchain trust field:
 
 ```json
-{"profile":"go-module-v1","repository":"spice-agent","module":"github.com/spice-framework/spice-agent","version":"v0.1.0-preview.5","source":"https://github.com/spice-framework/spice-agent"}
+{"profile":"go-module-v1","repository":"spice-agent","module":"github.com/spice-framework/spice-agent","version":"v0.1.0-preview.6","source":"https://github.com/spice-framework/spice-agent"}
 ```
 
 It performs no Git,
@@ -218,7 +218,7 @@ organization workflow uploads, attests, and publishes only that verifier-owned
 directory.
 
 The verifier carries its own reviewed allowlist for dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.5`,
+`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.6`,
 `spice-agent-provider-openai`, `spice-agent-tools-coding`, and
 `spice-agent-tui`, including their required module identities. A required
 tool-only module may retain Go's `// indirect` marker; its canonical `require`
@@ -236,8 +236,11 @@ coding-tools, and TUI release versions remain `v0.1.0-preview.1`; the
 distribution's provider, coding-tools, and TUI sibling selections also remain
 preview.1. The `spice-agent-coding` distribution's next authorized version is
 `v0.1.0-preview.4`; published preview.2 remains immutable. The Agent module's
-own preview.5 authorization does not silently repin provider, coding-tools, or
+own preview.6 authorization does not silently repin provider, coding-tools, or
 distribution dependencies, which remain on the exact released preview.4 graph.
+The preview.5 release remains waiting at the protected release-attestation
+boundary and is not treated as published. Preview.6 provides a separate
+next-candidate identity so later Agent source cannot move or reuse preview.5.
 Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.

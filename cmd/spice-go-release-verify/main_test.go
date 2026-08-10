@@ -57,12 +57,12 @@ func TestRunPolicyCheckAuthorizesExactModulePolicy(t *testing.T) {
 		"--repository=spice-agent",
 		"--source=https://github.com/spice-framework/spice-agent",
 		"--module=github.com/spice-framework/spice-agent",
-		"--version=v0.1.0-preview.5",
+		"--version=v0.1.0-preview.6",
 		"--profile=go-module-v1",
 	}, &stdout, &stderr)
 	want := "{\"profile\":\"go-module-v1\",\"repository\":\"spice-agent\"," +
 		"\"module\":\"github.com/spice-framework/spice-agent\"," +
-		"\"version\":\"v0.1.0-preview.5\"," +
+		"\"version\":\"v0.1.0-preview.6\"," +
 		"\"source\":\"https://github.com/spice-framework/spice-agent\"}\n"
 	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
 		t.Fatalf("run(policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
@@ -114,7 +114,7 @@ func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 		"-repository", "spice-agent",
 		"-source", "https://github.com/spice-framework/spice-agent",
 		"-module", "github.com/spice-framework/spice-agent",
-		"-version", "v0.1.0-preview.5",
+		"-version", "v0.1.0-preview.6",
 		"-profile", "go-module-v1",
 	}
 	for _, test := range []struct {
@@ -129,6 +129,7 @@ func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 		{name: "stale preview.2", arguments: replaceArgument(base, "-version", "v0.1.0-preview.2"), wantCode: 1, want: "do not match"},
 		{name: "stale preview.3", arguments: replaceArgument(base, "-version", "v0.1.0-preview.3"), wantCode: 1, want: "do not match"},
 		{name: "stale preview.4", arguments: replaceArgument(base, "-version", "v0.1.0-preview.4"), wantCode: 1, want: "do not match"},
+		{name: "stale preview.5", arguments: replaceArgument(base, "-version", "v0.1.0-preview.5"), wantCode: 1, want: "do not match"},
 		{name: "bounded unknown", arguments: replaceArgument(base, "-repository", strings.Repeat("x", 512)), wantCode: 1, want: "not independently authorized"},
 		{name: "oversized", arguments: replaceArgument(base, "-repository", strings.Repeat("x", 2048)), wantCode: 1, want: "missing or invalid"},
 	} {

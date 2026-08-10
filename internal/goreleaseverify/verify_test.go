@@ -215,11 +215,11 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	}
 }
 
-func TestAgentPreviewFiveAndDistributionPreviewFourPreserveEveryDependencyPin(t *testing.T) {
+func TestAgentPreviewSixAndDistributionPreviewFourPreserveEveryDependencyPin(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"Agent foundation":   "v0.1.0-preview.2",
-		"Agent core release": "v0.1.0-preview.5",
+		"Agent core release": "v0.1.0-preview.6",
 		"Agent dependency":   "v0.1.0-preview.4",
 		"Agent extensions":   "v0.1.0-preview.1",
 		"Agent distribution": "v0.1.0-preview.4",
@@ -364,6 +364,7 @@ func TestVerifyRejectsPolicyAndModuleViolations(t *testing.T) {
 		{name: "stale Agent preview.2 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }, want: "do not match"},
 		{name: "stale Agent preview.3 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }, want: "do not match"},
 		{name: "stale Agent preview.4 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.4" }, want: "do not match"},
+		{name: "stale Agent preview.5 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.5" }, want: "do not match"},
 		{name: "version", mutate: func(value *Config) { value.Version = "v0.1.0" }, want: "do not match"},
 		{name: "commit", mutate: func(value *Config) { value.Commit = strings.ToUpper(value.Commit) }, want: "lowercase"},
 	}
