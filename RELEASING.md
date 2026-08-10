@@ -246,12 +246,15 @@ preview.2, and preview.3 are rejected for that dependency. Provider,
 coding-tools, and TUI release versions remain `v0.1.0-preview.1`; the
 distribution's provider, coding-tools, and TUI sibling selections also remain
 preview.1. The `spice-agent-coding` distribution's next authorized version is
-`v0.1.0-preview.4`; published preview.2 remains immutable. The Agent module's
-own preview.6 authorization does not silently repin provider, coding-tools, or
-distribution dependencies, which remain on the exact released preview.4 graph.
-The preview.5 release remains waiting at the protected release-attestation
-boundary and is not treated as published. Preview.6 provides a separate
-next-candidate identity so later Agent source cannot move or reuse preview.5.
+`v0.1.0-preview.4`; release run `31349650978` completed the Linux and Windows
+installed-byte gates, keyless attestation, provenance authentication, and
+protected publication. Published preview.2 remains immutable. The Agent
+module's own preview.6 authorization does not silently repin provider,
+coding-tools, or distribution dependencies, which remain on the exact released
+preview.4 graph. Agent preview.5 was published by successful release run
+`31343998056` with its authenticated five-asset module set. Preview.6 provides
+a separate next-candidate identity so later Agent source cannot move or reuse
+preview.5.
 Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
@@ -265,8 +268,10 @@ release run `31345003119` passed candidate validation, rendering, and
 independent verification, then stopped before attestation: Linux still
 expected preview.2 artifact names and Windows rejected the runner's valid
 mixed-separator artifact path. Preview.4 is the new closed-policy authorization
-for the corrected installed-archive execution boundary. Prior tags remain
-rejected and must never be moved or reused.
+for the corrected installed-archive execution boundary. Release run
+`31349650978` then completed that execution boundary and published the exact
+ten-asset non-draft prerelease. Prior tags remain rejected and must never be
+moved or reused.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
