@@ -21,6 +21,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 	writeGateFile(t, root, "vendor/example.txt", "vendored\n")
 	writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
 	writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
+	writeValidGeneratorContract(t, root)
 	writeGateFile(t, root, "benchmarks/budgets.json", testBenchmarkBudgetDocument(
 		`{"name":"BenchmarkGate","package":"./compiler/gate","reference_ns_per_op":10,"maximum_ns_per_op":100,"maximum_bytes_per_op":100,"maximum_allocs_per_op":10,"rationale":"gate path"}`,
 	))
@@ -182,6 +183,7 @@ func TestFastAndCheckStopAtCommandFailures(t *testing.T) {
 			writeGateFile(t, root, "main.go", "package toolchain\n")
 			writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
 			writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
+			writeValidGeneratorContract(t, root)
 			failure := errors.New("command failed")
 			testCalls := 0
 			gate := verifier{

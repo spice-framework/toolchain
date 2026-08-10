@@ -607,6 +607,71 @@ func TestApplyMigratesSchemaFourMonolithicTarget(t *testing.T) {
 	}
 }
 
+func TestApplyMigratesSchemaFiveOwnershipWithoutOverwritingManualEdits(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		modified bool
+	}{
+		{name: "unchanged"},
+		{name: "modified", modified: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := generationModule(t)
+			plan := renderPlan(t, root, applicationWithProviderSource)
+			for _, file := range plan.Files() {
+				writeFile(
+					t,
+					filepath.Join(root, filepath.FromSlash(file.Path)),
+					file.Content(),
+				)
+			}
+			legacyManifest := plan.Manifest()
+			legacyManifest.Schema = 5
+			legacyManifest.GeneratorVersion = "0.1.0-dev"
+			manifestPath := filepath.Join(
+				root,
+				filepath.FromSlash(plan.Target().ManifestPath),
+			)
+			writeManifest(t, manifestPath, legacyManifest)
+
+			if test.modified {
+				path := filepath.Join(
+					root,
+					filepath.FromSlash(plan.Files()[0].Path),
+				)
+				writeFile(t, path, append(mustRead(t, path), []byte("// manual\n")...))
+			}
+
+			result, err := Apply(plan)
+			if test.modified {
+				var conflict *ConflictError
+				if !errors.As(err, &conflict) ||
+					!hasDifference(
+						Status{Differences: conflict.Differences},
+						DifferenceManualEdit,
+					) {
+					t.Fatalf("Apply(modified schema-5 manifest) error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Apply(schema-5 manifest) error = %v", err)
+			}
+			if !result.ManifestUpdated {
+				t.Fatalf("Apply(schema-5 manifest) result = %#v", result)
+			}
+			var migrated generate.Manifest
+			if err := json.Unmarshal(mustRead(t, manifestPath), &migrated); err != nil {
+				t.Fatal(err)
+			}
+			if migrated.Schema != generate.SchemaVersion ||
+				migrated.GeneratorVersion != generate.GeneratorVersion {
+				t.Fatalf("migrated manifest = %#v", migrated)
+			}
+		})
+	}
+}
+
 func TestApplyOwnsGeneratedOpenAPI(t *testing.T) {
 	root := generationModule(t)
 	plan := renderPlan(t, root, controllerApplicationSource)

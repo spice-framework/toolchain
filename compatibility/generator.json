@@ -1,0 +1,23 @@
+{
+  "schema": "spice.generator.compatibility/v1",
+  "module": "github.com/spice-framework/toolchain",
+  "generator_version": "v0.1.0-preview.2",
+  "status": "frozen-contract",
+  "manifest_schema": 6,
+  "go_format_line": "1.26",
+  "analysis_build_tag": "spice_generate",
+  "accepted_input_schemas": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "write_schema": 6,
+  "generated_ownership": "manifest-only",
+  "manual_edit_policy": "reject",
+  "stale_file_policy": "remove-only-when-owned-hash-matches",
+  "path_policy": "module-relative-forward-slash-case-fold-unique",
+  "determinism": "same-input-same-bytes"
+}

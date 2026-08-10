@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spice-framework/toolchain/compiler/generate"
 	"github.com/spice-framework/toolchain/internal/gitenv"
 	spicerelease "github.com/spice-framework/toolchain/internal/release"
 	"golang.org/x/mod/semver"
@@ -170,10 +171,15 @@ func validateReleaseIntent(
 		if signingKey != "" {
 			return fmt.Errorf("-rehearsal cannot be combined with -signing-key")
 		}
-		return nil
-	}
-	if signingKey == "" {
+	} else if signingKey == "" {
 		return fmt.Errorf("-signing-key is required outside rehearsal")
+	}
+	if version != generate.GeneratorVersion {
+		return fmt.Errorf(
+			"release version %q does not match frozen generator version %q",
+			version,
+			generate.GeneratorVersion,
+		)
 	}
 	return nil
 }

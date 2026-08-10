@@ -21,8 +21,8 @@ import (
 )
 
 // Version is the version reported by the Spice CLI. Release builds replace the
-// development value through Go's link-time string-variable mechanism.
-var Version = "0.1.0-dev"
+// source release identity through Go's link-time string-variable mechanism.
+var Version = codegen.GeneratorVersion
 
 const legacyStarterSelectionPath = ".spice/starters.json"
 

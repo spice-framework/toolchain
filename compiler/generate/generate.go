@@ -46,7 +46,7 @@ const (
 	SchemaVersion = 6
 	// GeneratorVersion is recorded in manifests to make generator compatibility
 	// explicit during freshness checks.
-	GeneratorVersion = "0.1.0-dev"
+	GeneratorVersion = "v0.1.0-preview.2"
 	// GoFormatLine is the supported Go formatter compatibility line.
 	GoFormatLine = "1.26"
 	// AnalysisBuildTag excludes committed generated source while Spice analyzes

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	codegen "github.com/spice-framework/toolchain/compiler/generate"
 	"github.com/spice-framework/toolchain/compiler/load"
 	"github.com/spice-framework/toolchain/internal/identity"
 	"github.com/spice-framework/toolchain/internal/testsupport"
@@ -18,6 +19,12 @@ import (
 
 func TestRunVersion(t *testing.T) {
 	t.Parallel()
+	if Version != codegen.GeneratorVersion {
+		t.Fatalf("CLI version = %q, generator version = %q", Version, codegen.GeneratorVersion)
+	}
+	if Version != "v0.1.0-preview.2" {
+		t.Fatalf("CLI version = %q", Version)
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := Run([]string{"version"}, &stdout, &stderr)

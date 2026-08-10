@@ -8,7 +8,7 @@ package mutable working-tree files and it never downloads modules.
 Use a rehearsal to inspect deterministic artifacts before creating a tag:
 
 ```text
-go run ./cmd/spice-release -rehearsal -version v0.1.0-rc.1 -output dist-rehearsal
+go run ./cmd/spice-release -rehearsal -version v0.1.0-preview.2 -output dist-rehearsal
 ```
 
 A rehearsal must not receive a signing key. Its checksum file is intentionally
@@ -62,8 +62,10 @@ or release assets.
    `benchmarks/budgets.json`; do not raise a ceiling without measured evidence
    and a recorded rationale.
 2. Confirm the commit is on `origin/main`, CI is green, the working tree is
-   clean, and the intended version is a canonical version such as `v0.1.0` or
-   `v0.1.0-preview.1`. Build metadata is not accepted.
+   clean, and the intended version exactly matches the frozen generator
+   identity in `compatibility/generator.json` and
+   `compiler/generate.GeneratorVersion`. The current candidate is
+   `v0.1.0-preview.2`; build metadata is not accepted.
 3. Have an authorized release manager create and push the immutable `v*` tag.
    Do not manually create a GitHub Release.
 4. Approve `release-signing` only after checking the tag, commit, workflow, and
@@ -107,8 +109,17 @@ go run ./cmd/spice-release -version v0.1.0 -signing-key ../private/spice-release
 
 Production validation rejects build metadata, a tag that does not resolve to
 `HEAD`, a source epoch that differs from the `HEAD` commit timestamp,
-an unsigned build, a dirty checkout, a non-Go-1.26.5 toolchain, module
+an unsigned build, a version that differs from the frozen generator identity,
+a dirty checkout, a non-Go-1.26.5 toolchain, module
 replacements, and any difference between `go.mod` and `vendor/modules.txt`.
+
+The immutable `v0.1.0-preview.1` tag records ownership schema 5 with generator
+identity `0.1.0-dev`; release run `31120527225` remains waiting at the protected
+signing environment and must not be approved as the generator freeze. The
+preview.2 candidate writes schema 6 and contains the explicit guarded schema5
+migration required by Agent and extension repositories. Preparing or verifying
+that candidate does not authorize its tag, signing environment, publication
+environment, or GitHub Release.
 
 The output contains reproducible archives for every supported target, a source
 archive, an SPDX 2.3 SBOM, `checksums.txt`, its raw Ed25519 signature, and the

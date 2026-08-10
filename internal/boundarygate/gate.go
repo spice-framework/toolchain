@@ -108,6 +108,9 @@ func (gate verifier) fast(ctx context.Context) error {
 	if err := gate.identityBoundary(); err != nil {
 		return err
 	}
+	if err := gate.generatorCompatibility(); err != nil {
+		return err
+	}
 	if err := gate.run(ctx, gate.root, nil, "go", append(
 		[]string{"test", "-count=1"},
 		"./cmd/spice",
@@ -144,6 +147,9 @@ func (gate verifier) verify(ctx context.Context) error {
 		{name: "Go version", run: gate.goVersion},
 		{name: "source identity", run: func(context.Context) error {
 			return gate.identityBoundary()
+		}},
+		{name: "generator compatibility", run: func(context.Context) error {
+			return gate.generatorCompatibility()
 		}},
 		{name: "Go formatting", run: gate.formatting},
 		{name: "module tidiness", run: gate.moduleTidiness},

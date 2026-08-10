@@ -119,6 +119,23 @@ the subsequent fixture workflow all run with network lookup disabled.
 The third-party fixture under `testdata/` is handwritten. Its generated output
 is deliberately untracked and recreated by verification.
 
+## Generator compatibility
+
+The next immutable generator candidate is `v0.1.0-preview.2`. Its canonical
+contract is [`compatibility/generator.json`](compatibility/generator.json): it
+writes ownership schema 6, accepts guarded migrations from schemas 1 through
+6, uses Go formatting line 1.26, and fails closed on manual edits, stale owned
+files whose hashes changed, unsafe paths, or non-canonical contract drift.
+Source-built `go tool` binaries report the same exact generator identity; the
+release command rejects any tag that differs from it.
+
+The existing `v0.1.0-preview.1` tag remains immutable but is not the frozen
+generator contract: it records schema 5 and `0.1.0-dev`, and its release run
+`31120527225` is still waiting at the protected signing boundary. Do not
+approve, move, or reuse that tag as a generator-freeze shortcut. Preview.2
+must first pass the complete local and hosted candidate gates, then be tagged
+and released only under separate authorization.
+
 ## Release
 
 [`RELEASING.md`](RELEASING.md) defines the release contract. Production builds
