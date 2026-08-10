@@ -179,6 +179,14 @@ The filename MUST be the initialism-aware snake-case form of the primary type na
 | `OIDCConfiguration` | `oidc_configuration.go` |
 | `PostgresOrderRepository` | `postgres_order_repository.go` |
 
+An operating-system or architecture implementation MAY append one exact Go
+build suffix after the primary type name: for example,
+`platform_resolver_windows.go`, `unix_process_unix.go`, or
+`native_launcher_linux_arm64.go`. The suffix must be a supported `GOOS`, a
+supported `GOARCH`, an exact `GOOS_GOARCH` pair, or the reviewed `unix` family
+used with an explicit `//go:build linux || darwin` constraint. Arbitrary role
+suffixes such as `_helper`, `_impl`, or `_fast` remain forbidden.
+
 Recognized initialisms SHOULD include at least:
 
 ```text
