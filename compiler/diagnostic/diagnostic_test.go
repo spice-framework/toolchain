@@ -118,6 +118,10 @@ func TestCodeLocationAndErrorFallbacks(t *testing.T) {
 		"spice.application-model.missing-root" {
 		t.Fatalf("Code() = %q", got)
 	}
+	if got := CodeParts("Style", "File", "One Primary Type"); got !=
+		"spice.style.file.one-primary-type" {
+		t.Fatalf("CodeParts() = %q", got)
+	}
 	item := New("", "", " broken ", Location{
 		Range: Range{
 			Start: Position{Line: -1, Column: -1, Offset: -1},

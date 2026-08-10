@@ -120,6 +120,26 @@ func Code(stage, kind string) string {
 		codeSegment(kind, "unknown")
 }
 
+// CodeParts constructs a stable namespaced code with one or more nested kind
+// segments. It is used where a public diagnostic family has reviewed
+// subcategories such as spice.style.file.name.
+func CodeParts(stage string, kinds ...string) string {
+	if len(kinds) == 0 {
+		return Code(stage, "unknown")
+	}
+	segments := make([]string, 0, len(kinds)+2)
+	segments = append(segments, "spice", codeSegment(stage, "compiler"))
+	for _, kind := range kinds {
+		if converted := codeSegment(kind, ""); converted != "" {
+			segments = append(segments, converted)
+		}
+	}
+	if len(segments) == 2 {
+		segments = append(segments, "unknown")
+	}
+	return strings.Join(segments, ".")
+}
+
 // SourceLocation constructs a location from developer-facing and physical
 // source identities. The physical path supplies the file URI; the display
 // path and one-based coordinates remain user-facing.

@@ -8,6 +8,7 @@ package adapt
 
 import (
 	"go/token"
+	"strings"
 
 	"github.com/spice-framework/toolchain/compiler/application"
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
@@ -121,10 +122,9 @@ func Style(
 ) diagnostic.Set {
 	result := make([]diagnostic.Diagnostic, len(items))
 	for index, item := range items {
-		result[index] = sourceDiagnostic(
+		result[index] = sourceDiagnosticWithCode(
 			workspaceRoot,
-			"style",
-			item.Kind,
+			diagnostic.CodeParts("style", strings.Split(item.Kind, ".")...),
 			item.Message,
 			item.Position,
 			item.PhysicalPosition,
@@ -301,6 +301,22 @@ func sourceDiagnostic(
 	display token.Position,
 	physical token.Position,
 ) diagnostic.Diagnostic {
+	return sourceDiagnosticWithCode(
+		workspaceRoot,
+		diagnostic.Code(stage, kind),
+		message,
+		display,
+		physical,
+	)
+}
+
+func sourceDiagnosticWithCode(
+	workspaceRoot string,
+	code string,
+	message string,
+	display token.Position,
+	physical token.Position,
+) diagnostic.Diagnostic {
 	physicalPath := physical.Filename
 	if physicalPath == "" {
 		physicalPath = display.Filename
@@ -318,7 +334,7 @@ func sourceDiagnostic(
 		physicalColumn = display.Column
 	}
 	return diagnostic.New(
-		diagnostic.Code(stage, kind),
+		code,
 		diagnostic.SeverityError,
 		message,
 		diagnostic.SourceMappedLocation(

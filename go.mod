@@ -7,6 +7,7 @@ toolchain go1.26.5
 tool (
 	github.com/spice-framework/toolchain/cmd/spice
 	github.com/spice-framework/toolchain/cmd/spice-annotation-core
+	github.com/spice-framework/toolchain/cmd/spicestyle
 )
 
 require (

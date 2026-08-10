@@ -226,12 +226,26 @@ func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
 				}
 			}
 		}
+		boundary := approvedBoundaryFile(path)
+		if len(typeSpecs) == 0 && !boundary {
+			position, physical := positions(file, file.syntax.Name.Pos())
+			diagnostics = append(diagnostics, Diagnostic{
+				Position:         position,
+				PhysicalPosition: physical,
+				Kind:             "file.one-primary-type",
+				Message: fmt.Sprintf(
+					"profile %s requires one primary named type in handwritten production file %s",
+					ProfileJavaStructured,
+					filepath.Base(path),
+				),
+			})
+		}
 		if len(typeSpecs) > 1 {
 			position, physical := positions(file, typeSpecs[1].Name.Pos())
 			diagnostics = append(diagnostics, Diagnostic{
 				Position:         position,
 				PhysicalPosition: physical,
-				Kind:             "one-type-per-file",
+				Kind:             "file.one-primary-type",
 				Message: fmt.Sprintf(
 					"profile %s requires one named type per handwritten production file; %s declares %d",
 					ProfileJavaStructured,
@@ -240,7 +254,36 @@ func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
 				),
 			})
 		}
-		if strings.EqualFold(filepath.Base(path), "package.go") {
+		for _, declaration := range file.syntax.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if ok && general.Tok == token.TYPE && len(general.Specs) > 1 {
+				position, physical := positions(file, general.Pos())
+				diagnostics = append(diagnostics, Diagnostic{
+					Position:         position,
+					PhysicalPosition: physical,
+					Kind:             "file.one-primary-type",
+					Message:          "profile java-structured forbids grouped type declarations",
+				})
+			}
+		}
+		if len(typeSpecs) == 1 {
+			expected := typeFileName(typeSpecs[0].Name.Name)
+			if !strings.EqualFold(filepath.Base(path), expected) {
+				position, physical := positions(file, typeSpecs[0].Name.Pos())
+				diagnostics = append(diagnostics, Diagnostic{
+					Position:         position,
+					PhysicalPosition: physical,
+					Kind:             "file.name",
+					Message: fmt.Sprintf(
+						"profile %s requires primary type %s to live in %s",
+						ProfileJavaStructured,
+						typeSpecs[0].Name.Name,
+						expected,
+					),
+				})
+			}
+		}
+		if strings.EqualFold(filepath.Base(path), "doc.go") {
 			for _, declaration := range file.syntax.Decls {
 				if general, ok := declaration.(*ast.GenDecl); ok &&
 					general.Tok == token.IMPORT {
@@ -250,9 +293,9 @@ func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
 				diagnostics = append(diagnostics, Diagnostic{
 					Position:         position,
 					PhysicalPosition: physical,
-					Kind:             "package-file-declaration",
+					Kind:             "file.unrelated-declaration",
 					Message: fmt.Sprintf(
-						"profile %s reserves package.go for package documentation, annotation imports, and the package clause",
+						"profile %s reserves doc.go for package documentation, annotation imports, and the package clause",
 						ProfileJavaStructured,
 					),
 				})
@@ -273,7 +316,7 @@ func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
 					diagnostics = append(diagnostics, Diagnostic{
 						Position:         position,
 						PhysicalPosition: physical,
-						Kind:             "mutable-package-global",
+						Kind:             "package.mutable-global",
 						Message: fmt.Sprintf(
 							"profile %s forbids mutable package variable %s; move state onto a managed type",
 							ProfileJavaStructured,
@@ -292,7 +335,7 @@ func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{
 				Position:         position,
 				PhysicalPosition: physical,
-				Kind:             "init-function",
+				Kind:             "function.init",
 				Message: fmt.Sprintf(
 					"profile %s forbids init functions; make initialization an explicit constructor or lifecycle method",
 					ProfileJavaStructured,
@@ -323,7 +366,7 @@ func receiverLocationDiagnostics(
 		}
 		diagnostics = append(diagnostics, symbolDiagnostic(
 			symbol,
-			"receiver-method-outside-type-file",
+			"file.method-owner",
 			fmt.Sprintf(
 				"profile %s requires method %s to live with receiver type %s in %s",
 				ProfileJavaStructured,
@@ -385,22 +428,27 @@ func freeFunctionDiagnostics(
 		switch annotations[symbol.ID] {
 		case functionAnnotationNone:
 		case functionAnnotationBean:
+			if approvedAnnotatedBoundary(file, "_bean.go", symbols) {
+				continue
+			}
 			diagnostics = append(diagnostics, symbolDiagnostic(
 				symbol,
-				"package-bean",
+				"function.package-level",
 				fmt.Sprintf(
-					"package-level @Bean provider %s is forbidden by profile %s; move it onto an @Configuration type",
+					"package-level @Bean provider %s must be the sole function in a dedicated *_bean.go boundary file",
 					symbol.DisplayLabel,
-					ProfileJavaStructured,
 				),
 			))
 			continue
 		case functionAnnotationTopic:
+			if approvedAnnotatedBoundary(file, "_topic.go", symbols) {
+				continue
+			}
 			diagnostics = append(diagnostics, symbolDiagnostic(
 				symbol,
-				"function-topic",
+				"function.package-level",
 				fmt.Sprintf(
-					"function-owned event topic %s is forbidden by profile %s; annotate the payload type",
+					"event topic %s must be the sole function in a dedicated *_topic.go boundary file under profile %s",
 					symbol.DisplayLabel,
 					ProfileJavaStructured,
 				),
@@ -412,7 +460,7 @@ func freeFunctionDiagnostics(
 		}
 		diagnostics = append(diagnostics, symbolDiagnostic(
 			symbol,
-			"free-function",
+			"function.package-level",
 			fmt.Sprintf(
 				"package function %s is not type-associated under profile %s; use a receiver method or managed component",
 				symbol.DisplayLabel,
@@ -423,13 +471,60 @@ func freeFunctionDiagnostics(
 	return diagnostics
 }
 
+func approvedBoundaryFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return base == "doc.go" || base == "main.go" ||
+		base == "package_constants.go" ||
+		strings.HasSuffix(base, "_bean.go") ||
+		strings.HasSuffix(base, "_topic.go")
+}
+
+func approvedAnnotatedBoundary(
+	file string,
+	suffix string,
+	symbols []load.Symbol,
+) bool {
+	if !strings.HasSuffix(strings.ToLower(filepath.Base(file)), suffix) {
+		return false
+	}
+	functions := 0
+	for _, symbol := range symbols {
+		if symbol.Kind == load.SymbolFunction && symbol.Receiver == "" &&
+			cleanFile(symbol.PhysicalPosition.Filename) == file {
+			functions++
+		}
+	}
+	return functions == 1
+}
+
+func typeFileName(name string) string {
+	var result strings.Builder
+	runes := []rune(name)
+	for index, current := range runes {
+		if index > 0 && current >= 'A' && current <= 'Z' {
+			previous := runes[index-1]
+			nextLower := index+1 < len(runes) && runes[index+1] >= 'a' && runes[index+1] <= 'z'
+			if previous >= 'a' && previous <= 'z' ||
+				previous >= '0' && previous <= '9' ||
+				previous >= 'A' && previous <= 'Z' && nextLower {
+				result.WriteByte('_')
+			}
+		}
+		if current >= 'A' && current <= 'Z' {
+			current += 'a' - 'A'
+		}
+		result.WriteRune(current)
+	}
+	result.WriteString(".go")
+	return result.String()
+}
+
 func associatedFunction(name string, typeNames []string) bool {
 	for _, typeName := range typeNames {
 		if name == "New"+typeName ||
 			name == "Parse"+typeName ||
-			name == "Must"+typeName ||
-			strings.HasPrefix(name, typeName+"From") &&
-				len(name) > len(typeName)+len("From") {
+			strings.HasPrefix(name, "New"+typeName+"From") &&
+				len(name) > len("New")+len(typeName)+len("From") {
 			return true
 		}
 	}
@@ -447,7 +542,7 @@ func constructorDiagnostics(providers []provider.Provider) []Diagnostic {
 		if item.Constructor.Name != expected {
 			diagnostics = append(diagnostics, symbolDiagnostic(
 				item.Constructor,
-				"constructor-name",
+				"constructor.name",
 				fmt.Sprintf(
 					"profile %s requires constructor %s for managed type %s; generic or custom constructor names are forbidden",
 					ProfileJavaStructured,
@@ -460,7 +555,7 @@ func constructorDiagnostics(providers []provider.Provider) []Diagnostic {
 			cleanFile(item.Symbol.PhysicalPosition.Filename) {
 			diagnostics = append(diagnostics, symbolDiagnostic(
 				item.Constructor,
-				"constructor-outside-type-file",
+				"constructor.location",
 				fmt.Sprintf(
 					"profile %s requires constructor %s to live with managed type %s in %s",
 					ProfileJavaStructured,
@@ -495,7 +590,7 @@ func implicitInterfaceDiagnostics(
 			}
 			diagnostics = append(diagnostics, symbolDiagnostic(
 				item.Symbol,
-				"implicit-managed-interface",
+				"bean.interface-binding",
 				fmt.Sprintf(
 					"managed type %s satisfies application interface %s; profile %s requires an explicit @Implements(%s) relationship",
 					item.OutputTypeID,

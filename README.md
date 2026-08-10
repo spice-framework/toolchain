@@ -12,8 +12,8 @@ The boundary is intentionally explicit:
 
 - `github.com/spice-framework/spice` owns public application-facing Go APIs.
 - `github.com/spice-framework/toolchain` owns compiler and executable code.
-- applications authorize both `cmd/spice` and `cmd/spice-annotation-core` with
-  ordinary Go `tool` directives;
+- applications authorize `cmd/spice`, `cmd/spice-annotation-core`, and the
+  optional `cmd/spicestyle` analyzer with ordinary Go `tool` directives;
 - the official annotation process serves descriptors from the core module, but
   third-party descriptors and tools remain in the same resolved Go module;
 - generated application code imports public core packages and never imports the
@@ -26,6 +26,7 @@ With Go 1.26.5:
 ```text
 go get -tool github.com/spice-framework/toolchain/cmd/spice@<exact-version>
 go get -tool github.com/spice-framework/toolchain/cmd/spice-annotation-core@<exact-version>
+go get -tool github.com/spice-framework/toolchain/cmd/spicestyle@<exact-version>
 ```
 
 Then run the complete package-oriented workflow:
@@ -37,18 +38,25 @@ go tool github.com/spice-framework/toolchain/cmd/spice build ./...
 ```
 
 Applications that want class-oriented source organization can enable the
-compiler-enforced profile:
+two-layer profile. The standalone analyzer enforces Go structure from a strict
+configuration, while `spice verify` adds typed annotation, provider, and module
+validation:
 
 ```text
+go tool github.com/spice-framework/toolchain/cmd/spicestyle --config=.spice/style.json ./...
 go tool github.com/spice-framework/toolchain/cmd/spice verify --profile=java-structured ./...
 ```
 
-The profile keeps valid Go while enforcing one named type per production file,
-receiver-method and constructor co-location, type-associated static factories,
-`package.go`, explicit managed-interface relationships, and the absence of
-package helpers or mutable globals. [`CODE_STYLE.md`](CODE_STYLE.md) is the
-normative rule and diagnostic reference. The LSP accepts the same profile in
-its Spice settings and offers source generation for validated `@Enum` helpers.
+The profile keeps valid Go while enforcing one primary named type per ordinary
+production file, initialism-aware filenames, receiver-method and constructor
+co-location, approved boundary files, context/error conventions, explicit
+managed-interface relationships, and the absence of loose behavior or mutable
+globals. `doc.go`, an exact package-main entrypoint, one typed `*_bean.go`
+provider, and one typed `*_topic.go` marker remain deliberate Go/Spice
+boundaries. [`CODE_STYLE.md`](CODE_STYLE.md) is the normative rule,
+configuration, migration, and diagnostic reference. The LSP accepts the same
+profile in its Spice settings and offers source generation for validated
+`@Enum` helpers.
 
 Create a profile-shaped application and class-oriented declarations with:
 
@@ -64,8 +72,9 @@ go tool github.com/spice-framework/toolchain/cmd/spice new enum OrderStatus --di
 
 `spice init` writes both tool declarations and independently pins the public
 core and toolchain module versions. Java-structured initialization places the
-application boundary in `cmd/<application>/main.go` and creates an initial
-`internal/<application>/package.go` module root. Declaration scaffolds use
+application boundary in `cmd/<application>/main.go`, an assembly-module
+`cmd/<application>/doc.go`, and an initial
+`internal/<application>/doc.go` module root. Declaration scaffolds use
 deterministic filenames and exact `New<Type>` constructors. Neither command
 overwrites source, downloads modules, invokes Go, or initializes version
 control. The original `spice new --module ...` application form remains

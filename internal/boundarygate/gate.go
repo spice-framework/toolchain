@@ -35,6 +35,7 @@ var checkedPackages = []string{
 	"./cmd/spice-library-release-verify",
 	"./cmd/spice-release",
 	"./cmd/spice-release-verify",
+	"./cmd/spicestyle",
 	"./compiler/...",
 	"./internal/annotationcore",
 	"./internal/boundarygate/...",
@@ -442,6 +443,7 @@ func (gate verifier) buildTools(ctx context.Context) error {
 		{name: "spice-library-release-verify", packagePath: "./cmd/spice-library-release-verify"},
 		{name: "spice-release", packagePath: "./cmd/spice-release"},
 		{name: "spice-release-verify", packagePath: "./cmd/spice-release-verify"},
+		{name: "spicestyle", packagePath: "./cmd/spicestyle"},
 	}
 	for _, tool := range tools {
 		output := filepath.Join(temporary, tool.name+executableSuffix())
@@ -462,6 +464,7 @@ func (gate verifier) bootstrapDependencies(ctx context.Context) error {
 		"./cmd/spice-library-release-verify",
 		"./cmd/spice-release",
 		"./cmd/spice-release-verify",
+		"./cmd/spicestyle",
 	} {
 		output, err := gate.capture(ctx, gate.root, nil, "go", "list", "-deps", pkg)
 		if err != nil {

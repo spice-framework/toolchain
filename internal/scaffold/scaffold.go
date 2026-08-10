@@ -36,8 +36,10 @@ const (
 	CLITool = identity.CLITool
 	// AnnotationTool is the canonical official annotation tool package.
 	AnnotationTool = identity.AnnotationTool
-	goVersion      = "1.26.0"
-	toolchain      = "go1.26.5"
+	// StyleTool is the standalone java-structured source analyzer.
+	StyleTool = identity.StyleTool
+	goVersion = "1.26.0"
+	toolchain = "go1.26.5"
 )
 
 // Config is one fail-closed application scaffold request.
@@ -281,6 +283,26 @@ func main() {
 		mainName = filepath.ToSlash(filepath.Join("cmd", packageName, "main.go"))
 		patterns = "./..."
 		profileOption = " --profile=java-structured"
+		mainContent, err = format.Source([]byte(fmt.Sprintf(`package main
+
+import (
+	"os"
+
+	_ %q
+	spiceapp %q
+)
+
+// @import { Application } from %q
+
+// @Application
+func main() {
+	// This package-main boundary alone owns the process status.
+	os.Exit(spiceapp.Main(os.Args[1:]))
+}
+`, config.Module+"/internal/"+packageName, config.Module+"/internal/spicegen/"+targetID, FrameworkModule+"/annotation/core")))
+		if err != nil {
+			return nil, fmt.Errorf("format java-structured main.go: %w", err)
+		}
 		packageContent := fmt.Sprintf(`// @import { Module } from %q
 
 // Package %s is the root application module.
@@ -289,10 +311,30 @@ func main() {
 package %s
 `, FrameworkModule+"/annotation/modulith", packageName, packageName)
 		files = append(files, plannedFile{
-			name:    filepath.ToSlash(filepath.Join("internal", packageName, "package.go")),
+			name:    filepath.ToSlash(filepath.Join("internal", packageName, "doc.go")),
 			content: []byte(packageContent),
 			mode:    0o600,
 		})
+		commandPackageContent := fmt.Sprintf(`// @import { Module } from %q
+
+// Package main assembles the %s application.
+//
+// @Module(allowedDependencies=[%q])
+package main
+`, FrameworkModule+"/annotation/modulith", packageName, config.Module+"/internal/"+packageName)
+		files = append(
+			files,
+			plannedFile{
+				name:    filepath.ToSlash(filepath.Join("cmd", packageName, "doc.go")),
+				content: []byte(commandPackageContent),
+				mode:    0o600,
+			},
+			plannedFile{
+				name:    ".spice/style.json",
+				content: styleScaffold{}.configurationContent(),
+				mode:    0o600,
+			},
+		)
 	}
 	readme := fmt.Sprintf(`# %s
 
@@ -304,9 +346,10 @@ then verify and generate the application:
 go mod download
 go tool %s generate --target %s %s
 go tool %s verify%s %s
+%s
 go tool %s run --target %s %s
 `+"```"+`
-`, config.Module, CLITool, targetName, patterns, CLITool, profileOption, patterns, CLITool, targetName, patterns)
+`, config.Module, CLITool, targetName, patterns, CLITool, profileOption, patterns, styleScaffold{}.readmeCommand(config.Profile), CLITool, targetName, patterns)
 	files = append(
 		files,
 		plannedFile{name: "README.md", content: []byte(readme), mode: 0o600},
@@ -365,7 +408,7 @@ func renderDeclaration(config DeclarationConfig) (plannedFile, error) {
 // @Module
 package %s
 `, FrameworkModule+"/annotation/modulith", config.Package, config.Package)
-		return plannedFile{name: "package.go", content: []byte(content), mode: 0o600}, nil
+		return plannedFile{name: "doc.go", content: []byte(content), mode: 0o600}, nil
 	}
 	annotationName := map[DeclarationKind]string{
 		DeclarationService:    "Service",
@@ -375,27 +418,30 @@ package %s
 		DeclarationEnum:       "Enum",
 	}[config.Kind]
 	annotationPackage := FrameworkModule + "/annotation/core"
-	declaration := fmt.Sprintf(`// @import { %s } from %q
+	declaration := fmt.Sprintf(`// @import { %s, Singleton } from %q
 
 package %s
 
-// @%s
+// @%s(constructor=New%s)
+// @Singleton
 type %s struct{}
 
 // New%s constructs %s.
 func New%s() *%s {
 	return &%s{}
 }
-`, annotationName, annotationPackage, config.Package, annotationName, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name)
+`, annotationName, annotationPackage, config.Package, annotationName, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name)
 	if config.Kind == DeclarationController {
 		annotationPackage = FrameworkModule + "/annotation/web"
-		declaration = fmt.Sprintf(`// @import { Controller, Get } from %q
+		declaration = fmt.Sprintf(`// @import { Singleton } from %q
+// @import { Controller, Get } from %q
 
 package %s
 
 import "net/http"
 
-// @Controller
+// @Controller(constructor=New%s)
+// @Singleton
 type %s struct{}
 
 // New%s constructs %s.
@@ -404,8 +450,8 @@ func New%s() *%s {
 }
 
 // @Get("/")
-func (*%s) Index(http.ResponseWriter, *http.Request) {}
-`, annotationPackage, config.Package, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name)
+func (controller *%s) Index(writer http.ResponseWriter, request *http.Request) {}
+`, FrameworkModule+"/annotation/core", annotationPackage, config.Package, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name)
 	}
 	if config.Kind == DeclarationEnum {
 		declaration = fmt.Sprintf(`// @import { Enum } from %q
@@ -466,6 +512,9 @@ func renderModule(config Config) ([]byte, error) {
 		func() error {
 			return file.AddRequire(ToolchainModule, config.ToolchainVersion)
 		},
+	}
+	if config.Profile == compilerstyle.ProfileJavaStructured {
+		operations = append(operations, func() error { return file.AddTool(StyleTool) })
 	}
 	if config.ToolchainReplace != "" {
 		operations = append(operations, func() error {

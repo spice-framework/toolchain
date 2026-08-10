@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "profile": "java-structured",
+  "sourceRoots": [
+    "testdata/src"
+  ],
+  "generatedRoots": [
+    "testdata/src/example.com/valid/internal/spicegen"
+  ],
+  "rules": {
+    "onePrimaryTypePerFile": "error",
+    "methodsInPrimaryTypeFile": "error",
+    "fileNameMatchesType": "error",
+    "packageFunctions": "error",
+    "explicitConstructors": "error",
+    "explicitManagedScopes": "error",
+    "banInit": "error",
+    "banMutablePackageState": "error",
+    "privateManagedFields": "error",
+    "moduleOwnership": "error",
+    "routeClassification": "error",
+    "contextFirst": "error",
+    "errorLast": "error",
+    "maxTypeFileLines": 500
+  },
+  "publicRoutes": [],
+  "allowedBoundaryFiles": [
+    "**/doc.go",
+    "**/main.go",
+    "**/*_bean.go",
+    "**/*_topic.go",
+    "**/*_test.go",
+    "**/internal/spicegen/**"
+  ],
+  "packageFunctionExceptions": [
+    {
+      "glob": "**/main.go",
+      "symbol": "main",
+      "reason": "Go process entrypoint"
+    },
+    {
+      "glob": "**/*_bean.go",
+      "contributionKind": "provider",
+      "maximum": 1,
+      "reason": "Exact Spice provider boundary"
+    },
+    {
+      "glob": "**/*_topic.go",
+      "contributionKind": "event-topic",
+      "maximum": 1,
+      "reason": "Typed Spice event topic marker"
+    }
+  ]
+}

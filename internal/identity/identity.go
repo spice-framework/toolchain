@@ -15,6 +15,8 @@ const (
 	CLITool = ToolchainModule + "/cmd/spice"
 	// AnnotationTool is the official Go tool package applications authorize.
 	AnnotationTool = ToolchainModule + "/cmd/spice-annotation-core"
+	// StyleTool is the standalone structural java-structured profile analyzer.
+	StyleTool = ToolchainModule + "/cmd/spicestyle"
 	// LegacyAnnotationTool is accepted only while applications migrate from the
 	// former monorepository command path.
 	LegacyAnnotationTool = CoreModule + "/cmd/spice-annotation-core"

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	compilerstyle "github.com/spice-framework/toolchain/compiler/style"
+	structuralstyle "github.com/spice-framework/toolchain/internal/style"
 )
 
 func TestCreateWritesDeterministicValidGoApplication(t *testing.T) {
@@ -86,26 +87,41 @@ func TestCreateWritesJavaStructuredApplicationLayout(t *testing.T) {
 	}
 	wantFiles := []string{
 		".gitignore",
+		".spice/style.json",
 		"README.md",
+		"cmd/catalog/doc.go",
 		"cmd/catalog/main.go",
 		"go.mod",
-		"internal/catalog/package.go",
+		"internal/catalog/doc.go",
 	}
 	if !slices.Equal(result.Files, wantFiles) {
 		t.Fatalf("Create() files = %v", result.Files)
 	}
 	mainSource := readScaffoldFile(t, destination, "cmd/catalog/main.go")
-	if !strings.Contains(mainSource, "// @Application") {
+	if !strings.Contains(mainSource, "// @Application") ||
+		!strings.Contains(mainSource, `_ "example.com/acme/catalog/internal/catalog"`) {
 		t.Fatalf("main.go = %s", mainSource)
 	}
-	packageSource := readScaffoldFile(t, destination, "internal/catalog/package.go")
+	packageSource := readScaffoldFile(t, destination, "internal/catalog/doc.go")
 	for _, expected := range []string{"// @Module", "package catalog"} {
 		if !strings.Contains(packageSource, expected) {
-			t.Fatalf("package.go missing %q:\n%s", expected, packageSource)
+			t.Fatalf("doc.go missing %q:\n%s", expected, packageSource)
 		}
 	}
+	commandPackage := readScaffoldFile(t, destination, "cmd/catalog/doc.go")
+	if !strings.Contains(commandPackage, `@Module(allowedDependencies=["example.com/acme/catalog/internal/catalog"])`) {
+		t.Fatalf("cmd/catalog/doc.go = %s", commandPackage)
+	}
+	goMod := readScaffoldFile(t, destination, "go.mod")
+	if !strings.Contains(goMod, StyleTool) {
+		t.Fatalf("go.mod missing style tool: %s", goMod)
+	}
+	if _, err := structuralstyle.LoadConfiguration(filepath.Join(destination, ".spice", "style.json")); err != nil {
+		t.Fatalf("generated style configuration: %v", err)
+	}
 	readme := readScaffoldFile(t, destination, "README.md")
-	if !strings.Contains(readme, "verify --profile=java-structured ./...") {
+	if !strings.Contains(readme, "verify --profile=java-structured ./...") ||
+		!strings.Contains(readme, StyleTool+" --config=.spice/style.json ./...") {
 		t.Fatalf("README.md = %s", readme)
 	}
 }
@@ -121,7 +137,7 @@ func TestCreateJavaStructuredFallsBackToValidPackageName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if !slices.Contains(result.Files, "internal/application/package.go") {
+	if !slices.Contains(result.Files, "internal/application/doc.go") {
 		t.Fatalf("Create() files = %v", result.Files)
 	}
 }
@@ -134,11 +150,11 @@ func TestCreateDeclarationWritesTypedDeterministicScaffolds(t *testing.T) {
 		file     string
 		contains []string
 	}{
-		{DeclarationModule, "orders", "package.go", []string{"// @Module", "package orders"}},
-		{DeclarationService, "OrderService", "order_service.go", []string{"// @Service", "type OrderService struct", "func NewOrderService() *OrderService"}},
-		{DeclarationRepository, "OrderRepository", "order_repository.go", []string{"// @Repository", "func NewOrderRepository() *OrderRepository"}},
-		{DeclarationController, "OrderController", "order_controller.go", []string{"// @Controller", "// @Get(\"/\")", "net/http"}},
-		{DeclarationComponent, "PasswordHasher", "password_hasher.go", []string{"// @Component", "func NewPasswordHasher() *PasswordHasher"}},
+		{DeclarationModule, "orders", "doc.go", []string{"// @Module", "package orders"}},
+		{DeclarationService, "OrderService", "order_service.go", []string{"// @Service(constructor=NewOrderService)", "// @Singleton", "type OrderService struct", "func NewOrderService() *OrderService"}},
+		{DeclarationRepository, "OrderRepository", "order_repository.go", []string{"// @Repository(constructor=NewOrderRepository)", "// @Singleton", "func NewOrderRepository() *OrderRepository"}},
+		{DeclarationController, "OrderController", "order_controller.go", []string{"// @Controller(constructor=NewOrderController)", "// @Singleton", "// @Get(\"/\")", "net/http"}},
+		{DeclarationComponent, "PasswordHasher", "password_hasher.go", []string{"// @Component(constructor=NewPasswordHasher)", "// @Singleton", "func NewPasswordHasher() *PasswordHasher"}},
 		{DeclarationEnum, "OrderStatus", "order_status.go", []string{"// @Enum", "OrderStatusUnknown OrderStatus = \"unknown\""}},
 	}
 	for _, test := range tests {

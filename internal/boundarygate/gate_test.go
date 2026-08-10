@@ -86,6 +86,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		" ./cmd/spice-library-release-verify",
 		" ./cmd/spice-release",
 		" ./cmd/spice-release-verify",
+		" ./cmd/spicestyle",
 		"go test -race -shuffle=on -count=1",
 		"go test -mod=vendor -run ^$ -bench ^BenchmarkGate$ -benchmem -benchtime 250ms -count 5 ./compiler/gate",
 		"go test -mod=vendor -count=1 ./...",
@@ -112,6 +113,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 		"./cmd/spice-library-release-verify",
 		"./cmd/spice-release",
 		"./cmd/spice-release-verify",
+		"./cmd/spicestyle",
 	}; !slices.Equal(builtPackages, want) {
 		t.Errorf("published tool build order = %v, want %v", builtPackages, want)
 	}

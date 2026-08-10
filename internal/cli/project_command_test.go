@@ -56,8 +56,10 @@ func TestInitCommandCreatesJavaStructuredApplication(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	for _, name := range []string{
+		filepath.Join("cmd", "catalog", "doc.go"),
 		filepath.Join("cmd", "catalog", "main.go"),
-		filepath.Join("internal", "catalog", "package.go"),
+		filepath.Join("internal", "catalog", "doc.go"),
+		filepath.Join(".spice", "style.json"),
 	} {
 		if _, err := os.Stat(filepath.Join(destination, name)); err != nil {
 			t.Fatalf("scaffold %s: %v", name, err)

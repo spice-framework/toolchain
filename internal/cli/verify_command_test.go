@@ -178,8 +178,8 @@ func helper() {}
 		".",
 	)
 	if code != 1 || stdout != "" ||
-		!strings.Contains(stderr, "[spice.style.one-type-per-file]") ||
-		!strings.Contains(stderr, "[spice.style.free-function]") ||
+		!strings.Contains(stderr, "[spice.style.file.one-primary-type]") ||
+		!strings.Contains(stderr, "[spice.style.function.package-level]") ||
 		!strings.Contains(stderr, "style profile error") {
 		t.Fatalf(
 			"java-structured: code=%d stdout=%q stderr=%q",
