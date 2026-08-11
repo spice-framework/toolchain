@@ -184,8 +184,12 @@ immutable history. Preview.1 records schema 5 and `0.1.0-dev`; release run
 `31120527225` was cancelled. Preview.2 was published by successful release run
 `31403311626` from commit `bab8bcaf`. Preview.3 is an immutable tag-only
 attempt at commit `38ddce15`; release run `31501018109` stopped before
-attestation and created no release. Preview.4 is the current distinct candidate;
-it has separate policy authorization and must complete candidate verification.
+attestation and created no release. Preview.4 is the current immutable
+published distribution: annotated tag object
+`c56a53983f4e36259ac83a016fd80326023a730d` resolves to commit
+`35cb1315bb30bc31b82fdd71c99c6313b4b4a923`, and successful release run
+[`31522099046`](https://github.com/spice-framework/toolchain/actions/runs/31522099046)
+published its exact ten-asset prerelease.
 
 ## Release
 
@@ -270,9 +274,20 @@ rendering, independent nine-subject verification, and Ubuntu installed-byte
 execution. Windows then rejected the runner's mixed-separator verified
 artifact directory before installed-byte execution, so attestation,
 provenance authentication, and publication were skipped. Preview.3 remains an
-immutable tag-only attempt with no GitHub Release or deployment. Preview.4 is
-the current separately authorized candidate; it has not been tagged or
-published.
+immutable tag-only attempt with no GitHub Release or deployment. Preview.4
+annotated tag object `c56a53983f4e36259ac83a016fd80326023a730d`
+resolves to commit `35cb1315bb30bc31b82fdd71c99c6313b4b4a923`.
+Unique release run
+[`31522099046`](https://github.com/spice-framework/toolchain/actions/runs/31522099046),
+attempt 1, completed candidate validation, deterministic rendering and its
+reproducibility recheck, independent verification, Ubuntu and Windows
+installed-byte execution, keyless attestation, provenance authentication, and
+protected publication. Attestation deployment `5856387461` and publish
+deployment `5856422883` both succeeded. The resulting
+[immutable ten-asset prerelease](https://github.com/spice-framework/toolchain/releases/tag/v0.1.0-preview.4)
+has module sum `h1:mpHAsOdPSUQTSa2GE891VJg5bXmzML0T2N9c5QU4yJg=` and
+go.mod sum `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=` from fresh
+public proxy and SumDB resolution.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
@@ -280,8 +295,16 @@ Provider, coding-tools, and distribution policies require
 that dependency graph remains unchanged while the Agent module's own closed
 policy advances independently to preview.7. Successful release run
 `31428824060` published preview.6 as a non-draft prerelease with its
-authenticated five-asset module set. Preview.7 is a distinct authorized
-identity and does not move, replace, or reuse preview.5 or preview.6.
+authenticated five-asset module set. Preview.7 annotated tag object
+`251bd3b86c6c731cf2b8f20b57430130d31fde7e` resolves to commit
+`831fbf259ff3896067a7c6d74d4f402310214805`; unique release run
+[`31519742953`](https://github.com/spice-framework/spice-agent/actions/runs/31519742953),
+attempt 1, and protected deployments `5855895060` and `5855923346` published
+the [immutable five-asset prerelease](https://github.com/spice-framework/spice-agent/releases/tag/v0.1.0-preview.7).
+Fresh proxy and SumDB resolution yields module sum
+`h1:BQS23GwLBm5BLaRqMB9vYu+0dcEnuP6ooG6tzyjDSjY=` and go.mod sum
+`h1:WKNPxU7+jt+aPdL8v1aXovw9D32PwTYq3hE4xPug1YE=`. Preview.7 remains a
+distinct identity and does not move, replace, or reuse preview.5 or preview.6.
 Before creating an immutable tag, release operators can run
 `spice-go-release-verify policy-check` with the proposed repository, canonical
 source, module, version, and profile. This bounded, deterministic check reads

@@ -110,8 +110,8 @@ or substituted into the keyless caller.
 
 The historical builder remains useful for diagnosing and authenticating those
 releases, but a local signed build never authorizes a new tag or current
-publication. The current candidate writes ownership schema 6 and retains the
-guarded schema-5 migration required by downstream repositories.
+publication. The current generator contract writes ownership schema 6 and
+retains the guarded schema-5 migration required by downstream repositories.
 
 ## Starter-library verification
 
@@ -246,8 +246,16 @@ protected publication. Published preview.2 remains immutable. The Agent
 module's own preview.7 policy does not silently repin provider, coding-tools,
 or distribution dependencies, which remain on the exact released preview.4
 graph. Agent preview.6 was published by successful release run `31428824060`
-with its authenticated five-asset module set. Preview.7 is a separate
-authorized identity and cannot move or reuse preview.5 or preview.6.
+with its authenticated five-asset module set. Agent preview.7 annotated tag
+object `251bd3b86c6c731cf2b8f20b57430130d31fde7e` resolves to commit
+`831fbf259ff3896067a7c6d74d4f402310214805`. Unique release run
+[`31519742953`](https://github.com/spice-framework/spice-agent/actions/runs/31519742953),
+attempt 1, and protected deployments `5855895060` and `5855923346` published
+the [immutable five-asset prerelease](https://github.com/spice-framework/spice-agent/releases/tag/v0.1.0-preview.7).
+Fresh proxy and SumDB resolution yields module sum
+`h1:BQS23GwLBm5BLaRqMB9vYu+0dcEnuP6ooG6tzyjDSjY=` and go.mod sum
+`h1:WKNPxU7+jt+aPdL8v1aXovw9D32PwTYq3hE4xPug1YE=`. Preview.7 remains a
+separate identity and cannot move or reuse preview.5 or preview.6.
 Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
@@ -261,8 +269,20 @@ rejected `D:\a\_temp/go-distribution-release-verified` as noncanonical before
 installed-byte execution. Attestation, provenance authentication, and publish
 were skipped, no protected deployment or GitHub Release was created, and the
 preview.3 tag remains an immutable tag-only attempt at commit `38ddce15`.
-Preview.4 is the current separately authorized candidate; it has not been
-tagged or published. Prior tags must never be moved, reused, or rerun.
+Preview.4 annotated tag object `c56a53983f4e36259ac83a016fd80326023a730d`
+resolves to commit `35cb1315bb30bc31b82fdd71c99c6313b4b4a923`.
+Unique release run
+[`31522099046`](https://github.com/spice-framework/toolchain/actions/runs/31522099046),
+attempt 1, completed candidate validation, deterministic rendering and its
+reproducibility recheck, independent verification, Ubuntu and Windows
+installed-byte execution, keyless attestation, provenance authentication, and
+protected publication. Attestation deployment `5856387461` and publish
+deployment `5856422883` both succeeded. The resulting
+[immutable ten-asset prerelease](https://github.com/spice-framework/toolchain/releases/tag/v0.1.0-preview.4)
+has module sum `h1:mpHAsOdPSUQTSa2GE891VJg5bXmzML0T2N9c5QU4yJg=` and
+go.mod sum `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=` from fresh
+public proxy and SumDB resolution. Prior tags must never be moved, reused, or
+rerun.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
