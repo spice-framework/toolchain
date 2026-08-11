@@ -32,7 +32,7 @@ func TestReleaseIntentFailsClosed(t *testing.T) {
 		{name: "module", mutate: func(value string) string {
 			return strings.Replace(value, "github.com/spice-framework/toolchain", "example.com/toolchain", 1)
 		}},
-		{name: "version", mutate: func(value string) string { return strings.Replace(value, "v0.1.0-preview.3", "v0.1.0-preview.2", 1) }},
+		{name: "stale preview.3 version", mutate: func(value string) string { return strings.Replace(value, "v0.1.0-preview.4", "v0.1.0-preview.3", 1) }},
 		{name: "unknown", mutate: func(value string) string { return strings.Replace(value, "\n}\n", ",\n  \"unknown\": true\n}\n", 1) }},
 		{name: "trailing", mutate: func(value string) string { return value + "{}\n" }},
 	} {

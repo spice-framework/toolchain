@@ -84,9 +84,9 @@ func TestRunRejectsInvalidInvocationBeforeBuilding(t *testing.T) {
 			wantError: "must not contain build metadata",
 		},
 		{
-			name: "mismatched frozen generator version",
+			name: "stale preview.3 generator version",
 			arguments: []string{
-				"-version=v0.1.0-preview.1",
+				"-version=v0.1.0-preview.3",
 				"-signing-key=unused",
 			},
 			wantCode:  2,
@@ -120,7 +120,7 @@ func TestRunRejectsInvalidInvocationBeforeBuilding(t *testing.T) {
 
 func TestValidateReleaseIntentAllowsCanonicalPrerelease(t *testing.T) {
 	t.Parallel()
-	if err := validateReleaseIntent("v0.1.0-preview.3", "private-key", false); err != nil {
+	if err := validateReleaseIntent("v0.1.0-preview.4", "private-key", false); err != nil {
 		t.Fatalf("validateReleaseIntent() error = %v", err)
 	}
 }
@@ -151,7 +151,7 @@ func TestRunBuildsHostRehearsal(t *testing.T) {
 			"-rehearsal",
 			"-root", root,
 			"-output", output,
-			"-version", "v0.1.0-preview.3",
+			"-version", "v0.1.0-preview.4",
 			"-source-date-epoch", "1788000000",
 			"-targets", defaultHostTarget(),
 		},
@@ -171,7 +171,7 @@ func TestRunBuildsHostRehearsal(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(output, "checksums.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(output, "spice_0.1.0-preview.3_source.tar.gz")); err != nil {
+	if _, err := os.Stat(filepath.Join(output, "spice_0.1.0-preview.4_source.tar.gz")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(output, "checksums.txt.sig")); !os.IsNotExist(err) {
@@ -209,7 +209,7 @@ func main() {}
 	}
 	runGit(t, root, "add", ".")
 	runGit(t, root, "commit", "-m", "release fixture")
-	runGit(t, root, "tag", "v0.1.0-preview.3")
+	runGit(t, root, "tag", "v0.1.0-preview.4")
 	keyFile := filepath.Join(parent, "release.key")
 	if err := os.WriteFile(
 		keyFile,
@@ -226,7 +226,7 @@ func main() {}
 		[]string{
 			"-root", root,
 			"-output", output,
-			"-version", "v0.1.0-preview.3",
+			"-version", "v0.1.0-preview.4",
 			"-targets", defaultHostTarget(),
 			"-signing-key", keyFile,
 		},
@@ -247,7 +247,7 @@ func main() {}
 		"checksums.txt",
 		"checksums.txt.pem",
 		"checksums.txt.sig",
-		"spice_0.1.0-preview.3_source.tar.gz",
+		"spice_0.1.0-preview.4_source.tar.gz",
 	} {
 		if _, err := os.Stat(filepath.Join(output, name)); err != nil {
 			t.Fatalf("release artifact %q: %v", name, err)

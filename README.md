@@ -171,7 +171,7 @@ is deliberately untracked and recreated by verification.
 
 ## Generator compatibility
 
-The immutable `v0.1.0-preview.3` generator contract is recorded in
+The frozen `v0.1.0-preview.4` generator contract is recorded in
 [`compatibility/generator.json`](compatibility/generator.json): it
 writes ownership schema 6, accepts guarded migrations from schemas 1 through
 6, uses Go formatting line 1.26, and fails closed on manual edits, stale owned
@@ -184,28 +184,31 @@ immutable history. Preview.1 records schema 5 and `0.1.0-dev`; release run
 `31120527225` was cancelled. Preview.2 was published by successful release run
 `31403311626` from commit `bab8bcaf`. Preview.3 is an immutable tag-only
 attempt at commit `38ddce15`; release run `31501018109` stopped before
-attestation and created no release. Preview.4 is the next distinct candidate
-and must receive separate policy authorization and complete verification.
+attestation and created no release. Preview.4 is the current distinct candidate;
+it has separate policy authorization and must complete candidate verification.
 
 ## Release
 
 [`RELEASING.md`](RELEASING.md) defines the current release contract. The
-preview.3 candidate first bootstraps only its five committed Go graphs through
+preview.4 candidate first bootstraps only its five committed Go graphs through
 the public proxy and checksum database, then runs the complete release gate
-offline. A separately pinned Development renderer produces six deterministic
+offline. Development authority
+`73ec26480db3247cd93c8325080058e118b845c9` produces six deterministic
 platform archives, canonical release metadata, an SPDX 2.3 SBOM, and
-checksums. This repository's independently pinned verifier authenticates the
-tagged source and graph, reconstructs every byte, and copies exactly those nine
-subjects into a verifier-owned directory. Linux and Windows then execute only
-the installed verified archive. Protected `release-attestation` approval mints
-keyless Sigstore provenance, its source and workflow identity are authenticated,
-and distinct `release-publish` approval is the only path to a ten-asset public
-prerelease. The caller passes no secrets and no earlier job has repository
-write authority.
+checksums. Independent Toolchain authority
+`aeb2b789fedf5b7a45f0d0869043c8568161edad` authenticates the tagged source
+and graph, reconstructs every byte, and copies exactly those nine subjects into
+a verifier-owned directory. Organization caller authority
+`a56c451168aae0f2b3075782156d204d75fb7f69` preserves that policy intersection.
+Linux and Windows then execute only the installed verified archive. Protected
+`release-attestation` approval mints keyless Sigstore provenance, its source
+and workflow identity are authenticated, and distinct `release-publish`
+approval is the only path to a ten-asset public prerelease. The caller passes
+no secrets and no earlier job has repository write authority.
 
 The retained Ed25519 builder and its eleven-asset workflow describe the
 historical preview.2 release boundary. They remain available for verification
-and compatibility evidence, but they are not the preview.3 production
+and compatibility evidence, but they are not the preview.4 production
 authority.
 
 Signed source-only starter releases use a separate trust boundary. The
@@ -268,7 +271,8 @@ execution. Windows then rejected the runner's mixed-separator verified
 artifact directory before installed-byte execution, so attestation,
 provenance authentication, and publication were skipped. Preview.3 remains an
 immutable tag-only attempt with no GitHub Release or deployment. Preview.4 is
-the next distinct candidate; it has not been tagged or published.
+the current separately authorized candidate; it has not been tagged or
+published.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
@@ -322,14 +326,14 @@ unset. Then run:
 make verify-release-artifacts
 ```
 
-The gate accepts only the preview.3 Toolchain nine-subject set: checksums,
+The gate accepts only the preview.4 Toolchain nine-subject set: checksums,
 release metadata, SPDX SBOM, and all six Linux/macOS/Windows amd64/arm64
 archives. Every archive must contain exactly one `spice` binary plus the
 committed LICENSE and README with canonical paths, bytes, and permissions. The
 host archive is extracted into private scratch space and its binary is executed
-offline; it must report exactly `spice 0.1.0-preview.3 (<40-character-commit>)`.
+offline; it must report exactly `spice 0.1.0-preview.4 (<40-character-commit>)`.
 Source builds report the honest development identity
-`spice v0.1.0-preview.3 (development)`. Release builds set the exported
+`spice v0.1.0-preview.4 (development)`. Release builds set the exported
 `internal/cli.Version` and `internal/cli.Commit` data symbols directly; mixed,
 empty, noncanonical, or malformed linker identities fail closed. This
 candidate check consumes independently verified bytes and does not replace

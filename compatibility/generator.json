@@ -1,7 +1,7 @@
 {
   "schema": "spice.generator.compatibility/v1",
   "module": "github.com/spice-framework/toolchain",
-  "generator_version": "v0.1.0-preview.3",
+  "generator_version": "v0.1.0-preview.4",
   "status": "frozen-contract",
   "manifest_schema": 6,
   "go_format_line": "1.26",

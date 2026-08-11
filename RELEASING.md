@@ -18,9 +18,9 @@ GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off make verify-release
 ```
 
 In disposable clean checkouts, use Development commit
-`678a8d7ce5b20d9f2509f089b918154894064fc1` to render the exact Toolchain
-preview.3 nine-subject set and Toolchain verifier commit
-`93547dc3053b3da2dd4a2791bbc881217a9a50d7` to authenticate and reconstruct it.
+`73ec26480db3247cd93c8325080058e118b845c9` to render the exact Toolchain
+preview.4 nine-subject set and Toolchain verifier commit
+`aeb2b789fedf5b7a45f0d0869043c8568161edad` to authenticate and reconstruct it.
 Run this candidate's `verify-release-artifacts` against only the verifier-owned
 output on Linux and Windows. A rehearsal uses a local annotated tag only and
 must never push that tag or create a release.
@@ -32,13 +32,13 @@ present and independently checked:
 
 - `spice-release.json`, `compatibility/generator.json`, the source generator
   identity, CLI identity, root module, both annotation fixture modules, and
-  vendor metadata all name the exact preview.3/Spice preview.4 candidate.
+  vendor metadata all name the exact preview.4/Spice preview.4 candidate.
 - `make tools-bootstrap` leaves every repository byte and mode unchanged, and
   `make verify-release` succeeds with proxy, checksum lookup, workspace mode,
   and toolchain download disabled.
 - `.github/workflows/release.yml` is the no-secrets caller pinned in both
   locations to organization authority
-  `d8892284957b53310eeb2080d4e363dcb57e64f8`.
+  `a56c451168aae0f2b3075782156d204d75fb7f69`.
 - The exact commit is clean, on `origin/main`, and its hosted Verify,
   Documentation, and cross-producer workflows are terminal green.
 - Protected `release-attestation` and `release-publish` environments accept
@@ -46,8 +46,8 @@ present and independently checked:
   key. The enforced tag and release rules forbid tag movement, tag deletion,
   and mutable release assets.
 - The reusable workflow authorities remain independently pinned to Development
-  `678a8d7ce5b20d9f2509f089b918154894064fc1` and Toolchain
-  `93547dc3053b3da2dd4a2791bbc881217a9a50d7`. No caller edit may expand their
+  `73ec26480db3247cd93c8325080058e118b845c9` and Toolchain
+  `aeb2b789fedf5b7a45f0d0869043c8568161edad`. No caller edit may expand their
   separately reviewed policy intersection.
 
 ## Automated production release
@@ -103,9 +103,10 @@ Preview.2 was published by successful release run `31403311626` at commit
 `bab8bcaf`. Its retained local `cmd/spice-release` builder, committed Ed25519
 trust anchor, independent Windows rebuild, detached signature, public key,
 source archive, and eleven-asset verification path describe that immutable
-historical release. The preview.1 run `31120527225` was cancelled. Neither the
-legacy `release-signing` environment nor its private-key secret is an authority
-for preview.3, and they must not be substituted into the keyless caller.
+historical release. The preview.1 run `31120527225` was cancelled. The retained
+legacy `release-signing` environment stores zero secrets. Its removed
+private-key secret is not an authority for preview.4 and must not be restored
+or substituted into the keyless caller.
 
 The historical builder remains useful for diagnosing and authenticating those
 releases, but a local signed build never authorizes a new tag or current
@@ -260,9 +261,8 @@ rejected `D:\a\_temp/go-distribution-release-verified` as noncanonical before
 installed-byte execution. Attestation, provenance authentication, and publish
 were skipped, no protected deployment or GitHub Release was created, and the
 preview.3 tag remains an immutable tag-only attempt at commit `38ddce15`.
-Preview.4 is the next distinct candidate and requires separate closed-policy
-authorization; it has not been tagged or published. Prior tags must never be
-moved, reused, or rerun.
+Preview.4 is the current separately authorized candidate; it has not been
+tagged or published. Prior tags must never be moved, reused, or rerun.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
@@ -345,7 +345,7 @@ attestation and publication. The implementation imports neither the
 development catalog nor `internal/distributionrelease` and never executes the
 renderer.
 
-After independent verification has copied the exact Toolchain preview.3
+After independent verification has copied the exact Toolchain preview.4
 allowlist, the candidate repository verifies its own installed-byte behavior:
 
 ```text
@@ -357,7 +357,7 @@ This offline target revalidates exact nine-subject membership, checksums,
 canonical release metadata and SPDX identity, all six archive layouts, the
 single `spice` binary, LICENSE, README, safe paths, and permissions. It extracts
 only the native archive into private scratch space and requires the installed
-binary to emit exactly `spice 0.1.0-preview.3 (<exact-commit>)`. The public CLI
+binary to emit exactly `spice 0.1.0-preview.4 (<exact-commit>)`. The public CLI
 identity comes from the directly linker-settable `internal/cli.Version` and
 `internal/cli.Commit` variables. Unlinked source builds use the paired honest
 development defaults; empty, mixed-development/release, or malformed linker

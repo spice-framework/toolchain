@@ -28,13 +28,13 @@ func TestExecutableLinkerIdentity(t *testing.T) {
 	}{
 		{
 			name: "development defaults", wantCode: 0,
-			wantStdout: "spice v0.1.0-preview.3 (development)\n",
+			wantStdout: "spice v0.1.0-preview.4 (development)\n",
 		},
 		{
 			name: "release assignments",
-			linker: "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.3" +
+			linker: "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.4" +
 				" -X=" + commitLinkSymbol + "=" + linkedCommit,
-			wantCode: 0, wantStdout: "spice 0.1.0-preview.3 (" + linkedCommit + ")\n",
+			wantCode: 0, wantStdout: "spice 0.1.0-preview.4 (" + linkedCommit + ")\n",
 		},
 		{
 			name: "malformed release version",
@@ -56,13 +56,13 @@ func TestExecutableLinkerIdentity(t *testing.T) {
 		},
 		{
 			name: "empty release commit",
-			linker: "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.3" +
+			linker: "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.4" +
 				" -X=" + commitLinkSymbol + "=",
 			wantCode: 1, wantStderr: "Spice version identity is invalid: release commit must be exactly 40 lowercase hexadecimal characters\n",
 		},
 		{
 			name:       "version symbol only",
-			linker:     "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.3",
+			linker:     "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.4",
 			wantCode:   1,
 			wantStderr: "Spice version identity is invalid: development version and commit must be selected together\n",
 		},
@@ -74,7 +74,7 @@ func TestExecutableLinkerIdentity(t *testing.T) {
 		},
 		{
 			name: "malformed release commit",
-			linker: "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.3" +
+			linker: "-buildid= -X=" + versionLinkSymbol + "=0.1.0-preview.4" +
 				" -X=" + commitLinkSymbol + "=abc",
 			wantCode: 1, wantStderr: "Spice version identity is invalid: release commit must be exactly 40 lowercase hexadecimal characters\n",
 		},
