@@ -18,6 +18,7 @@ import (
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
 	diagnosticadapt "github.com/spice-framework/toolchain/compiler/diagnostic/adapt"
 	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
 	"github.com/spice-framework/toolchain/compiler/resolve"
 	compilerstyle "github.com/spice-framework/toolchain/compiler/style"
 )
@@ -27,8 +28,7 @@ func (service *Service) analyzeConfiguredSelections(
 	request normalizedRequest,
 ) (Result, error) {
 	configuration := request.style.Clone()
-	results := make([]selectionResult, 0, len(configuration.BuildSelections)*2)
-	var scopes []ApplicationScope
+	states := make([]configuredSelectionState, 0, len(configuration.BuildSelections))
 	for index := range configuration.BuildSelections {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -62,18 +62,39 @@ func (service *Service) analyzeConfiguredSelections(
 				err,
 			)
 		}
-		inventoryResult := selectionResult{
-			id:     selection.Name,
-			result: inventory,
+		states = append(states, configuredSelectionState{
+			selection:             selection,
+			request:               selected,
+			entrypoints:           entrypoints,
+			entrypointDiagnostics: entrypointDiagnostics,
+			inventory:             inventory,
+		})
+	}
+
+	models := make([]modulith.Model, len(states))
+	for index := range states {
+		models[index] = states[index].inventory.moduleModel
+	}
+	moduleUniverse := modulith.NewUniverse(models...)
+	results := make([]selectionResult, 0, len(configuration.BuildSelections)*2)
+	var scopes []ApplicationScope
+	for index := range states {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
 		}
-		results = append(results, inventoryResult)
-		if !inventory.Diagnostics().Empty() {
+		state := states[index]
+		selection := state.selection
+		results = append(results, selectionResult{
+			id:     selection.Name,
+			result: state.inventory,
+		})
+		if !state.inventory.Diagnostics().Empty() {
 			continue
 		}
-		if len(entrypointDiagnostics) != 0 {
+		if len(state.entrypointDiagnostics) != 0 {
 			result := Result{workspaceRoot: request.root, sequence: request.sequence}
 			result.diagnostics = versionDiagnostics(
-				diagnosticadapt.Load(request.root, entrypointDiagnostics),
+				diagnosticadapt.Load(request.root, state.entrypointDiagnostics),
 				request.overlay,
 			)
 			results = append(results, selectionResult{id: selection.Name, result: result})
@@ -81,8 +102,8 @@ func (service *Service) analyzeConfiguredSelections(
 		}
 
 		targets := configuredApplicationTargets(
-			inventory.applicationPackages,
-			entrypoints,
+			state.inventory.applicationPackages,
+			state.entrypoints,
 		)
 		if len(targets) == 0 {
 			continue
@@ -93,10 +114,12 @@ func (service *Service) analyzeConfiguredSelections(
 			if err := ctx.Err(); err != nil {
 				return Result{}, err
 			}
-			targetRequest := selected
+			targetRequest := state.request
+			targetRequest.selection = &selection
 			targetRequest.styleInventory = false
 			targetRequest.generatedEntrypoint = target.generated
 			targetRequest.applicationScope = true
+			targetRequest.moduleUniverse = moduleUniverse
 			targetRequest.patterns = []string{target.packagePath}
 			result, analyzeErr := service.analyze(ctx, targetRequest)
 			if analyzeErr != nil {
@@ -122,7 +145,7 @@ func (service *Service) analyzeConfiguredSelections(
 		results = append(results, selectionTargets...)
 		coverage := applicationSemanticCoverageDiagnostics(
 			request.root,
-			inventory,
+			state.inventory,
 			selectionTargets,
 		)
 		if !coverage.Empty() {
@@ -149,6 +172,14 @@ func (service *Service) analyzeConfiguredSelections(
 	result.diagnostics = diagnostic.Merge(result.diagnostics, unreachable)
 	result.actions = actionsFromDiagnostics(result.diagnostics)
 	return result, nil
+}
+
+type configuredSelectionState struct {
+	selection             compilerstyle.BuildSelection
+	request               normalizedRequest
+	entrypoints           []load.GeneratedApplicationEntrypoint
+	entrypointDiagnostics []load.Diagnostic
+	inventory             Result
 }
 
 type selectionResult struct {
@@ -575,6 +606,7 @@ func mergeSelectionDiagnostics(results []selectionResult) diagnostic.Set {
 	}
 	items := make([]diagnostic.Diagnostic, 0, len(order))
 	for _, current := range order {
+		sort.Strings(current.ids)
 		sort.Strings(current.scopes)
 		related := append(slices.Clone(current.related), diagnostic.RelatedInformation{
 			Message:  "build selections: " + strings.Join(current.ids, ", "),

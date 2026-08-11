@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -487,6 +488,11 @@ type App struct { Dependency dependency.Service }
 	paths := make([]string, len(packages))
 	for index, pkg := range packages {
 		paths[index] = pkg.Path
+		if pkg.Raw == nil || pkg.Raw.Fset == nil || pkg.Types == nil ||
+			pkg.TypesInfo == nil || len(pkg.Syntax) == 0 ||
+			slices.Contains(pkg.Syntax, nil) {
+			t.Fatalf("primary package %s is not syntax/type complete: %#v", pkg.Path, pkg)
+		}
 	}
 	want := []string{"example.com/fixture/app", "example.com/fixture/dependency"}
 	if !reflect.DeepEqual(paths, want) {

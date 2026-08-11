@@ -570,6 +570,7 @@ func configuredTypedDiagnostics(
 	providers provider.Catalog,
 	files map[string]sourceFile,
 	configuration Configuration,
+	universe modulith.Universe,
 ) []Diagnostic {
 	var diagnostics []Diagnostic
 	if configuration.Rules.ExplicitManagedScopes != RuleLevelOff {
@@ -578,7 +579,7 @@ func configuredTypedDiagnostics(
 	if configuration.Rules.PrivateManagedFields != RuleLevelOff {
 		diagnostics = append(diagnostics, managedFieldDiagnostics(program, providers)...)
 	}
-	modules := modulith.Build(program, resolution)
+	modules := modulith.BuildWithUniverse(program, resolution, universe)
 	if configuration.Rules.ModuleOwnership != RuleLevelOff {
 		diagnostics = append(diagnostics, moduleOwnershipDiagnostics(program, modules, files)...)
 	}

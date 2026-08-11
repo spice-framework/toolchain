@@ -22,6 +22,7 @@ import (
 	"github.com/spice-framework/spice/annotation"
 	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/modulith"
 	"github.com/spice-framework/toolchain/compiler/provider"
 	"github.com/spice-framework/toolchain/compiler/resolve"
 )
@@ -114,7 +115,16 @@ func Build(
 		}}}
 	}
 
-	return buildJavaStructured(program, resolution, providers, nil, "", nil, true)
+	return buildJavaStructured(
+		program,
+		resolution,
+		providers,
+		nil,
+		"",
+		nil,
+		modulith.Universe{},
+		true,
+	)
 }
 
 // BuildConfigured validates the typed phase using the shared schema-two policy.
@@ -150,6 +160,7 @@ func BuildConfiguredAt(
 		providers,
 		configuration,
 		nil,
+		modulith.Universe{},
 		true,
 	)
 }
@@ -172,6 +183,31 @@ func BuildConfiguredSelectionAt(
 		providers,
 		configuration,
 		&selection,
+		modulith.Universe{},
+		true,
+	)
+}
+
+// BuildConfiguredSelectionWithModuleUniverseAt validates one exact declared
+// build selection against a compiler-derived registry of module identities
+// discovered in all configured selections.
+func BuildConfiguredSelectionWithModuleUniverseAt(
+	workspaceRoot string,
+	program *load.Program,
+	resolution resolve.Result,
+	providers provider.Catalog,
+	configuration Configuration,
+	selection BuildSelection,
+	universe modulith.Universe,
+) Catalog {
+	return buildConfiguredAt(
+		workspaceRoot,
+		program,
+		resolution,
+		providers,
+		configuration,
+		&selection,
+		universe,
 		true,
 	)
 }
@@ -193,6 +229,7 @@ func BuildConfiguredSourceSelectionAt(
 		provider.Catalog{},
 		configuration,
 		&selection,
+		modulith.Universe{},
 		false,
 	)
 }
@@ -204,6 +241,7 @@ func buildConfiguredAt(
 	providers provider.Catalog,
 	configuration Configuration,
 	selection *BuildSelection,
+	universe modulith.Universe,
 	applicationSemantics bool,
 ) Catalog {
 	if err := configuration.Validate(); err != nil {
@@ -252,6 +290,7 @@ func buildConfiguredAt(
 		&configuration,
 		workspaceRoot,
 		selection,
+		universe,
 		applicationSemantics,
 	)
 }
@@ -263,6 +302,7 @@ func buildJavaStructured(
 	configuration *Configuration,
 	workspaceRoot string,
 	selection *BuildSelection,
+	universe modulith.Universe,
 	applicationSemantics bool,
 ) Catalog {
 	files := handwrittenFiles(
@@ -347,6 +387,7 @@ func buildJavaStructured(
 				providers,
 				files,
 				*configuration,
+				universe,
 			)...,
 		)
 		catalog.diagnostics = filterConfiguredDiagnostics(catalog.diagnostics, configuration.Rules)

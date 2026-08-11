@@ -356,6 +356,260 @@ package `+dependency+`
 	}
 }
 
+func TestConfiguredStyleReloadsCollapsedRootDependenciesSyntaxComplete(t *testing.T) {
+	root := writeServiceModule(t)
+	for _, relative := range []string{"main.go", "orders"} {
+		if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(root, "internal", "spicegen")); err != nil {
+		t.Fatal(err)
+	}
+	writeServiceFixtureFile(t, root, "cmd/app/application.go", `//go:build spice_generate
+
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+// @Module(allowedDependencies=["example.com/servicefixture/internal/app"])
+package main
+
+import (
+	"os"
+
+	_ "example.com/servicefixture/internal/app"
+	spiceapp "example.com/servicefixture/internal/spicegen/app"
+)
+
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
+
+// @Application
+func main() {
+	os.Exit(spiceapp.Main(os.Args[1:]))
+}
+`)
+	writeServiceFixtureFile(t, root, "internal/app/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package app owns the collapsed-root application composition.
+// @Module(allowedDependencies=["example.com/servicefixture/internal/processplatform", "example.com/servicefixture/internal/runidentity"])
+package app
+`)
+	writeServiceFixtureFile(t, root, "internal/app/architecture.go", `package app
+
+import (
+	"example.com/servicefixture/internal/processplatform"
+	"example.com/servicefixture/internal/runidentity"
+)
+
+type Architecture struct {
+	Process processplatform.Service
+	Run runidentity.Service
+}
+`)
+	for _, dependency := range []string{"processplatform", "runidentity"} {
+		writeServiceFixtureFile(t, root, "internal/"+dependency+"/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package `+dependency+` owns one local dependency.
+// @Module
+package `+dependency+`
+`)
+		writeServiceFixtureFile(t, root, "internal/"+dependency+"/service.go", "package "+dependency+"\n\ntype Service struct{}\n")
+	}
+	configuration := collapsedModuleConfiguration([]string{"cmd", "internal"})
+	configuration.AllowedBoundaryFiles = []string{
+		"cmd/app/application.go",
+		"internal/app/doc.go",
+		"internal/processplatform/doc.go",
+		"internal/runidentity/doc.go",
+	}
+	configuration.PackageFunctionExceptions = []compilerstyle.PackageFunctionException{{
+		Glob: "cmd/app/application.go", ContributionKind: "application",
+		Maximum: 1, Reason: "compiler-validated generated application bridge",
+	}}
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root, Mode: AnalysisValidate,
+		StyleConfiguration: &configuration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		t.Fatalf("collapsed-root dependency diagnostics = %#v", diagnostics)
+	}
+	if got := len(result.ModuleGraph().Modules); got != 4 {
+		t.Fatalf("collapsed-root module count = %d, want 4", got)
+	}
+}
+
+func TestConfiguredStyleUnionsPlatformModuleIdentities(t *testing.T) {
+	root, configuration := writePlatformModuleUniverseFixture(t)
+	orders := []compilerstyle.Configuration{configuration.Clone(), configuration.Clone()}
+	for index := range orders {
+		service, err := New(Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, analyzeErr := service.Analyze(t.Context(), Request{
+			WorkspaceRoot: root, Mode: AnalysisValidate,
+			StyleConfiguration: &orders[index],
+		})
+		closeErr := service.Close(t.Context())
+		if analyzeErr != nil {
+			t.Fatal(analyzeErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+			t.Fatalf("selection order %d diagnostics = %#v", index, diagnostics)
+		}
+	}
+
+	writePlatformApplicationModule(t, root, "example.com/servicefixture/internal/missing::spi")
+	var previousMessages []string
+	for index := range orders {
+		service, err := New(Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, analyzeErr := service.Analyze(t.Context(), Request{
+			WorkspaceRoot: root, Mode: AnalysisValidate,
+			StyleConfiguration: &orders[index],
+		})
+		closeErr := service.Close(t.Context())
+		if analyzeErr != nil {
+			t.Fatal(analyzeErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		var selected []string
+		for _, item := range result.Diagnostics().Items() {
+			if strings.Contains(item.Message, "allows unknown module example.com/servicefixture/internal/missing") {
+				selected = append(selected, item.Message)
+				if !slices.ContainsFunc(item.Related, func(related diagnostic.RelatedInformation) bool {
+					return strings.Contains(related.Message, "linux-amd64-default, windows-amd64-default")
+				}) {
+					t.Fatalf("unknown-module related selections = %#v", item.Related)
+				}
+			}
+			if strings.Contains(item.Message, "allows unknown module example.com/servicefixture/internal/processcontainment") {
+				t.Fatalf("known inactive module was rejected: %#v", result.Diagnostics().Items())
+			}
+		}
+		if len(selected) != 1 {
+			t.Fatalf("selection order %d unknown diagnostics = %#v", index, result.Diagnostics().Items())
+		}
+		if index == 0 {
+			previousMessages = slices.Clone(selected)
+		} else if !reflect.DeepEqual(previousMessages, selected) {
+			t.Fatalf("selection-order diagnostics differ: %#v != %#v", previousMessages, selected)
+		}
+	}
+}
+
+func collapsedModuleConfiguration(sourceRoots []string) compilerstyle.Configuration {
+	configuration := styleSelectionConfiguration(false)
+	configuration.SourceRoots = slices.Clone(sourceRoots)
+	configuration.GeneratedRoots = []string{"internal/spicegen"}
+	configuration.BuildSelections = configuration.BuildSelections[:1]
+	configuration.BuildSelections[0].SourceRoots = slices.Clone(sourceRoots)
+	configuration.Rules.ModuleOwnership = compilerstyle.RuleLevelError
+	return configuration
+}
+
+func writePlatformModuleUniverseFixture(
+	t *testing.T,
+) (string, compilerstyle.Configuration) {
+	t.Helper()
+	root := writeServiceModule(t)
+	for _, relative := range []string{"main.go", "orders", "internal/spicegen"} {
+		if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"internal/app/containment_linux.go": `//go:build linux
+
+package app
+
+import (
+	_ "example.com/servicefixture/internal/processcontainment"
+	"example.com/servicefixture/internal/processcontainment/spi"
+)
+
+type Containment struct { Service spi.Service }
+`,
+		"internal/processcontainment/doc.go": `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package processcontainment owns platform process isolation.
+// @Module
+package processcontainment
+`,
+		"internal/processcontainment/spi/doc_linux.go": `//go:build linux
+
+// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package spi exposes platform process isolation.
+// @NamedInterface("spi")
+package spi
+`,
+		"internal/processcontainment/spi/service_linux.go": `//go:build linux
+
+package spi
+
+type Service struct{}
+`,
+	}
+	for relative, content := range files {
+		writeServiceFixtureFile(t, root, relative, content)
+	}
+	writePlatformApplicationModule(
+		t,
+		root,
+		"example.com/servicefixture/internal/processcontainment",
+		"example.com/servicefixture/internal/processcontainment::spi",
+	)
+	configuration := styleSelectionConfiguration(false)
+	configuration.SourceRoots = []string{"internal"}
+	configuration.GeneratedRoots = []string{"internal/spicegen"}
+	for index := range configuration.BuildSelections {
+		configuration.BuildSelections[index].SourceRoots = []string{"internal"}
+	}
+	configuration.Rules.ModuleOwnership = compilerstyle.RuleLevelError
+	configuration.AllowedBoundaryFiles = []string{
+		"internal/app/application.go",
+		"internal/processcontainment/doc.go",
+		"internal/processcontainment/spi/doc_linux.go",
+	}
+	configuration.PackageFunctionExceptions = []compilerstyle.PackageFunctionException{{
+		Glob: "internal/app/application.go", ContributionKind: "application",
+		Maximum: 1, Reason: "declarative application marker",
+	}}
+	return root, configuration
+}
+
+func writePlatformApplicationModule(t *testing.T, root string, dependencies ...string) {
+	t.Helper()
+	quoted := make([]string, len(dependencies))
+	for index, dependency := range dependencies {
+		quoted[index] = strconv.Quote(dependency)
+	}
+	writeServiceFixtureFile(t, root, "internal/app/application.go", `// @import { Application } from "github.com/spice-framework/spice/annotation/core"
+// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package app owns the platform-selected application.
+// @Module(allowedDependencies=[`+strings.Join(quoted, ", ")+`])
+package app
+
+// @Application
+func Application() {}
+`)
+}
+
 func TestConfiguredStyleStopsAfterCancellationBetweenApplicationTargets(t *testing.T) {
 	root, configuration := writeIndependentGeneratedApplications(t)
 	ctx, cancel := context.WithCancel(context.Background())

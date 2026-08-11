@@ -146,6 +146,33 @@ type Model struct {
 	dependencyOrder []string
 }
 
+// Universe is a compiler-derived registry of exact module and named-interface
+// identities discovered across configured build selections. Its contents are
+// intentionally private so callers cannot suppress unknown-module diagnostics
+// with unvalidated strings.
+type Universe struct {
+	modules map[string]map[string]struct{}
+}
+
+// NewUniverse merges exact identities from already discovered module models.
+// Models may represent different declared Go build selections.
+func NewUniverse(models ...Model) Universe {
+	result := Universe{modules: make(map[string]map[string]struct{})}
+	for _, model := range models {
+		for _, module := range model.modules {
+			interfaces := result.modules[module.ID]
+			if interfaces == nil {
+				interfaces = make(map[string]struct{})
+				result.modules[module.ID] = interfaces
+			}
+			for _, named := range module.namedInterfaces {
+				interfaces[named.Name] = struct{}{}
+			}
+		}
+	}
+	return result
+}
+
 // FocusID returns the selected module for a focused test graph, or an empty
 // string for the complete architecture model.
 func (m Model) FocusID() string {
@@ -260,6 +287,18 @@ func (m Model) Focus(moduleID string) (Model, error) {
 // Build discovers module roots, package ownership, named interfaces, allowed
 // dependency identities, and unassigned packages without reloading source.
 func Build(program *load.Program, resolution resolve.Result) Model {
+	return BuildWithUniverse(program, resolution, Universe{})
+}
+
+// BuildWithUniverse discovers one selected module graph while validating
+// declared dependencies against exact module identities observed in every
+// configured build selection. Inactive modules satisfy identity checks but do
+// not create packages or dependency edges in the selected graph.
+func BuildWithUniverse(
+	program *load.Program,
+	resolution resolve.Result,
+	universe Universe,
+) Model {
 	if program == nil {
 		return Model{diagnostics: []Diagnostic{{
 			Kind:    "internal",
@@ -279,7 +318,7 @@ func Build(program *load.Program, resolution resolve.Result) Model {
 	model.modules, model.diagnostics = discoverModules(resolution.Occurrences, packages)
 	assignPackages(&model, packages)
 	discoverNamedInterfaces(&model, resolution.Occurrences, packages)
-	validateDependencies(&model)
+	validateDependencies(&model, universe)
 	discoverImportEdges(&model, primaryPackages)
 	discoverCycles(&model)
 	sortModel(&model)
@@ -630,15 +669,25 @@ func validateNamedInterfaceName(
 	return name, true
 }
 
-func validateDependencies(model *Model) {
-	modules := make(map[string]Module, len(model.modules))
+func validateDependencies(model *Model, universe Universe) {
+	known := make(map[string]map[string]struct{}, len(universe.modules)+len(model.modules))
+	for id, interfaces := range universe.modules {
+		known[id] = cloneStringSet(interfaces)
+	}
 	for _, module := range model.modules {
-		modules[module.ID] = module
+		interfaces := known[module.ID]
+		if interfaces == nil {
+			interfaces = make(map[string]struct{})
+			known[module.ID] = interfaces
+		}
+		for _, named := range module.namedInterfaces {
+			interfaces[named.Name] = struct{}{}
+		}
 	}
 	for moduleIndex := range model.modules {
 		module := &model.modules[moduleIndex]
 		for _, dependency := range module.allowed {
-			target, ok := modules[dependency.ModuleID]
+			interfaces, knownModule := known[dependency.ModuleID]
 			switch {
 			case dependency.ModuleID == module.ID:
 				model.diagnostics = append(model.diagnostics, dependencyDiagnostic(
@@ -647,7 +696,7 @@ func validateDependencies(model *Model) {
 					"self-dependency",
 					fmt.Sprintf("module %s must not declare a dependency on itself", module.ID),
 				))
-			case !ok:
+			case !knownModule:
 				model.diagnostics = append(model.diagnostics, dependencyDiagnostic(
 					*module,
 					dependency,
@@ -658,7 +707,8 @@ func validateDependencies(model *Model) {
 						dependency.ModuleID,
 					),
 				))
-			case dependency.Interface != "" && !hasNamedInterface(target, dependency.Interface):
+			case dependency.Interface != "" &&
+				!stringSetContains(interfaces, dependency.Interface):
 				model.diagnostics = append(model.diagnostics, dependencyDiagnostic(
 					*module,
 					dependency,
@@ -667,7 +717,7 @@ func validateDependencies(model *Model) {
 						"module %s allows unknown interface %s on module %s",
 						module.ID,
 						dependency.Interface,
-						target.ID,
+						dependency.ModuleID,
 					),
 				))
 			}
@@ -675,13 +725,17 @@ func validateDependencies(model *Model) {
 	}
 }
 
-func hasNamedInterface(module Module, name string) bool {
-	for _, item := range module.namedInterfaces {
-		if item.Name == name {
-			return true
-		}
+func cloneStringSet(values map[string]struct{}) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for value := range values {
+		result[value] = struct{}{}
 	}
-	return false
+	return result
+}
+
+func stringSetContains(values map[string]struct{}, value string) bool {
+	_, found := values[value]
+	return found
 }
 
 type packageImport struct {

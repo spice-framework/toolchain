@@ -75,8 +75,13 @@ source unreachable from every derived target is an error. Diagnostic
 relationships name both the build selections and application targets involved.
 Each scoped pass also promotes only transitively imported packages from the
 same Go module, so local `@Module` declarations remain visible without loading
-unrelated applications; promoted packages outside configured source roots fail
-the existing exact source-ownership check.
+unrelated applications. Promoted packages are reloaded as exact roots so their
+syntax, file set, Go types, and type information are complete; packages outside
+configured source roots still fail the exact source-ownership check. Module and
+named-interface identities discovered across declared build selections form a
+compiler-derived registry: a dependency that is valid but inactive for one
+platform remains known, while nonexistent identities still fail and inactive
+modules never create packages or edges in that platform's graph.
 
 Filename suffixes are selection-scoped rather than globally allowlisted. A
 primary type may use its canonical filename or the active `GOOS`, `GOARCH`,

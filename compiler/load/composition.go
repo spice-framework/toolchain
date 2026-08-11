@@ -345,18 +345,18 @@ func selectProgramRoots(
 	return result
 }
 
-func promoteApplicationDependencies(
+func applicationDependencyPaths(
 	roots []*packages.Package,
 	auxiliary []string,
-) []*packages.Package {
+) []string {
 	auxiliaryPaths := make(map[string]struct{}, len(auxiliary))
 	for _, packagePath := range auxiliary {
 		auxiliaryPaths[packagePath] = struct{}{}
 	}
-	result := append([]*packages.Package(nil), roots...)
-	seen := make(map[string]struct{}, len(result))
-	queue := make([]*packages.Package, 0, len(result))
-	for _, root := range result {
+	seen := make(map[string]struct{}, len(roots))
+	queue := make([]*packages.Package, 0, len(roots))
+	var result []string
+	for _, root := range roots {
 		if root == nil {
 			continue
 		}
@@ -388,13 +388,11 @@ func promoteApplicationDependencies(
 				continue
 			}
 			seen[identity] = struct{}{}
-			result = append(result, dependency)
+			result = append(result, dependency.PkgPath)
 			queue = append(queue, dependency)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return packageIdentity(result[i]) < packageIdentity(result[j])
-	})
+	sort.Strings(result)
 	return result
 }
 

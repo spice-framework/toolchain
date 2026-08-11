@@ -167,6 +167,48 @@ package payments
 	}
 }
 
+func TestModuleUniverseMergesSelectionsOrderIndependently(t *testing.T) {
+	t.Parallel()
+	const (
+		applicationID = "example.com/shop/application"
+		platformID    = "example.com/shop/processcontainment"
+	)
+	linux := Model{modules: []Module{{
+		ID: platformID,
+		namedInterfaces: []NamedInterface{{
+			Name: "spi", PackagePath: platformID + "/spi",
+		}},
+	}}}
+	windows := Model{modules: []Module{{ID: applicationID}}}
+	for index, universe := range []Universe{
+		NewUniverse(linux, windows),
+		NewUniverse(windows, linux),
+	} {
+		model := Model{modules: []Module{{
+			ID: applicationID,
+			allowed: []Dependency{{
+				ModuleID:  platformID,
+				Interface: "spi",
+			}},
+		}}}
+		validateDependencies(&model, universe)
+		if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+			t.Fatalf("universe order %d diagnostics = %v", index, diagnostics)
+		}
+		model.modules = append(model.modules, Module{ID: platformID})
+		validateDependencies(&model, universe)
+		if diagnostics := model.Diagnostics(); len(diagnostics) != 0 {
+			t.Fatalf("universe order %d active-module diagnostics = %v", index, diagnostics)
+		}
+
+		model.modules[0].allowed[0].ModuleID = "example.com/shop/missing"
+		validateDependencies(&model, universe)
+		if diagnostics := diagnosticStrings(model.Diagnostics()); !containsDiagnostic(diagnostics, "allows unknown module example.com/shop/missing") {
+			t.Fatalf("universe order %d missing-module diagnostics = %v", index, diagnostics)
+		}
+	}
+}
+
 func TestBuildReturnsDefensiveCopiesAndRejectsInvalidInput(t *testing.T) {
 	if diagnostics := Build(nil, resolve.Result{}).Diagnostics(); len(diagnostics) != 1 {
 		t.Fatalf("Build(nil) diagnostics = %#v", diagnostics)

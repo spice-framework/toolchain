@@ -176,6 +176,10 @@ type BuildOptions struct {
 	// Program and resolution. It lets compiler services expose partial,
 	// type-safe authoring metadata without rebuilding provider semantics.
 	PrimaryProviderCatalog *provider.Catalog
+	// ModuleUniverse admits only compiler-derived module identities discovered
+	// from other configured selections. Its zero value preserves standalone,
+	// fail-closed module validation.
+	ModuleUniverse modulith.Universe
 }
 
 // Providers returns providers in deterministic dependency-first construction
@@ -342,7 +346,7 @@ func BuildWithOptions(
 		return model
 	}
 
-	model.moduleModel = modulith.Build(program, resolution)
+	model.moduleModel = modulith.BuildWithUniverse(program, resolution, options.ModuleUniverse)
 	if diagnostics := model.moduleModel.Diagnostics(); len(diagnostics) != 0 {
 		model.diagnostics = moduleDiagnostics(diagnostics)
 		return model

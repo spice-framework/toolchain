@@ -40,8 +40,10 @@ type Options struct {
 }
 
 // Load asks the standard Go package driver to load the requested root package
-// patterns once, then builds deterministic package, symbol, and diagnostic
-// records from that shared type universe.
+// patterns, then builds deterministic package, symbol, and diagnostic records
+// from that shared type universe. Exact application loads repeat the request
+// with discovered same-module dependencies as roots so every promoted package
+// is syntax- and type-information complete.
 func Load(ctx context.Context, options Options, patterns ...string) (*Program, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -103,8 +105,27 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		auxiliary,
 		candidates,
 	)
-	if options.PromoteApplicationDependencies {
-		selectedRoots = promoteApplicationDependencies(selectedRoots, auxiliary)
+	if options.PromoteApplicationDependencies && loadErr == nil {
+		dependencyPaths := applicationDependencyPaths(selectedRoots, auxiliary)
+		if len(dependencyPaths) != 0 {
+			if requestedPackages == nil {
+				requestedPackages = make(map[string]struct{}, len(dependencyPaths))
+			}
+			for _, packagePath := range dependencyPaths {
+				requestedPackages[packagePath] = struct{}{}
+			}
+			expandedPatterns := append(append([]string(nil), loadPatterns...), dependencyPaths...)
+			roots, loadErr = packages.Load(config, expandedPatterns...)
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			selectedRoots = selectProgramRoots(
+				roots,
+				requestedPackages,
+				auxiliary,
+				candidates,
+			)
+		}
 	}
 	program := programFromRoots(
 		selectedRoots,

@@ -294,6 +294,7 @@ type normalizedRequest struct {
 	forceStyleInventory bool
 	generatedEntrypoint bool
 	applicationScope    bool
+	moduleUniverse      modulith.Universe
 }
 
 // Analyze executes one read-only typed compiler analysis.
@@ -508,6 +509,7 @@ func (service *Service) analyze(
 	}
 	result.applicationPackages = applicationPackagePaths(resolution)
 	result.semanticOccurrences = applicationSemanticOccurrences(resolution)
+	result.moduleModel = modulith.Build(program, resolution)
 
 	starterDiagnostics, err := service.starterDependencyDiagnostics(
 		ctx,
@@ -557,13 +559,14 @@ func (service *Service) analyze(
 		request.profile != compilerstyle.ProfileNone {
 		styleCatalog := compilerstyle.Build(program, resolution, primaryProviderCatalog, request.profile)
 		if request.style != nil {
-			styleCatalog = compilerstyle.BuildConfiguredSelectionAt(
+			styleCatalog = compilerstyle.BuildConfiguredSelectionWithModuleUniverseAt(
 				request.root,
 				program,
 				resolution,
 				primaryProviderCatalog,
 				*request.style,
 				*request.selection,
+				request.moduleUniverse,
 			)
 		}
 		if diagnostics := styleCatalog.Diagnostics(); len(diagnostics) != 0 {
@@ -590,9 +593,10 @@ func (service *Service) analyze(
 	}
 	buildOptions.ProviderCatalogs = providerCatalogs
 
-	moduleModel := modulith.Build(program, resolution)
+	moduleModel := modulith.BuildWithUniverse(program, resolution, request.moduleUniverse)
 	result.moduleModel = moduleModel
 	result.moduleGraph = summarizeModuleGraph(moduleModel)
+	buildOptions.ModuleUniverse = request.moduleUniverse
 	model := application.BuildWithOptions(
 		program,
 		resolution,
