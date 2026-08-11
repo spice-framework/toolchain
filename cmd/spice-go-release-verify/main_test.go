@@ -57,7 +57,7 @@ func TestRunPolicyCheckAuthorizesExactComparablePolicies(t *testing.T) {
 		version    string
 		profile    string
 	}{
-		{name: "Spice foundation", repository: "spice", version: "v0.1.0-preview.3", profile: "go-module-v1"},
+		{name: "Spice foundation", repository: "spice", version: "v0.1.0-preview.4", profile: "go-module-v1"},
 		{name: "Toolchain distribution", repository: "toolchain", version: "v0.1.0-preview.3", profile: "go-distribution-v1"},
 		{name: "Agent TUI", repository: "spice-agent-tui", version: "v0.1.0-preview.2", profile: "go-module-v1"},
 		{name: "Agent core", repository: "spice-agent", version: "v0.1.0-preview.6", profile: "go-module-v1"},
@@ -91,7 +91,7 @@ func TestRunPolicyCheckStillValidatesSourceOutsideComparableTuple(t *testing.T) 
 		"--repository=spice",
 		"--source=https://github.com/spice-framework/spice-fork",
 		"--module=github.com/spice-framework/spice",
-		"--version=v0.1.0-preview.3",
+		"--version=v0.1.0-preview.4",
 		"--profile=go-module-v1",
 	}, &stdout, &stderr)
 	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "do not match") {
@@ -99,7 +99,7 @@ func TestRunPolicyCheckStillValidatesSourceOutsideComparableTuple(t *testing.T) 
 	}
 }
 
-func TestRunPolicyCheckRejectsStaleFoundationWavePreviews(t *testing.T) {
+func TestRunPolicyCheckRejectsStaleFoundationRecoveryPreviews(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		repository string
@@ -108,6 +108,7 @@ func TestRunPolicyCheckRejectsStaleFoundationWavePreviews(t *testing.T) {
 	}{
 		{repository: "spice", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 		{repository: "spice", version: "v0.1.0-preview.2", profile: "go-module-v1"},
+		{repository: "spice", version: "v0.1.0-preview.3", profile: "go-module-v1"},
 		{repository: "toolchain", version: "v0.1.0-preview.1", profile: "go-distribution-v1"},
 		{repository: "toolchain", version: "v0.1.0-preview.2", profile: "go-distribution-v1"},
 		{repository: "spice-agent-tui", version: "v0.1.0-preview.1", profile: "go-module-v1"},

@@ -83,7 +83,7 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 	}
 }
 
-func TestCheckPolicyRejectsStaleFoundationWaveIdentities(t *testing.T) {
+func TestCheckPolicyRejectsStaleFoundationRecoveryIdentities(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name     string
@@ -96,7 +96,7 @@ func TestCheckPolicyRejectsStaleFoundationWaveIdentities(t *testing.T) {
 				Repository: "spice", Source: "https://github.com/spice-framework/spice",
 				Module: "github.com/spice-framework/spice", Profile: ProfileGoModule,
 			},
-			versions: []string{"v0.1.0-preview.1", agentFoundationVersion},
+			versions: []string{"v0.1.0-preview.1", agentFoundationVersion, "v0.1.0-preview.3"},
 		},
 		{
 			name: "Toolchain distribution",

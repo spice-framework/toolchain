@@ -215,7 +215,7 @@ workflows authorize an exact verifier version with an ordinary root `go.mod`
 
 Generic `go-module-v1` releases use the separate
 `cmd/spice-go-release-verify` boundary. It accepts only dependency-free
-`spice@v0.1.0-preview.3`, `spice-agent@v0.1.0-preview.6`, the independently
+`spice@v0.1.0-preview.4`, `spice-agent@v0.1.0-preview.6`, the independently
 authorized provider and coding-tools previews, and
 `spice-agent-tui@v0.1.0-preview.2`. It rejects starters and distribution
 profiles, and independently binds repository, source, module, version, commit,
@@ -241,11 +241,13 @@ apparently successful verification cannot silently leak temporary state.
 The Agent core, provider, coding-tools, and `spice-agent-coding` distribution
 policies retain the immutable Spice foundation `v0.1.0-preview.2` and their
 historical Toolchain and sibling selections. The separately authorized TUI
-preview.2 policy instead requires immutable Spice preview.3 and Toolchain
-preview.3. Toolchain distribution preview.3 requires Spice preview.3 and
-authorizes only one `spice` command, six targets, LICENSE, README, and the two
-typed CLI identity symbols. This closed foundation wave independently matches
-Development commit `6210baa460975be0bfcb12c919cab307da8c3f46`; neither
+preview.2 policy instead requires authenticated Spice preview.4 and Toolchain
+preview.3. Toolchain distribution preview.3 likewise requires Spice preview.4
+and authorizes only one `spice` command, six targets, LICENSE, README, and the
+two typed CLI identity symbols. Spice preview.3 is an immutable tag-only failed
+attempt that produced no authenticated release; it is rejected as a current
+foundation selection. This recovery authority independently matches
+Development commit `678a8d7ce5b20d9f2509f089b918154894064fc1`; neither
 repository can expand it alone. The Coding distribution's authorized version
 remains `v0.1.0-preview.4`;
 preview.1 is rejected after release run `31333877865`

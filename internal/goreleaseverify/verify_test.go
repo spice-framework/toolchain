@@ -159,8 +159,8 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
 		},
 		"spice-agent-tui": {
-			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
+			{path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4"},
+			{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.3"},
 		},
 	}
 	if len(releasePolicies) != len(wantPolicies) {
@@ -178,8 +178,35 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	}
 }
 
-func TestFoundationWavePreservesHistoricalAgentAndCodingSelections(t *testing.T) {
+func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testing.T) {
 	t.Parallel()
+	if got := releasePolicies["spice"].version; got != "v0.1.0-preview.4" {
+		t.Errorf("Spice recovery version = %q, want v0.1.0-preview.4", got)
+	}
+	wantToolchainModules := []selectedModule{{
+		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4",
+	}}
+	toolchain := distributionPolicies["toolchain"]
+	if toolchain.version != "v0.1.0-preview.3" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
+		t.Errorf("Toolchain recovery policy = %#v, want preview.3 with modules %#v", toolchain, wantToolchainModules)
+	}
+	failedFoundation := selectedModule{
+		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.3",
+	}
+	if slices.Contains(toolchain.requiredModules, failedFoundation) {
+		t.Errorf("Toolchain recovery policy retains failed foundation = %#v", toolchain.requiredModules)
+	}
+	wantTUIModules := []selectedModule{
+		{path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4"},
+		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.3"},
+	}
+	tui := releasePolicies["spice-agent-tui"]
+	if tui.version != "v0.1.0-preview.2" || !slices.Equal(tui.requiredModules, wantTUIModules) {
+		t.Errorf("TUI recovery policy = %#v, want preview.2 with modules %#v", tui, wantTUIModules)
+	}
+	if slices.Contains(tui.requiredModules, failedFoundation) {
+		t.Errorf("TUI recovery policy retains failed foundation = %#v", tui.requiredModules)
+	}
 	wantAgentModules := []selectedModule{
 		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
 		{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
@@ -241,11 +268,11 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"spice":                       spiceFoundationVersion,
+		"spice":                       "v0.1.0-preview.4",
 		"spice-agent":                 agentCoreReleaseVersion,
 		"spice-agent-provider-openai": agentExtensionVersion,
 		"spice-agent-tools-coding":    agentExtensionVersion,
-		"spice-agent-tui":             agentTUIReleaseVersion,
+		"spice-agent-tui":             "v0.1.0-preview.2",
 	}
 	for repository, version := range want {
 		if got := releasePolicies[repository].version; got != version {
@@ -253,7 +280,7 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 		}
 	}
 	wantDistributions := map[string]string{
-		"toolchain":          toolchainDistributionVersion,
+		"toolchain":          "v0.1.0-preview.3",
 		"spice-agent-coding": agentDistributionVersion,
 	}
 	if len(distributionPolicies) != len(wantDistributions) {
