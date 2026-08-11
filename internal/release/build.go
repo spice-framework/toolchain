@@ -382,7 +382,8 @@ func buildBinary(
 		".binary-"+target.GOOS+"-"+target.GOARCH,
 	)
 	ldflags := "-s -w -X github.com/spice-framework/toolchain/internal/cli.Version=" +
-		config.Version
+		strings.TrimPrefix(config.Version, "v") +
+		" -X github.com/spice-framework/toolchain/internal/cli.Commit=" + config.Commit
 	// #nosec G204 -- command is fixed; version is canonical semver, target is
 	// allowlisted, and exec.CommandContext never invokes a shell.
 	command := exec.CommandContext(

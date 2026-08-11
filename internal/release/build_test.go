@@ -3,6 +3,7 @@ package release
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -35,10 +36,15 @@ func TestBuildProducesReproducibleSignedHostRelease(t *testing.T) {
 	}
 	keyText := []byte(base64.StdEncoding.EncodeToString(seed))
 	parent := t.TempDir()
+	commit, err := resolveSnapshotCommit(t.Context(), root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	config := Config{
 		Root:       root,
 		OutputDir:  filepath.Join(parent, "first"),
 		Version:    "v0.9.0-rc.1",
+		Commit:     commit,
 		Epoch:      epoch,
 		Targets:    []Target{HostTarget()},
 		PrivateKey: keyText,
@@ -77,7 +83,7 @@ func TestBuildProducesReproducibleSignedHostRelease(t *testing.T) {
 
 	checkSignedChecksums(t, first.OutputDir)
 	checkSBOM(t, first.OutputDir, root, epoch)
-	checkHostArchive(t, first.OutputDir, first.Files)
+	checkHostArchive(t, first.OutputDir, first.Files, root, "0.9.0-rc.1", commit)
 	if _, err := Build(t.Context(), config); err == nil {
 		t.Fatal("Build() overwrote an existing output directory")
 	}
@@ -331,7 +337,30 @@ func checkSBOM(
 	}
 }
 
-func checkHostArchive(t *testing.T, directory string, files []string) {
+func TestBuildBinaryLinksCanonicalIdentity(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	binary, err := buildBinary(t.Context(), Config{
+		Root: root, Version: "v0.9.0-rc.1", Commit: commit,
+	}, t.TempDir(), HostTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(t.TempDir(), HostTarget().ExecutableName())
+	if err = os.WriteFile(executable, binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.CommandContext(t.Context(), executable, "--version").CombinedOutput() // #nosec G204 -- exact test-built binary.
+	if err != nil || string(output) != "spice 0.9.0-rc.1 ("+commit+")\n" {
+		t.Fatalf("built CLI identity = %q, %v", output, err)
+	}
+}
+
+func checkHostArchive(t *testing.T, directory string, files []string, sourceRoot, version, commit string) {
 	t.Helper()
 	target := HostTarget()
 	var archiveName string
@@ -365,7 +394,12 @@ func checkHostArchive(t *testing.T, directory string, files []string) {
 	if err != nil {
 		t.Fatalf("run released CLI: %v: %s", err, output)
 	}
-	if strings.TrimSpace(string(output)) != "spice v0.9.0-rc.1" {
+	want := "spice " + version + "\n"
+	show := exec.CommandContext(t.Context(), "git", "-C", sourceRoot, "show", commit+":internal/cli/version.go")
+	if source, showErr := show.Output(); showErr == nil && bytes.Contains(source, []byte("Commit  = developmentCommit")) {
+		want = "spice " + version + " (" + commit + ")\n"
+	}
+	if string(output) != want {
 		t.Fatalf("released CLI version = %q", output)
 	}
 }

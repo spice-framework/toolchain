@@ -16,11 +16,12 @@ func main() {
 }
 
 func run() int {
-	mode := flag.String("mode", "verify", "verification mode: fast, check, benchmark, or verify")
+	mode := flag.String("mode", "verify", "verification mode: fast, check, benchmark, release-artifacts, or verify")
+	artifacts := flag.String("artifacts", "", "absolute directory containing verified Toolchain release subjects")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
-	if err := boundarygate.Run(ctx, ".", *mode, os.Stdout); err != nil {
+	if err := boundarygate.RunConfigured(ctx, ".", *mode, *artifacts, os.Stdout); err != nil {
 		if _, writeErr := fmt.Fprintf(os.Stderr, "boundary verification failed: %v\n", err); writeErr != nil {
 			return 1
 		}

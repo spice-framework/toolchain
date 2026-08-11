@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/spice-framework/toolchain/internal/identity"
+	"github.com/spice-framework/toolchain/internal/releaseinstallation"
 )
 
 const requiredGoVersion = "go1.26.5"
@@ -47,6 +48,7 @@ var checkedPackages = []string{
 	"./internal/libraryreleaseverify",
 	"./internal/moduleenv",
 	"./internal/release",
+	"./internal/releaseinstallation",
 	"./internal/releaseverify",
 	"./internal/scaffold",
 	"./internal/testsupport",
@@ -54,6 +56,11 @@ var checkedPackages = []string{
 
 // Run executes one repository verification mode.
 func Run(ctx context.Context, root, mode string, output io.Writer) error {
+	return RunConfigured(ctx, root, mode, "", output)
+}
+
+// RunConfigured executes one repository verification mode with explicit inputs.
+func RunConfigured(ctx context.Context, root, mode, artifacts string, output io.Writer) error {
 	if ctx == nil {
 		return errors.New("boundary gate context is nil")
 	}
@@ -74,6 +81,14 @@ func Run(ctx context.Context, root, mode string, output io.Writer) error {
 		return gate.performance(ctx)
 	case "verify":
 		return gate.verify(ctx)
+	case "release-artifacts":
+		if err := gate.goVersion(ctx); err != nil {
+			return err
+		}
+		if err := gate.releaseArtifactEntrypoint(); err != nil {
+			return err
+		}
+		return gate.releaseArtifacts(ctx, artifacts)
 	default:
 		return fmt.Errorf("unknown boundary gate mode %q", mode)
 	}
@@ -84,6 +99,19 @@ type verifier struct {
 	output         io.Writer
 	execute        commandExecutor
 	executeStreams commandStreamExecutor
+	verifySubjects releaseSubjectVerifier
+}
+
+type releaseSubjectSet interface {
+	Version() string
+	Commit() string
+	ExtractNativeContext(context.Context, string, string, string) (string, error)
+}
+
+type releaseSubjectVerifier func(context.Context, string) (releaseSubjectSet, error)
+
+func verifyReleaseSubjects(ctx context.Context, directory string) (releaseSubjectSet, error) {
+	return releaseinstallation.VerifyContext(ctx, directory)
 }
 
 type commandExecutor func(
@@ -110,6 +138,9 @@ func (gate verifier) fast(ctx context.Context) error {
 		return err
 	}
 	if err := gate.generatorCompatibility(); err != nil {
+		return err
+	}
+	if err := gate.releaseArtifactEntrypoint(); err != nil {
 		return err
 	}
 	if err := gate.run(ctx, gate.root, nil, "go", append(
@@ -151,6 +182,9 @@ func (gate verifier) verify(ctx context.Context) error {
 		}},
 		{name: "generator compatibility", run: func(context.Context) error {
 			return gate.generatorCompatibility()
+		}},
+		{name: "release artifact entrypoint", run: func(context.Context) error {
+			return gate.releaseArtifactEntrypoint()
 		}},
 		{name: "Go formatting", run: gate.formatting},
 		{name: "module tidiness", run: gate.moduleTidiness},

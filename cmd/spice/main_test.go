@@ -13,7 +13,7 @@ func TestRunDelegatesToHandwrittenCLI(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if exitCode := run([]string{"version"}, &stdout, &stderr); exitCode != 0 ||
-		stdout.String() != "spice "+cli.Version+"\n" ||
+		stdout.String() != "spice "+cli.Version+" ("+cli.Commit+")\n" ||
 		stderr.Len() != 0 {
 		t.Fatalf(
 			"run(version) = %d, stdout=%q, stderr=%q",

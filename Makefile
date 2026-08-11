@@ -1,4 +1,4 @@
-.PHONY: fast check benchmark verify vendor release-acceptance
+.PHONY: fast check benchmark verify verify-release-artifacts vendor release-acceptance
 
 fast:
 	go run ./internal/boundarygate/cmd -mode=fast
@@ -11,6 +11,9 @@ benchmark:
 
 verify:
 	go run ./internal/boundarygate/cmd -mode=verify
+
+verify-release-artifacts:
+	go run ./internal/boundarygate/cmd -mode=release-artifacts -artifacts="$(SPICE_TOOLCHAIN_VERIFIED_ARTIFACT_DIR)"
 
 vendor:
 	go mod vendor

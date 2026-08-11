@@ -303,6 +303,28 @@ SPDX SBOM, and checksum. The renderer output is never the attestation input;
 successful verification copies the exact validated artifact allowlist into a
 required absent verifier-owned directory.
 
+The Toolchain candidate also owns an installed-byte gate for that verified
+allowlist. Set `SPICE_TOOLCHAIN_VERIFIED_ARTIFACT_DIR` to the canonical
+absolute verifier-owned output directory and run:
+
+```text
+make verify-release-artifacts
+```
+
+The gate accepts only the preview.3 Toolchain nine-subject set: checksums,
+release metadata, SPDX SBOM, and all six Linux/macOS/Windows amd64/arm64
+archives. Every archive must contain exactly one `spice` binary plus the
+committed LICENSE and README with canonical paths, bytes, and permissions. The
+host archive is extracted into private scratch space and its binary is executed
+offline; it must report exactly `spice 0.1.0-preview.3 (<40-character-commit>)`.
+Source builds report the honest development identity
+`spice v0.1.0-preview.2 (development)`. Release builds set the exported
+`internal/cli.Version` and `internal/cli.Commit` data symbols directly; mixed,
+empty, noncanonical, or malformed linker identities fail closed. This
+candidate check consumes independently verified bytes and does not replace
+source authentication, independent reconstruction, provenance, or publication
+approval.
+
 The separately explicit `make release-acceptance` proof is network-capable by
 design and is not part of `make verify`. It clones the central development
 signer and starter-oidc at repository-pinned commit IDs, creates a clean

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	codegen "github.com/spice-framework/toolchain/compiler/generate"
+	"github.com/spice-framework/toolchain/compiler/generate"
 	"github.com/spice-framework/toolchain/compiler/load"
 	"github.com/spice-framework/toolchain/internal/identity"
 	"github.com/spice-framework/toolchain/internal/testsupport"
@@ -19,16 +19,20 @@ import (
 
 func TestRunVersion(t *testing.T) {
 	t.Parallel()
-	if Version != codegen.GeneratorVersion {
-		t.Fatalf("CLI version = %q, generator version = %q", Version, codegen.GeneratorVersion)
-	}
 	if Version != "v0.1.0-preview.2" {
 		t.Fatalf("CLI version = %q", Version)
+	}
+	if developmentVersion != generate.GeneratorVersion {
+		t.Fatalf("CLI development version = %q, generator = %q", developmentVersion, generate.GeneratorVersion)
+	}
+	if Commit != "development" {
+		t.Fatalf("CLI commit = %q", Commit)
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := Run([]string{"version"}, &stdout, &stderr)
-	if code != 0 || !strings.Contains(stdout.String(), Version) {
+	want := "spice " + Version + " (" + Commit + ")\n"
+	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }

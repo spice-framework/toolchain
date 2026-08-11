@@ -22,7 +22,7 @@ func TestCommandRunsVersionThroughProductionBoundary(t *testing.T) {
 		&stderr,
 	)
 	if exitCode != 0 ||
-		stdout.String() != "spice "+Version+"\n" ||
+		stdout.String() != "spice "+Version+" ("+Commit+")\n" ||
 		stderr.Len() != 0 {
 		t.Fatalf(
 			"Run(version) = %d, stdout=%q, stderr=%q",

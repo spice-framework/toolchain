@@ -363,6 +363,26 @@ attestation and publication. The implementation imports neither the
 development catalog nor `internal/distributionrelease` and never executes the
 renderer.
 
+After independent verification has copied the exact Toolchain preview.3
+allowlist, the candidate repository verifies its own installed-byte behavior:
+
+```text
+SPICE_TOOLCHAIN_VERIFIED_ARTIFACT_DIR=<canonical-absolute-verified-output> \
+  make verify-release-artifacts
+```
+
+This offline target revalidates exact nine-subject membership, checksums,
+canonical release metadata and SPDX identity, all six archive layouts, the
+single `spice` binary, LICENSE, README, safe paths, and permissions. It extracts
+only the native archive into private scratch space and requires the installed
+binary to emit exactly `spice 0.1.0-preview.3 (<exact-commit>)`. The public CLI
+identity comes from the directly linker-settable `internal/cli.Version` and
+`internal/cli.Commit` variables. Unlinked source builds use the paired honest
+development defaults; empty, mixed-development/release, or malformed linker
+values are errors. The target neither authenticates source nor creates an
+attestation, and it must consume the independently verified directory rather
+than renderer output.
+
 ## Cross-producer acceptance
 
 The network-capable cross-producer proof is deliberately separate from the

@@ -20,10 +20,6 @@ import (
 	"github.com/spice-framework/toolchain/compiler/resolve"
 )
 
-// Version is the version reported by the Spice CLI. Release builds replace the
-// source release identity through Go's link-time string-variable mechanism.
-var Version = codegen.GeneratorVersion
-
 const legacyStarterSelectionPath = ".spice/starters.json"
 
 type (
@@ -101,7 +97,7 @@ func NewVersionHandler(runtime *Runtime) (Handler, error) {
 		runtime,
 		[]string{"version", "--version"},
 		func(_ *Runtime, invocation Invocation) int {
-			return versionCommand(invocation.Stdout)
+			return versionCommand(invocation.Stdout, invocation.Stderr)
 		},
 	)
 }
@@ -113,8 +109,11 @@ func helpCommand(stdout io.Writer) int {
 	return 0
 }
 
-func versionCommand(stdout io.Writer) int {
-	if err := writef(stdout, "spice %s\n", Version); err != nil {
+func versionCommand(stdout, stderr io.Writer) int {
+	if err := writeVersionIdentity(stdout, Version, Commit); err != nil {
+		if writeErr := writef(stderr, "Spice version identity is invalid: %v\n", err); writeErr != nil {
+			return 1
+		}
 		return 1
 	}
 	return 0
