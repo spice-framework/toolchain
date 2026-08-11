@@ -404,6 +404,96 @@ func main() {
 	}
 }
 
+func TestLoadBoundsGeneratedApplicationPreparationToRequestedTarget(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.26.0\n",
+		"cmd/one/application.go": `//go:build spice_generate
+
+package main
+
+import (
+	"os"
+
+	spiceapp "example.com/fixture/internal/spicegen/one"
+)
+
+// @Application
+func main() { os.Exit(spiceapp.Main(os.Args[1:])) }
+`,
+		"cmd/two/application.go": `//go:build spice_generate
+
+package main
+
+// @Application
+func main() {}
+`,
+	})
+	options := Options{
+		Dir: dir, BuildFlags: []string{"-tags=spice_generate"},
+		PrepareGeneratedApplicationEntrypoints: true,
+	}
+	program, err := Load(context.Background(), options, "./cmd/one")
+	if err != nil {
+		t.Fatalf("Load(exact target) error = %v, diagnostics = %v", err, program.Diagnostics())
+	}
+	if len(program.Diagnostics()) != 0 {
+		t.Fatalf("Load(exact target) diagnostics = %v", program.Diagnostics())
+	}
+	entrypoints, diagnostics, discoverErr := DiscoverGeneratedApplicationEntrypoints(
+		options,
+		"./cmd/one",
+	)
+	if discoverErr != nil || len(diagnostics) != 0 || len(entrypoints) != 1 ||
+		entrypoints[0].PackagePath != "example.com/fixture/cmd/one" {
+		t.Fatalf(
+			"DiscoverGeneratedApplicationEntrypoints() = %#v, diagnostics %v, error %v",
+			entrypoints,
+			diagnostics,
+			discoverErr,
+		)
+	}
+	symbol := symbolByID(program.PrimarySymbols(), "example.com/fixture/cmd/one.main")
+	if symbol == nil || !IsGeneratedApplicationEntrypoint(program, *symbol) {
+		t.Fatalf("IsGeneratedApplicationEntrypoint() rejected %#v", symbol)
+	}
+	failed, err := Load(context.Background(), options, "./cmd/...")
+	if err == nil || failed == nil || len(failed.Diagnostics()) != 1 ||
+		failed.Diagnostics()[0].Kind != "generated-entrypoint" ||
+		!strings.Contains(failed.Diagnostics()[0].Filename, filepath.Join("cmd", "two")) {
+		t.Fatalf("Load(recursive) = diagnostics %v, error %v", failed.Diagnostics(), err)
+	}
+}
+
+func TestLoadPromotesOnlyTransitiveSameModuleApplicationDependencies(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.26.0\n",
+		"app/app.go": `package app
+
+import "example.com/fixture/dependency"
+
+type App struct { Dependency dependency.Service }
+`,
+		"dependency/service.go": "package dependency\n\ntype Service struct{}\n",
+		"unrelated/service.go":  "package unrelated\n\ntype Service struct{}\n",
+	})
+	program, err := Load(context.Background(), Options{
+		Dir:                            dir,
+		PromoteApplicationDependencies: true,
+	}, "./app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages := program.PrimaryPackages()
+	paths := make([]string, len(packages))
+	for index, pkg := range packages {
+		paths[index] = pkg.Path
+	}
+	want := []string{"example.com/fixture/app", "example.com/fixture/dependency"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("primary packages = %v, want %v", paths, want)
+	}
+}
+
 func TestLoadRejectsMissingExplicitGeneratedApplicationEntrypoint(t *testing.T) {
 	t.Parallel()
 

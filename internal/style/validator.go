@@ -167,45 +167,7 @@ func (validator *Validator) validateFile(file *sourceFile) {
 }
 
 func typeFileNameMatches(actual, expected string) bool {
-	if actual == expected {
-		return true
-	}
-	expectedBase := strings.TrimSuffix(expected, ".go")
-	actualBase := strings.TrimSuffix(actual, ".go")
-	suffix, found := strings.CutPrefix(actualBase, expectedBase+"_")
-	return found && supportedBuildFileSuffix(suffix)
-}
-
-func supportedBuildFileSuffix(suffix string) bool {
-	parts := strings.Split(suffix, "_")
-	switch len(parts) {
-	case 1:
-		return supportedBuildOperatingSystem(parts[0]) || supportedBuildArchitecture(parts[0]) || parts[0] == "unix"
-	case 2:
-		return supportedBuildOperatingSystem(parts[0]) && supportedBuildArchitecture(parts[1])
-	default:
-		return false
-	}
-}
-
-func supportedBuildOperatingSystem(value string) bool {
-	switch value {
-	case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios",
-		"js", "linux", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows":
-		return true
-	default:
-		return false
-	}
-}
-
-func supportedBuildArchitecture(value string) bool {
-	switch value {
-	case "386", "amd64", "arm", "arm64", "loong64", "mips", "mips64", "mips64le",
-		"mipsle", "ppc64", "ppc64le", "riscv64", "s390x", "wasm":
-		return true
-	default:
-		return false
-	}
+	return actual == expected
 }
 
 func (validator *Validator) packageVariable(relative string, identifier *ast.Ident) bool {

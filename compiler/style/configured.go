@@ -93,6 +93,7 @@ func pathUnderConfigurationRoot(file string, roots []string) bool {
 }
 
 func configuredFreeFunctionDiagnostics(
+	program *load.Program,
 	symbols []load.Symbol,
 	files map[string]sourceFile,
 	typesByFile map[string][]string,
@@ -113,6 +114,7 @@ func configuredFreeFunctionDiagnostics(
 			continue
 		}
 		if configuredFunctionException(
+			program,
 			symbol,
 			source.relative,
 			file,
@@ -409,6 +411,7 @@ func contributionCounts(
 }
 
 func configuredFunctionException(
+	program *load.Program,
 	symbol load.Symbol,
 	relative string,
 	physical string,
@@ -428,7 +431,8 @@ func configuredFunctionException(
 			}
 			if symbol.Name == "main" &&
 				(packageNames[symbol.PackagePath] != "main" ||
-					!strings.EqualFold(filepath.Base(physical), "main.go")) {
+					!strings.EqualFold(filepath.Base(physical), "main.go") &&
+						!load.IsGeneratedApplicationEntrypoint(program, symbol)) {
 				continue
 			}
 			return true
@@ -445,8 +449,17 @@ func configuredFunctionException(
 			if exception.Maximum > 0 && counts[physical+"\x00"+string(kind)] > exception.Maximum {
 				continue
 			}
-			if kind == sdk.ContributionApplication && !emptyProofMarker(symbol) {
-				continue
+			if kind == sdk.ContributionApplication {
+				generatedMain := symbol.Name == "main" &&
+					packageNames[symbol.PackagePath] == "main" &&
+					!strings.EqualFold(filepath.Base(physical), "main.go")
+				if generatedMain {
+					if !load.IsGeneratedApplicationEntrypoint(program, symbol) {
+						continue
+					}
+				} else if !emptyProofMarker(symbol) {
+					continue
+				}
 			}
 			return true
 		}

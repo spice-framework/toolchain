@@ -14,8 +14,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spice-framework/spice/annotation/sdk"
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	diagnosticadapt "github.com/spice-framework/toolchain/compiler/diagnostic/adapt"
 	"github.com/spice-framework/toolchain/compiler/load"
+	"github.com/spice-framework/toolchain/compiler/resolve"
 	compilerstyle "github.com/spice-framework/toolchain/compiler/style"
 )
 
@@ -24,7 +27,8 @@ func (service *Service) analyzeConfiguredSelections(
 	request normalizedRequest,
 ) (Result, error) {
 	configuration := request.style.Clone()
-	results := make([]selectionResult, 0, len(configuration.BuildSelections))
+	results := make([]selectionResult, 0, len(configuration.BuildSelections)*2)
+	var scopes []ApplicationScope
 	for index := range configuration.BuildSelections {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -33,7 +37,24 @@ func (service *Service) analyzeConfiguredSelections(
 		selected := request
 		selected.selection = &selection
 		selected.patterns = selectionPatterns(selection)
-		result, err := service.analyze(ctx, selected)
+		selected.styleInventory = true
+		entrypointOptions := service.analysisLoadOptions(selected)
+		entrypointOptions.PrepareGeneratedApplicationEntrypoints = true
+		entrypointOptions = withAnalysisBuildTag(entrypointOptions)
+		entrypoints, entrypointDiagnostics, discoverErr := load.DiscoverGeneratedApplicationEntrypoints(
+			entrypointOptions,
+			selected.patterns...,
+		)
+		if discoverErr != nil {
+			return Result{}, fmt.Errorf(
+				"discover style build selection %q generated application entrypoints: %w",
+				selection.Name,
+				discoverErr,
+			)
+		}
+		selected.forceStyleInventory = len(entrypoints) != 0 ||
+			len(entrypointDiagnostics) != 0
+		inventory, err := service.analyze(ctx, selected)
 		if err != nil {
 			return Result{}, fmt.Errorf(
 				"analyze style build selection %q: %w",
@@ -41,15 +62,81 @@ func (service *Service) analyzeConfiguredSelections(
 				err,
 			)
 		}
-		results = append(results, selectionResult{
+		inventoryResult := selectionResult{
 			id:     selection.Name,
-			result: result,
-		})
+			result: inventory,
+		}
+		results = append(results, inventoryResult)
+		if !inventory.Diagnostics().Empty() {
+			continue
+		}
+		if len(entrypointDiagnostics) != 0 {
+			result := Result{workspaceRoot: request.root, sequence: request.sequence}
+			result.diagnostics = versionDiagnostics(
+				diagnosticadapt.Load(request.root, entrypointDiagnostics),
+				request.overlay,
+			)
+			results = append(results, selectionResult{id: selection.Name, result: result})
+			continue
+		}
+
+		targets := configuredApplicationTargets(
+			inventory.applicationPackages,
+			entrypoints,
+		)
+		if len(targets) == 0 {
+			continue
+		}
+
+		selectionTargets := make([]selectionResult, 0, len(targets))
+		for _, target := range targets {
+			if err := ctx.Err(); err != nil {
+				return Result{}, err
+			}
+			targetRequest := selected
+			targetRequest.styleInventory = false
+			targetRequest.generatedEntrypoint = target.generated
+			targetRequest.applicationScope = true
+			targetRequest.patterns = []string{target.packagePath}
+			result, analyzeErr := service.analyze(ctx, targetRequest)
+			if analyzeErr != nil {
+				return Result{}, fmt.Errorf(
+					"analyze style build selection %q application %q: %w",
+					selection.Name,
+					target.packagePath,
+					analyzeErr,
+				)
+			}
+			scope := ApplicationScope{
+				BuildSelection:      selection.Name,
+				PackagePath:         target.packagePath,
+				GeneratedEntrypoint: target.generated,
+			}
+			scopes = append(scopes, scope)
+			selectionTargets = append(selectionTargets, selectionResult{
+				id:     selection.Name,
+				scope:  target.packagePath,
+				result: result,
+			})
+		}
+		results = append(results, selectionTargets...)
+		coverage := applicationSemanticCoverageDiagnostics(
+			request.root,
+			inventory,
+			selectionTargets,
+		)
+		if !coverage.Empty() {
+			results = append(results, selectionResult{
+				id:     selection.Name,
+				result: Result{diagnostics: coverage},
+			})
+		}
 	}
 	if len(results) == 0 {
 		return Result{}, nil
 	}
-	result := results[0].result
+	result := mergeConfiguredResults(results)
+	result.applicationScopes = scopes
 	result.diagnostics = mergeSelectionDiagnostics(results)
 	unreachable, err := unreachableSourceDiagnostics(
 		request.root,
@@ -66,7 +153,306 @@ func (service *Service) analyzeConfiguredSelections(
 
 type selectionResult struct {
 	id     string
+	scope  string
 	result Result
+}
+
+type configuredApplicationTarget struct {
+	packagePath string
+	generated   bool
+}
+
+func configuredApplicationTargets(
+	applications []string,
+	entrypoints []load.GeneratedApplicationEntrypoint,
+) []configuredApplicationTarget {
+	values := make(map[string]bool, len(applications)+len(entrypoints))
+	for _, packagePath := range applications {
+		if packagePath != "" {
+			values[packagePath] = false
+		}
+	}
+	for _, entrypoint := range entrypoints {
+		if entrypoint.PackagePath != "" {
+			values[entrypoint.PackagePath] = true
+		}
+	}
+	result := make([]configuredApplicationTarget, 0, len(values))
+	for packagePath, generated := range values {
+		result = append(result, configuredApplicationTarget{
+			packagePath: packagePath,
+			generated:   generated,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].packagePath < result[j].packagePath
+	})
+	return result
+}
+
+func mergeConfiguredResults(results []selectionResult) Result {
+	if len(results) == 0 {
+		return Result{}
+	}
+	result := results[0].result
+	for _, selected := range results {
+		if selected.scope == "" || len(selected.result.loadedFiles) == 0 {
+			continue
+		}
+		result.application = selected.result.application
+		result.moduleModel = selected.result.moduleModel
+		result.plan = selected.result.plan
+		result.targetName = selected.result.targetName
+		result.hasPlan = selected.result.hasPlan
+		break
+	}
+
+	loaded := make(map[string]struct{})
+	annotations := make(map[string]struct{})
+	providers := make(map[string]struct{})
+	edges := make(map[string]struct{})
+	configurations := make(map[string]struct{})
+	enums := make(map[string]struct{})
+	autoConfigurations := make(map[string]struct{})
+	modules := make(map[string]struct{})
+	moduleEdges := make(map[string]struct{})
+	unassignedPackages := make(map[string]struct{})
+	result.loadedFiles = nil
+	result.annotations = nil
+	result.providerGraph = ProviderGraph{}
+	result.configurations = nil
+	result.enums = nil
+	result.autoConfigs = nil
+	result.moduleGraph = ModuleGraph{}
+	for _, selected := range results {
+		for _, file := range selected.result.loadedFiles {
+			file = filepath.Clean(file)
+			if _, found := loaded[file]; !found {
+				loaded[file] = struct{}{}
+				result.loadedFiles = append(result.loadedFiles, file)
+			}
+		}
+		result.files += selected.result.files
+		for _, item := range selected.result.annotations {
+			key := item.SymbolID + "\x00" + item.Name + "\x00" + item.Location.Path +
+				fmt.Sprint(item.Location.Range.Start)
+			if _, found := annotations[key]; !found {
+				annotations[key] = struct{}{}
+				result.annotations = append(result.annotations, item)
+			}
+		}
+		for _, item := range selected.result.providerGraph.Providers {
+			if _, found := providers[item.ID]; !found {
+				providers[item.ID] = struct{}{}
+				result.providerGraph.Providers = append(result.providerGraph.Providers, item)
+			}
+		}
+		for _, item := range selected.result.providerGraph.Edges {
+			key := fmt.Sprintf("%#v", item)
+			if _, found := edges[key]; !found {
+				edges[key] = struct{}{}
+				result.providerGraph.Edges = append(result.providerGraph.Edges, item)
+			}
+		}
+		for _, item := range selected.result.configurations {
+			if _, found := configurations[item.SymbolID]; !found {
+				configurations[item.SymbolID] = struct{}{}
+				result.configurations = append(result.configurations, item)
+			}
+		}
+		for _, item := range selected.result.enums {
+			if _, found := enums[item.SymbolID]; !found {
+				enums[item.SymbolID] = struct{}{}
+				result.enums = append(result.enums, item)
+			}
+		}
+		for _, item := range selected.result.autoConfigs {
+			key := item.PackagePath + "\x00" + item.Factory
+			if _, found := autoConfigurations[key]; !found {
+				autoConfigurations[key] = struct{}{}
+				result.autoConfigs = append(result.autoConfigs, item)
+			}
+		}
+		for _, item := range selected.result.moduleGraph.Modules {
+			if _, found := modules[item.ID]; !found {
+				modules[item.ID] = struct{}{}
+				result.moduleGraph.Modules = append(result.moduleGraph.Modules, item)
+			}
+		}
+		for _, item := range selected.result.moduleGraph.Edges {
+			key := fmt.Sprintf("%#v", item)
+			if _, found := moduleEdges[key]; !found {
+				moduleEdges[key] = struct{}{}
+				result.moduleGraph.Edges = append(result.moduleGraph.Edges, item)
+			}
+		}
+		for _, item := range selected.result.moduleGraph.UnassignedPackages {
+			if _, found := unassignedPackages[item]; !found {
+				unassignedPackages[item] = struct{}{}
+				result.moduleGraph.UnassignedPackages = append(
+					result.moduleGraph.UnassignedPackages,
+					item,
+				)
+			}
+		}
+	}
+	result.files = len(result.loadedFiles)
+	sort.Strings(result.loadedFiles)
+	sort.Slice(result.annotations, func(i, j int) bool {
+		return result.annotations[i].Location.Path+"\x00"+result.annotations[i].SymbolID <
+			result.annotations[j].Location.Path+"\x00"+result.annotations[j].SymbolID
+	})
+	sort.Slice(result.providerGraph.Providers, func(i, j int) bool {
+		return result.providerGraph.Providers[i].ID < result.providerGraph.Providers[j].ID
+	})
+	sort.Slice(result.providerGraph.Edges, func(i, j int) bool {
+		return fmt.Sprintf("%#v", result.providerGraph.Edges[i]) <
+			fmt.Sprintf("%#v", result.providerGraph.Edges[j])
+	})
+	sort.Slice(result.configurations, func(i, j int) bool {
+		return result.configurations[i].SymbolID < result.configurations[j].SymbolID
+	})
+	sort.Slice(result.enums, func(i, j int) bool {
+		return result.enums[i].SymbolID < result.enums[j].SymbolID
+	})
+	sort.Slice(result.autoConfigs, func(i, j int) bool {
+		left := result.autoConfigs[i].PackagePath + "\x00" + result.autoConfigs[i].Factory
+		right := result.autoConfigs[j].PackagePath + "\x00" + result.autoConfigs[j].Factory
+		return left < right
+	})
+	sort.Slice(result.moduleGraph.Modules, func(i, j int) bool {
+		return result.moduleGraph.Modules[i].ID < result.moduleGraph.Modules[j].ID
+	})
+	sort.Slice(result.moduleGraph.Edges, func(i, j int) bool {
+		return fmt.Sprintf("%#v", result.moduleGraph.Edges[i]) <
+			fmt.Sprintf("%#v", result.moduleGraph.Edges[j])
+	})
+	sort.Strings(result.moduleGraph.UnassignedPackages)
+	return result
+}
+
+type semanticOccurrence struct {
+	symbolID    string
+	kind        sdk.ContributionKind
+	packagePath string
+	filename    string
+	line        int
+	column      int
+	offset      int
+}
+
+func applicationPackagePaths(resolution resolve.Result) []string {
+	values := make(map[string]struct{})
+	for _, occurrence := range resolution.Occurrences {
+		if occurrence.HasContribution(sdk.ContributionApplication) &&
+			occurrence.PackagePath != "" {
+			values[occurrence.PackagePath] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func applicationSemanticOccurrences(resolution resolve.Result) []semanticOccurrence {
+	var result []semanticOccurrence
+	for _, occurrence := range resolution.Occurrences {
+		for _, contribution := range occurrence.Contributions {
+			if !applicationSemanticContribution(contribution.Kind) {
+				continue
+			}
+			result = append(result, semanticOccurrence{
+				symbolID:    occurrence.SymbolID,
+				kind:        contribution.Kind,
+				packagePath: occurrence.PackagePath,
+				filename:    occurrence.PhysicalPosition.Filename,
+				line:        occurrence.PhysicalPosition.Line,
+				column:      occurrence.PhysicalPosition.Column,
+				offset:      occurrence.PhysicalPosition.Offset,
+			})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return semanticOccurrenceKey(result[i]) < semanticOccurrenceKey(result[j])
+	})
+	return result
+}
+
+func applicationSemanticContribution(kind sdk.ContributionKind) bool {
+	switch kind {
+	case sdk.ContributionApplication,
+		sdk.ContributionModule,
+		sdk.ContributionNamedInterface,
+		sdk.ContributionGeneratedFile:
+		return false
+	case sdk.ContributionStereotype,
+		sdk.ContributionInterface,
+		sdk.ContributionProvider,
+		sdk.ContributionBeanMetadata,
+		sdk.ContributionConfiguration,
+		sdk.ContributionEnum,
+		sdk.ContributionController,
+		sdk.ContributionRoute,
+		sdk.ContributionLifecycle,
+		sdk.ContributionBootstrap,
+		sdk.ContributionSchedule,
+		sdk.ContributionAsync,
+		sdk.ContributionTransaction,
+		sdk.ContributionEventTopic,
+		sdk.ContributionEventListener,
+		sdk.ContributionCache,
+		sdk.ContributionAuthorization,
+		sdk.ContributionRetry,
+		sdk.ContributionObservation:
+		return true
+	}
+	return true
+}
+
+func semanticOccurrenceKey(occurrence semanticOccurrence) string {
+	return occurrence.symbolID + "\x00" + string(occurrence.kind) + "\x00" +
+		filepath.Clean(occurrence.filename) + "\x00" + fmt.Sprint(occurrence.offset)
+}
+
+func applicationSemanticCoverageDiagnostics(
+	root string,
+	inventory Result,
+	targets []selectionResult,
+) diagnostic.Set {
+	reached := make(map[string]struct{})
+	for _, target := range targets {
+		for _, occurrence := range target.result.semanticOccurrences {
+			reached[semanticOccurrenceKey(occurrence)] = struct{}{}
+		}
+	}
+	var diagnostics []diagnostic.Diagnostic
+	for _, occurrence := range inventory.semanticOccurrences {
+		if _, found := reached[semanticOccurrenceKey(occurrence)]; found {
+			continue
+		}
+		location := diagnostic.SourceLocation(
+			root,
+			occurrence.filename,
+			occurrence.filename,
+			max(1, occurrence.line),
+			max(1, occurrence.column),
+			max(0, occurrence.offset),
+		)
+		diagnostics = append(diagnostics, diagnostic.New(
+			"spice.style.configuration.application-selection",
+			diagnostic.SeverityError,
+			fmt.Sprintf(
+				"%s contribution in package %q is unreachable from every application target in this build selection",
+				occurrence.kind,
+				occurrence.packagePath,
+			),
+			location,
+		))
+	}
+	return diagnostic.NewSet(diagnostics...)
 }
 
 func selectionPatterns(selection compilerstyle.BuildSelection) []string {
@@ -158,6 +544,7 @@ func mergeSelectionDiagnostics(results []selectionResult) diagnostic.Set {
 	type aggregate struct {
 		item    diagnostic.Diagnostic
 		ids     []string
+		scopes  []string
 		related []diagnostic.RelatedInformation
 	}
 	order := make([]*aggregate, 0)
@@ -181,14 +568,24 @@ func mergeSelectionDiagnostics(results []selectionResult) diagnostic.Set {
 			if !slices.Contains(current.ids, selection.id) {
 				current.ids = append(current.ids, selection.id)
 			}
+			if selection.scope != "" && !slices.Contains(current.scopes, selection.scope) {
+				current.scopes = append(current.scopes, selection.scope)
+			}
 		}
 	}
 	items := make([]diagnostic.Diagnostic, 0, len(order))
 	for _, current := range order {
+		sort.Strings(current.scopes)
 		related := append(slices.Clone(current.related), diagnostic.RelatedInformation{
 			Message:  "build selections: " + strings.Join(current.ids, ", "),
 			Location: current.item.Location,
 		})
+		if len(current.scopes) != 0 {
+			related = append(related, diagnostic.RelatedInformation{
+				Message:  "application targets: " + strings.Join(current.scopes, ", "),
+				Location: current.item.Location,
+			})
+		}
 		current.item = current.item.WithRelated(related...)
 		items = append(items, current.item)
 	}

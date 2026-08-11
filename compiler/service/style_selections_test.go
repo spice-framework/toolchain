@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,8 +19,8 @@ import (
 
 func TestConfiguredStyleExecutesEveryExactBuildSelection(t *testing.T) {
 	root := writeStyleSelectionModule(t, map[string]string{
-		"app/worker_linux.go":   "package app\n\ntype LinuxWorker struct{}\n",
-		"app/worker_windows.go": "package app\n\ntype WindowsWorker struct{}\n",
+		"app/worker_linux.go":   "package app\n\ntype Worker struct{}\n",
+		"app/worker_windows.go": "package app\n\ntype Worker struct{}\n",
 	})
 	configuration := styleSelectionConfiguration(false)
 	trueValue := true
@@ -127,6 +129,262 @@ func TestConfiguredStyleExecutesPositiveBuildTags(t *testing.T) {
 		if !slices.Contains(selectionFlags, "-tags=feature") {
 			t.Fatalf("selection flags = %v", selectionFlags)
 		}
+	}
+}
+
+func TestConfiguredStyleScopesGeneratedApplicationsIndependently(t *testing.T) {
+	root := writeServiceModule(t)
+	for _, relative := range []string{
+		"main.go",
+		"orders/doc.go",
+		"orders/config.go",
+		"internal/spicegen/servicefixture/spice_command_gen.go",
+	} {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, target := range []string{"one", "two"} {
+		writeServiceFixtureFile(t, root, "cmd/"+target+"/application.go", fmt.Sprintf(`//go:build spice_generate
+
+package main
+
+import (
+	"os"
+
+	_ "example.com/servicefixture/%[1]s"
+	spiceapp "example.com/servicefixture/internal/spicegen/%[1]s"
+)
+
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
+
+// @Application
+func main() {
+	os.Exit(spiceapp.Main(os.Args[1:]))
+}
+`, target))
+		writeServiceFixtureFile(t, root, target+"/settings.go", `package `+target+`
+
+// @import { ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
+
+// @ConfigurationProperties(prefix="agent")
+type Settings struct {
+	Workspace string `+"`spice:\"workspace,env=SPICE_AGENT_WORKSPACE\"`"+`
+}
+`)
+	}
+	falseValue := false
+	disabled := compilerstyle.RuleLevelOff
+	configuration := compilerstyle.Configuration{
+		SchemaVersion: 2,
+		Profile:       string(compilerstyle.ProfileJavaStructured),
+		SourceRoots:   []string{"cmd", "one", "two"},
+		GeneratedRoots: []string{
+			"cmd/internal/spicegen",
+		},
+		BuildSelections: []compilerstyle.BuildSelection{{
+			Name: "linux-amd64-default", SourceRoots: []string{"cmd", "one", "two"},
+			GOOS: "linux", GOARCH: "amd64", CGOEnabled: &falseValue,
+		}},
+		Rules: compilerstyle.Rules{
+			OnePrimaryTypePerFile: disabled, MethodsInPrimaryFile: disabled,
+			FileNameMatchesType: disabled, PackageFunctions: disabled,
+			ExplicitConstructors: disabled, ExplicitManagedScopes: disabled,
+			BanInit: disabled, BanMutablePackageState: disabled,
+			PrivateManagedFields: disabled, ModuleOwnership: disabled,
+			RouteClassification: disabled, ContextFirst: disabled,
+			ErrorLast: disabled, MaxTypeFileLines: 500,
+		},
+		AllowedBoundaryFiles: []string{"cmd/*/application.go"},
+		PackageFunctionExceptions: []compilerstyle.PackageFunctionException{{
+			Glob: "cmd/*/application.go", ContributionKind: "application",
+			Maximum: 1, Reason: "compiler-validated generated application bridge",
+		}},
+	}
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root, Mode: AnalysisValidate,
+		StyleConfiguration: &configuration,
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		t.Fatalf("Analyze() diagnostics = %#v", diagnostics)
+	}
+	wantScopes := []ApplicationScope{
+		{BuildSelection: "linux-amd64-default", PackagePath: "example.com/servicefixture/cmd/one", GeneratedEntrypoint: true},
+		{BuildSelection: "linux-amd64-default", PackagePath: "example.com/servicefixture/cmd/two", GeneratedEntrypoint: true},
+	}
+	if !reflect.DeepEqual(result.ApplicationScopes(), wantScopes) {
+		t.Fatalf("ApplicationScopes() = %#v, want %#v", result.ApplicationScopes(), wantScopes)
+	}
+	mutated := result.ApplicationScopes()
+	mutated[0].PackagePath = "mutated"
+	if result.ApplicationScopes()[0].PackagePath == "mutated" {
+		t.Fatal("ApplicationScopes() returned mutable storage")
+	}
+	configurations := result.Configurations()
+	if len(configurations) != 2 || configurations[0].Prefix != "agent" ||
+		configurations[1].Prefix != "agent" {
+		t.Fatalf("Configurations() = %#v", configurations)
+	}
+}
+
+func TestConfiguredStyleStillRejectsDuplicateConfigurationWithinOneApplication(t *testing.T) {
+	root, configuration := writeIndependentGeneratedApplications(t)
+	writeServiceFixtureFile(t, root, "one/other_settings.go", "package one\n\n"+
+		"// @import { ConfigurationProperties } from \"github.com/spice-framework/spice/annotation/core\"\n\n"+
+		"// @ConfigurationProperties(prefix=\"agent\")\n"+
+		"type OtherSettings struct {\n"+
+		"\tWorkspace string `spice:\"workspace,env=SPICE_AGENT_WORKSPACE\"`\n"+
+		"}\n")
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root, Mode: AnalysisValidate,
+		StyleConfiguration: &configuration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range result.Diagnostics().Items() {
+		if strings.Contains(item.Message, "agent.workspace") &&
+			strings.Contains(item.Message, "duplicate") &&
+			slices.ContainsFunc(item.Related, func(related diagnostic.RelatedInformation) bool {
+				return strings.Contains(related.Message, "example.com/servicefixture/cmd/one")
+			}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("duplicate diagnostics = %#v", result.Diagnostics().Items())
+	}
+}
+
+func TestConfiguredStyleReportsApplicationSemanticOrphan(t *testing.T) {
+	root, configuration := writeIndependentGeneratedApplications(t)
+	writeServiceFixtureFile(t, root, "orphan/settings.go", "package orphan\n\n"+
+		"// @import { ConfigurationProperties } from \"github.com/spice-framework/spice/annotation/core\"\n\n"+
+		"// @ConfigurationProperties(prefix=\"orphan\")\n"+
+		"type Settings struct {\n\tValue string `spice:\"value\"`\n}\n")
+	configuration.SourceRoots = []string{"cmd", "one", "orphan", "two"}
+	configuration.BuildSelections[0].SourceRoots = slices.Clone(configuration.SourceRoots)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root, Mode: AnalysisValidate,
+		StyleConfiguration: &configuration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range result.Diagnostics().Items() {
+		if item.Code == "spice.style.configuration.application-selection" &&
+			strings.Contains(item.Message, "example.com/servicefixture/orphan") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("semantic coverage diagnostics = %#v", result.Diagnostics().Items())
+	}
+}
+
+func TestConfiguredStylePromotesLocalModuleDependenciesPerApplication(t *testing.T) {
+	root, configuration := writeIndependentGeneratedApplications(t)
+	writeServiceFixtureFile(t, root, "one/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package one owns the first application.
+// @Module(allowedDependencies=["example.com/servicefixture/processplatform", "example.com/servicefixture/runidentity"])
+package one
+`)
+	writeServiceFixtureFile(t, root, "one/architecture.go", `package one
+
+import (
+	"example.com/servicefixture/processplatform"
+	"example.com/servicefixture/runidentity"
+)
+
+type Architecture struct {
+	Process processplatform.Service
+	Run runidentity.Service
+}
+`)
+	for _, dependency := range []string{"processplatform", "runidentity"} {
+		writeServiceFixtureFile(t, root, dependency+"/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package `+dependency+` owns one local dependency.
+// @Module
+package `+dependency+`
+`)
+		writeServiceFixtureFile(t, root, dependency+"/service.go", "package "+dependency+"\n\ntype Service struct{}\n")
+	}
+	configuration.SourceRoots = []string{"cmd", "one", "processplatform", "runidentity", "two"}
+	configuration.BuildSelections[0].SourceRoots = slices.Clone(configuration.SourceRoots)
+	configuration.AllowedBoundaryFiles = []string{
+		"cmd/*/application.go",
+		"one/doc.go",
+		"processplatform/doc.go",
+		"runidentity/doc.go",
+	}
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root, Mode: AnalysisValidate,
+		StyleConfiguration: &configuration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		t.Fatalf("module dependency diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestConfiguredStyleStopsAfterCancellationBetweenApplicationTargets(t *testing.T) {
+	root, configuration := writeIndependentGeneratedApplications(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	service, err := New(Config{Loader: func(
+		loadContext context.Context,
+		options load.Options,
+		patterns ...string,
+	) (*load.Program, error) {
+		calls++
+		if calls == 2 {
+			cancel()
+			return nil, loadContext.Err()
+		}
+		return load.Load(loadContext, options, patterns...)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	_, err = service.Analyze(ctx, Request{
+		WorkspaceRoot: root, Mode: AnalysisValidate,
+		StyleConfiguration: &configuration,
+	})
+	if err == nil || !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("Analyze() cancellation error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("loader calls = %d, want 2", calls)
 	}
 }
 
@@ -421,6 +679,80 @@ func styleSelectionConfiguration(tagged bool) compilerstyle.Configuration {
 	}
 }
 
+func writeIndependentGeneratedApplications(
+	t *testing.T,
+) (string, compilerstyle.Configuration) {
+	t.Helper()
+	root := writeServiceModule(t)
+	for _, relative := range []string{
+		"main.go",
+		"orders/doc.go",
+		"orders/config.go",
+		"internal/spicegen/servicefixture/spice_command_gen.go",
+	} {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, target := range []string{"one", "two"} {
+		writeServiceFixtureFile(t, root, "cmd/"+target+"/application.go", fmt.Sprintf(`//go:build spice_generate
+
+package main
+
+import (
+	"os"
+
+	_ "example.com/servicefixture/%[1]s"
+	spiceapp "example.com/servicefixture/internal/spicegen/%[1]s"
+)
+
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
+
+// @Application
+func main() {
+	os.Exit(spiceapp.Main(os.Args[1:]))
+}
+`, target))
+		writeServiceFixtureFile(t, root, target+"/settings.go", `package `+target+`
+
+// @import { ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
+
+// @ConfigurationProperties(prefix="agent")
+type Settings struct {
+	Workspace string `+"`spice:\"workspace,env=SPICE_AGENT_WORKSPACE\"`"+`
+}
+`)
+	}
+	falseValue := false
+	disabled := compilerstyle.RuleLevelOff
+	return root, compilerstyle.Configuration{
+		SchemaVersion: 2,
+		Profile:       string(compilerstyle.ProfileJavaStructured),
+		SourceRoots:   []string{"cmd", "one", "two"},
+		GeneratedRoots: []string{
+			"cmd/internal/spicegen",
+		},
+		BuildSelections: []compilerstyle.BuildSelection{{
+			Name: "linux-amd64-default", SourceRoots: []string{"cmd", "one", "two"},
+			GOOS: "linux", GOARCH: "amd64", CGOEnabled: &falseValue,
+		}},
+		Rules: compilerstyle.Rules{
+			OnePrimaryTypePerFile: disabled, MethodsInPrimaryFile: disabled,
+			FileNameMatchesType: disabled, PackageFunctions: disabled,
+			ExplicitConstructors: disabled, ExplicitManagedScopes: disabled,
+			BanInit: disabled, BanMutablePackageState: disabled,
+			PrivateManagedFields: disabled, ModuleOwnership: disabled,
+			RouteClassification: disabled, ContextFirst: disabled,
+			ErrorLast: disabled, MaxTypeFileLines: 500,
+		},
+		AllowedBoundaryFiles: []string{"cmd/*/application.go"},
+		PackageFunctionExceptions: []compilerstyle.PackageFunctionException{{
+			Glob: "cmd/*/application.go", ContributionKind: "application",
+			Maximum: 1, Reason: "compiler-validated generated application bridge",
+		}},
+	}
+}
+
 func writeStyleSelectionModule(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -481,6 +813,28 @@ func FuzzExactStyleSelectionOptionsScrubsAmbientBuildState(f *testing.F) {
 	})
 }
 
+func FuzzConfiguredApplicationTargetsAreDeterministic(f *testing.F) {
+	f.Add("example.com/app/one", "example.com/app/two")
+	f.Add("same", "same")
+	f.Fuzz(func(t *testing.T, ordinary, generated string) {
+		applications := []string{ordinary, generated, ordinary}
+		entrypoints := []load.GeneratedApplicationEntrypoint{
+			{PackagePath: generated},
+			{PackagePath: ordinary},
+		}
+		first := configuredApplicationTargets(applications, entrypoints)
+		second := configuredApplicationTargets(applications, entrypoints)
+		if !reflect.DeepEqual(first, second) {
+			t.Fatalf("configuredApplicationTargets() is nondeterministic: %#v != %#v", first, second)
+		}
+		for index := 1; index < len(first); index++ {
+			if first[index-1].packagePath >= first[index].packagePath {
+				t.Fatalf("configuredApplicationTargets() is not strictly ordered: %#v", first)
+			}
+		}
+	})
+}
+
 func BenchmarkMergeStyleSelectionDiagnostics(b *testing.B) {
 	items := make([]diagnostic.Diagnostic, 100)
 	for index := range items {
@@ -506,6 +860,23 @@ func BenchmarkMergeStyleSelectionDiagnostics(b *testing.B) {
 	for range b.N {
 		if merged := mergeSelectionDiagnostics(results); len(merged.Items()) != len(items) {
 			b.Fatalf("merged diagnostics = %d, want %d", len(merged.Items()), len(items))
+		}
+	}
+}
+
+func BenchmarkConfiguredApplicationTargets(b *testing.B) {
+	applications := make([]string, 64)
+	entrypoints := make([]load.GeneratedApplicationEntrypoint, 64)
+	for index := range applications {
+		packagePath := "example.com/application/target" + strconv.Itoa(index)
+		applications[index] = packagePath
+		entrypoints[index].PackagePath = packagePath
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if targets := configuredApplicationTargets(applications, entrypoints); len(targets) != 64 {
+			b.Fatalf("configuredApplicationTargets() length = %d", len(targets))
 		}
 	}
 }

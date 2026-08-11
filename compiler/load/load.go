@@ -28,6 +28,11 @@ type Options struct {
 	// generated-package stub while the spice_generate build tag excludes stale
 	// committed output. The physical application source remains unchanged.
 	PrepareGeneratedApplicationEntrypoints bool
+	// PromoteApplicationDependencies admits same-module packages transitively
+	// imported by an exact application root into the primary typed program.
+	// Compiler-scoped analysis uses this to retain local module declarations
+	// without widening to unrelated application roots.
+	PromoteApplicationDependencies bool
 	// Tests is reserved for a future test-package model. The bootstrap loader
 	// rejects true because go/packages test variants can duplicate logical
 	// package and symbol identities.
@@ -53,7 +58,11 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 	if options.PrepareGeneratedApplicationEntrypoints {
 		var preparationDiagnostics []Diagnostic
 		var preparationErr error
-		overlay, preparationDiagnostics, preparationErr = addGeneratedApplicationEntrypointOverlays(options.Dir, overlay)
+		overlay, preparationDiagnostics, preparationErr = addGeneratedApplicationEntrypointOverlays(
+			options,
+			patterns,
+			overlay,
+		)
 		if preparationErr != nil {
 			program := &Program{diagnostics: []Diagnostic{{
 				Kind:    "generated-entrypoint",
@@ -88,13 +97,17 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	selectedRoots := selectProgramRoots(
+		roots,
+		requestedPackages,
+		auxiliary,
+		candidates,
+	)
+	if options.PromoteApplicationDependencies {
+		selectedRoots = promoteApplicationDependencies(selectedRoots, auxiliary)
+	}
 	program := programFromRoots(
-		selectProgramRoots(
-			roots,
-			requestedPackages,
-			auxiliary,
-			candidates,
-		),
+		selectedRoots,
 		loadErr,
 		auxiliary,
 	)

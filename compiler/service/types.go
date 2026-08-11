@@ -171,6 +171,14 @@ type ProviderGraph struct {
 	Edges     []ProviderEdge
 }
 
+// ApplicationScope identifies one independently validated application
+// composition under one exact configured Go build selection.
+type ApplicationScope struct {
+	BuildSelection      string
+	PackagePath         string
+	GeneratedEntrypoint bool
+}
+
 // AutoConfiguration is one imported library default and its compiler-owned
 // activation decision.
 type AutoConfiguration struct {
@@ -370,25 +378,34 @@ type AnnotationDefinition struct {
 
 // Result is an immutable-by-construction compiler analysis result.
 type Result struct {
-	workspaceRoot  string
-	sequence       uint64
-	diagnostics    diagnostic.Set
-	annotations    []Annotation
-	providerGraph  ProviderGraph
-	autoConfigs    []AutoConfiguration
-	moduleGraph    ModuleGraph
-	moduleModel    modulith.Model
-	configurations []Configuration
-	enums          []Enum
-	goInterfaces   GoInterfaceCatalog
-	definitions    []AnnotationDefinition
-	actions        []diagnostic.SuggestedFix
-	application    application.Model
-	plan           generate.Plan
-	targetName     string
-	files          int
-	loadedFiles    []string
-	hasPlan        bool
+	workspaceRoot       string
+	sequence            uint64
+	diagnostics         diagnostic.Set
+	annotations         []Annotation
+	providerGraph       ProviderGraph
+	autoConfigs         []AutoConfiguration
+	moduleGraph         ModuleGraph
+	moduleModel         modulith.Model
+	configurations      []Configuration
+	enums               []Enum
+	goInterfaces        GoInterfaceCatalog
+	definitions         []AnnotationDefinition
+	actions             []diagnostic.SuggestedFix
+	application         application.Model
+	plan                generate.Plan
+	targetName          string
+	files               int
+	loadedFiles         []string
+	applicationScopes   []ApplicationScope
+	applicationPackages []string
+	semanticOccurrences []semanticOccurrence
+	hasPlan             bool
+}
+
+// ApplicationScopes returns the deterministic application compositions that
+// were independently validated for configured analysis.
+func (result Result) ApplicationScopes() []ApplicationScope {
+	return slices.Clone(result.applicationScopes)
 }
 
 // WorkspaceRoot returns the normalized absolute analysis root.

@@ -468,7 +468,11 @@ func buildSelectionKey(selection BuildSelection) string {
 }
 
 func supportedBuildPair(goos, goarch string) bool {
-	pairs := strings.Fields(`
+	return slices.Contains(supportedBuildPairs(), goos+"/"+goarch)
+}
+
+func supportedBuildPairs() []string {
+	return strings.Fields(`
 		aix/ppc64 android/386 android/amd64 android/arm android/arm64
 		darwin/amd64 darwin/arm64 dragonfly/amd64 freebsd/386 freebsd/amd64
 		freebsd/arm freebsd/arm64 illumos/amd64 ios/amd64 ios/arm64 js/wasm
@@ -479,7 +483,6 @@ func supportedBuildPair(goos, goarch string) bool {
 		openbsd/ppc64 openbsd/riscv64 plan9/386 plan9/amd64 plan9/arm
 		solaris/amd64 wasip1/wasm windows/386 windows/amd64 windows/arm64
 	`)
-	return slices.Contains(pairs, goos+"/"+goarch)
 }
 
 func (configuration Configuration) validateExceptions() error {

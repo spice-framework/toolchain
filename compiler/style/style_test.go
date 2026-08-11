@@ -2,6 +2,8 @@ package style
 
 import (
 	"context"
+	"go/parser"
+	"go/token"
 	"maps"
 	"os"
 	"path/filepath"
@@ -503,6 +505,46 @@ func TestBuildConfiguredRejectsInexactWorkspaceAndExceptionMatches(t *testing.T)
 	}
 }
 
+func TestBuildConfiguredSelectionAPIsRequireDeclaredSelection(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/worker.go": "package app\n\ntype Worker struct{}\n",
+	})
+	configuration := configuredTestConfiguration(t)
+	selection := configuration.BuildSelections[0]
+	root := inferredWorkspaceRoot(program)
+	if diagnostics := BuildConfiguredSelectionAt(
+		root,
+		program,
+		resolution,
+		providers,
+		configuration,
+		selection,
+	).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfiguredSelectionAt() diagnostics = %v", diagnostics)
+	}
+	if diagnostics := BuildConfiguredSourceSelectionAt(
+		root,
+		program,
+		resolution,
+		configuration,
+		selection,
+	).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfiguredSourceSelectionAt() diagnostics = %v", diagnostics)
+	}
+	selection.Tags = append(selection.Tags, "smuggled")
+	diagnostics := BuildConfiguredSelectionAt(
+		root,
+		program,
+		resolution,
+		providers,
+		configuration,
+		selection,
+	).Diagnostics()
+	if !containsKind(diagnostics, "configuration.build-selection") {
+		t.Fatalf("smuggled selection diagnostics = %v", diagnostics)
+	}
+}
+
 func TestBuildConfiguredRequiresPackagePathExactVariableType(t *testing.T) {
 	program, resolution, providers := loadStyleFixture(t, map[string]string{
 		"app/embed/fs.go": "package embed\n\ntype FS struct{}\n",
@@ -704,6 +746,66 @@ func loadStyleFixture(
 		t.Fatalf("provider.Build() diagnostics = %v", diagnostics)
 	}
 	return program, resolution, providers
+}
+
+func TestSelectedTypeFileNameUsesOnlyActiveBuildConstraints(t *testing.T) {
+	falseValue := false
+	selection := BuildSelection{
+		Name: "linux-amd64-acceptance", SourceRoots: []string{"app"},
+		GOOS: "linux", GOARCH: "amd64", CGOEnabled: &falseValue,
+		Tags: []string{"spice_acceptance"},
+	}
+	tests := []struct {
+		name     string
+		filename string
+		build    string
+		mutate   func(*BuildSelection)
+		want     bool
+	}{
+		{name: "canonical", filename: "worker.go", want: true},
+		{name: "goos", filename: "worker_linux.go", want: true},
+		{name: "goarch", filename: "worker_amd64.go", want: true},
+		{name: "pair", filename: "worker_linux_amd64.go", want: true},
+		{name: "inactive goos", filename: "worker_windows.go"},
+		{name: "unix family", filename: "worker_unix.go", build: "linux || darwin", want: true},
+		{name: "unix architecture escape", filename: "worker_unix.go", build: "linux || arm64"},
+		{name: "unix negation escape", filename: "worker_unix.go", build: "!windows"},
+		{name: "declared tag required", filename: "worker_spice_acceptance.go", build: "spice_acceptance && !spice_generate", want: true},
+		{name: "declared tag optional", filename: "worker_spice_acceptance.go", build: "spice_acceptance || linux"},
+		{name: "arbitrary role", filename: "worker_testbuild.go"},
+		{name: "wrong case", filename: "Worker.go"},
+		{name: "android alias", filename: "worker_linux_arm64.go", mutate: func(value *BuildSelection) {
+			value.GOOS, value.GOARCH = "android", "arm64"
+		}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			selected := selection
+			if test.mutate != nil {
+				test.mutate(&selected)
+			}
+			prefix := ""
+			if test.build != "" {
+				prefix = "//go:build " + test.build + "\n\n"
+			}
+			file, err := parser.ParseFile(
+				token.NewFileSet(),
+				test.filename,
+				prefix+"package app\n\ntype Worker struct{}\n",
+				parser.ParseComments,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := selectedTypeFileName(sourceFile{
+				physical: test.filename,
+				syntax:   file,
+			}, "worker.go", &selected)
+			if got != test.want {
+				t.Fatalf("selectedTypeFileName() = %t, want %t", got, test.want)
+			}
+		})
+	}
 }
 
 func containsKind(diagnostics []Diagnostic, wanted string) bool {

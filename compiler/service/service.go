@@ -280,16 +280,20 @@ func normalizedSpiceVersion(value string) string {
 }
 
 type normalizedRequest struct {
-	root      string
-	target    string
-	patterns  []string
-	overlay   map[string]Document
-	mode      AnalysisMode
-	profile   compilerstyle.Profile
-	style     *compilerstyle.Configuration
-	selection *compilerstyle.BuildSelection
-	content   string
-	sequence  uint64
+	root                string
+	target              string
+	patterns            []string
+	overlay             map[string]Document
+	mode                AnalysisMode
+	profile             compilerstyle.Profile
+	style               *compilerstyle.Configuration
+	selection           *compilerstyle.BuildSelection
+	content             string
+	sequence            uint64
+	styleInventory      bool
+	forceStyleInventory bool
+	generatedEntrypoint bool
+	applicationScope    bool
 }
 
 // Analyze executes one read-only typed compiler analysis.
@@ -502,6 +506,8 @@ func (service *Service) analyze(
 		result.actions = actionsFromDiagnostics(result.diagnostics)
 		return result, nil
 	}
+	result.applicationPackages = applicationPackagePaths(resolution)
+	result.semanticOccurrences = applicationSemanticOccurrences(resolution)
 
 	starterDiagnostics, err := service.starterDependencyDiagnostics(
 		ctx,
@@ -514,6 +520,26 @@ func (service *Service) analyze(
 	if !starterDiagnostics.Empty() {
 		result.diagnostics = starterDiagnostics
 		result.actions = actionsFromDiagnostics(result.diagnostics)
+		return result, nil
+	}
+	if request.styleInventory &&
+		(request.forceStyleInventory || len(result.applicationPackages) != 0) {
+		styleCatalog := compilerstyle.BuildConfiguredSourceSelectionAt(
+			request.root,
+			program,
+			resolution,
+			*request.style,
+			*request.selection,
+		)
+		if diagnostics := styleCatalog.Diagnostics(); len(diagnostics) != 0 {
+			result.diagnostics = versionDiagnostics(
+				diagnosticadapt.Style(request.root, diagnostics),
+				request.overlay,
+			)
+			result.actions = actionsFromDiagnostics(result.diagnostics)
+			return result, nil
+		}
+		result.diagnostics = diagnostic.NewSet()
 		return result, nil
 	}
 
@@ -531,12 +557,13 @@ func (service *Service) analyze(
 		request.profile != compilerstyle.ProfileNone {
 		styleCatalog := compilerstyle.Build(program, resolution, primaryProviderCatalog, request.profile)
 		if request.style != nil {
-			styleCatalog = compilerstyle.BuildConfiguredAt(
+			styleCatalog = compilerstyle.BuildConfiguredSelectionAt(
 				request.root,
 				program,
 				resolution,
 				primaryProviderCatalog,
 				*request.style,
+				*request.selection,
 			)
 		}
 		if diagnostics := styleCatalog.Diagnostics(); len(diagnostics) != 0 {
@@ -857,10 +884,11 @@ func (service *Service) analysisLoadOptions(
 	if request.selection != nil {
 		options = exactStyleSelectionOptions(options, *request.selection)
 	}
-	if request.mode == AnalysisGenerate {
+	if request.mode == AnalysisGenerate || request.generatedEntrypoint {
 		options.PrepareGeneratedApplicationEntrypoints = true
 		options = withAnalysisBuildTag(options)
 	}
+	options.PromoteApplicationDependencies = request.applicationScope
 	return withOfflineModuleResolution(options, request.root)
 }
 

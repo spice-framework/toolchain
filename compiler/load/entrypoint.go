@@ -1,11 +1,14 @@
 package load
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/build"
 	goparser "go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -22,10 +25,11 @@ import (
 const generatedApplicationAnalysisFilename = "zz_spice_analysis.go"
 
 func addGeneratedApplicationEntrypointOverlays(
-	directory string,
+	options Options,
+	patterns []string,
 	overlay map[string][]byte,
 ) (map[string][]byte, []Diagnostic, error) {
-	moduleRoot, modulePath, found, err := enclosingModule(directory)
+	moduleRoot, modulePath, found, err := enclosingModule(options.Dir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -42,6 +46,8 @@ func addGeneratedApplicationEntrypointOverlays(
 	files, discoverErr := generatedEntrypointSourceFiles(
 		sourceRoot,
 		moduleRoot,
+		options,
+		patterns,
 		overlay,
 	)
 	if discoverErr != nil {
@@ -103,8 +109,90 @@ func addGeneratedApplicationEntrypointOverlays(
 	return result, diagnostics, nil
 }
 
+// GeneratedApplicationEntrypoint identifies one compiler-validated
+// spice_generate application bridge selected by an exact Go build context.
+// PackagePath is the handwritten package-main target; GeneratedPackagePath is
+// the analysis-only package supplied through the loader overlay.
+type GeneratedApplicationEntrypoint struct {
+	PackagePath          string
+	GeneratedPackagePath string
+	Filename             string
+}
+
+// DiscoverGeneratedApplicationEntrypoints reports only entrypoints reachable
+// through patterns under options' exact Go build context. It shares the same
+// parser and body validation as Load's generated-package preparation.
+func DiscoverGeneratedApplicationEntrypoints(
+	options Options,
+	patterns ...string,
+) ([]GeneratedApplicationEntrypoint, []Diagnostic, error) {
+	moduleRoot, modulePath, found, err := enclosingModule(options.Dir)
+	if err != nil || !found {
+		return nil, nil, err
+	}
+	root, err := os.OpenRoot(moduleRoot)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open generated application analysis root: %w", err)
+	}
+	files, discoverErr := generatedEntrypointSourceFiles(
+		root,
+		moduleRoot,
+		options,
+		patterns,
+		options.Overlay,
+	)
+	if discoverErr != nil {
+		return nil, nil, errors.Join(discoverErr, root.Close())
+	}
+	var result []GeneratedApplicationEntrypoint
+	var diagnostics []Diagnostic
+	for _, filename := range files {
+		content, present := overlayFileContent(options.Overlay, filename)
+		if !present {
+			relative, relativeErr := filepath.Rel(moduleRoot, filename)
+			if relativeErr != nil || !filepath.IsLocal(relative) {
+				continue
+			}
+			content, err = root.ReadFile(relative)
+			if err != nil {
+				return nil, nil, errors.Join(
+					fmt.Errorf("read generated application entrypoint %q: %w", filename, err),
+					root.Close(),
+				)
+			}
+		}
+		analysis, sourceDiagnostics := analyzeGeneratedEntrypoint(
+			moduleRoot,
+			modulePath,
+			filename,
+			content,
+		)
+		diagnostics = append(diagnostics, sourceDiagnostics...)
+		if analysis.packagePath == "" {
+			continue
+		}
+		result = append(result, GeneratedApplicationEntrypoint{
+			PackagePath:          analysis.entrypointPackage,
+			GeneratedPackagePath: analysis.packagePath,
+			Filename:             filepath.Clean(filename),
+		})
+	}
+	if closeErr := root.Close(); closeErr != nil {
+		return nil, nil, fmt.Errorf("close generated application analysis root: %w", closeErr)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].PackagePath != result[j].PackagePath {
+			return result[i].PackagePath < result[j].PackagePath
+		}
+		return result[i].Filename < result[j].Filename
+	})
+	sortDiagnostics(diagnostics)
+	return result, diagnostics, nil
+}
+
 type generatedEntrypointAnalysis struct {
-	packagePath string
+	entrypointPackage string
+	packagePath       string
 }
 
 func analyzeGeneratedEntrypoint(
@@ -177,7 +265,10 @@ func analyzeGeneratedEntrypoint(
 			),
 		}}
 	}
-	return generatedEntrypointAnalysis{packagePath: generatedPackage}, nil
+	return generatedEntrypointAnalysis{
+		entrypointPackage: entrypointPackage,
+		packagePath:       generatedPackage,
+	}, nil
 }
 
 func generatedApplicationImport(file *ast.File, packagePath string) (string, bool) {
@@ -255,13 +346,90 @@ func generatedApplicationAnalysisSource() []byte {
 	)
 }
 
+// IsGeneratedApplicationEntrypoint reports whether symbol is the exact
+// compiler-owned spice_generate bridge shape accepted by generated-package
+// preparation. It does not accept ordinary application functions.
+func IsGeneratedApplicationEntrypoint(program *Program, symbol Symbol) bool {
+	if program == nil || symbol.Kind != SymbolFunction || symbol.Name != "main" ||
+		symbol.Receiver != "" || filepath.Base(symbol.PhysicalPosition.Filename) == "main.go" {
+		return false
+	}
+	function, ok := symbol.Node.(*ast.FuncDecl)
+	if !ok {
+		return false
+	}
+	for _, pkg := range program.PrimaryPackages() {
+		if pkg.Path != symbol.PackagePath || pkg.Name != "main" {
+			continue
+		}
+		for _, source := range pkg.Files {
+			if filepath.Clean(source.PhysicalPath) != filepath.Clean(symbol.PhysicalPosition.Filename) ||
+				source.Syntax == nil || !exactAnalysisBuildConstraint(source.Syntax) {
+				continue
+			}
+			generatedPackage := path.Join(
+				pkg.ModulePath,
+				"internal",
+				"spicegen",
+				targetid.Default(path.Base(pkg.Path)),
+			)
+			alias, imported := generatedApplicationImport(source.Syntax, generatedPackage)
+			osAlias, osImported := generatedApplicationImport(source.Syntax, "os")
+			return imported && osImported &&
+				generatedApplicationMainCall(function, alias, osAlias)
+		}
+	}
+	return false
+}
+
+func exactAnalysisBuildConstraint(file *ast.File) bool {
+	if file == nil {
+		return false
+	}
+	for _, group := range file.Comments {
+		if group == nil || group.End() > file.Package {
+			continue
+		}
+		for _, comment := range group.List {
+			if comment != nil && strings.TrimSpace(comment.Text) == "//go:build spice_generate" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func generatedEntrypointSourceFiles(
 	root *os.Root,
 	moduleRoot string,
+	options Options,
+	patterns []string,
 	overlay map[string][]byte,
 ) ([]string, error) {
+	directories, _ := compositionPatternDirectories(options.Dir, patterns)
+	selectedDirectories := make(map[string]struct{}, len(directories))
+	for _, directory := range directories {
+		selectedDirectories[filepath.Clean(directory)] = struct{}{}
+	}
+	buildContext := compositionBuildContext(options)
+	buildContext.OpenFile = func(filename string) (io.ReadCloser, error) {
+		if content, found := overlayFileContent(overlay, filename); found {
+			return io.NopCloser(bytes.NewReader(content)), nil
+		}
+		relative, err := filepath.Rel(moduleRoot, filepath.Clean(filename))
+		if err != nil || !filepath.IsLocal(relative) {
+			return nil, fs.ErrPermission
+		}
+		return root.Open(relative)
+	}
 	files := make(map[string]struct{})
-	if err := walkGeneratedEntrypointSources(root, moduleRoot, files); err != nil {
+	if err := walkGeneratedEntrypointSources(
+		root,
+		moduleRoot,
+		selectedDirectories,
+		buildContext,
+		files,
+	); err != nil {
 		return nil, fmt.Errorf(
 			"discover generated application entrypoints: %w",
 			err,
@@ -269,7 +437,12 @@ func generatedEntrypointSourceFiles(
 	}
 	for filename := range overlay {
 		filename = filepath.Clean(filename)
-		if generatedEntrypointSource(filename) &&
+		matched, matchErr := buildContext.MatchFile(
+			filepath.Dir(filename),
+			filepath.Base(filename),
+		)
+		if matchErr == nil && matched && generatedEntrypointSource(filename) &&
+			generatedEntrypointSelectedDirectory(selectedDirectories, filename) &&
 			generatedEntrypointWithinRoot(moduleRoot, filename) &&
 			!generatedEntrypointInsideNestedModule(moduleRoot, filename) {
 			files[filename] = struct{}{}
@@ -286,6 +459,8 @@ func generatedEntrypointSourceFiles(
 func walkGeneratedEntrypointSources(
 	root *os.Root,
 	moduleRoot string,
+	selectedDirectories map[string]struct{},
+	buildContext build.Context,
 	files map[string]struct{},
 ) error {
 	return fs.WalkDir(root.FS(), ".", func(
@@ -318,10 +493,36 @@ func walkGeneratedEntrypointSources(
 			return nil
 		}
 		if generatedEntrypointSource(relative) {
-			files[filepath.Join(moduleRoot, filepath.FromSlash(relative))] = struct{}{}
+			filename := filepath.Join(moduleRoot, filepath.FromSlash(relative))
+			if !generatedEntrypointSelectedDirectory(selectedDirectories, filename) {
+				return nil
+			}
+			matched, matchErr := buildContext.MatchFile(
+				filepath.Dir(filename),
+				filepath.Base(filename),
+			)
+			if matchErr != nil {
+				return fmt.Errorf(
+					"match generated application entrypoint %q: %w",
+					filename,
+					matchErr,
+				)
+			}
+			if !matched {
+				return nil
+			}
+			files[filename] = struct{}{}
 		}
 		return nil
 	})
+}
+
+func generatedEntrypointSelectedDirectory(
+	directories map[string]struct{},
+	filename string,
+) bool {
+	_, found := directories[filepath.Clean(filepath.Dir(filename))]
+	return found
 }
 
 func generatedEntrypointExcludedDirectory(name string) bool {

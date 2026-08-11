@@ -46,10 +46,10 @@ func TestTypeFileNameMatchesOnlyCanonicalOrSupportedBuildSuffixes(t *testing.T) 
 		want   bool
 	}{
 		{actual: "platform_resolver.go", want: true},
-		{actual: "platform_resolver_windows.go", want: true},
-		{actual: "platform_resolver_linux_amd64.go", want: true},
-		{actual: "platform_resolver_amd64.go", want: true},
-		{actual: "platform_resolver_unix.go", want: true},
+		{actual: "platform_resolver_windows.go"},
+		{actual: "platform_resolver_linux_amd64.go"},
+		{actual: "platform_resolver_amd64.go"},
+		{actual: "platform_resolver_unix.go"},
 		{actual: "platform_resolver_helper.go"},
 		{actual: "platform_resolver_windows_fast.go"},
 		{actual: "other_windows.go"},

@@ -66,8 +66,27 @@ fail closed. Every declared selection is loaded independently with ambient
 diagnostics retain the ordered selection names, and a handwritten file that no
 selection reaches is an error. For schema-two verification, configured source
 roots are authoritative; trailing CLI package patterns do not narrow away part
-of that reviewed universe. Generated-root membership and the standard generated
-header independently exclude generated code. Boundary, function, and variable
+of that reviewed universe. Within each selection, the compiler derives every
+`@Application` package and compiler-validated `spice_generate` entrypoint, then
+validates each application composition independently. Identical configuration
+keys, environment names, providers, or routes in unrelated applications do not
+collide; duplicates within one composition still fail, and application-semantic
+source unreachable from every derived target is an error. Diagnostic
+relationships name both the build selections and application targets involved.
+Each scoped pass also promotes only transitively imported packages from the
+same Go module, so local `@Module` declarations remain visible without loading
+unrelated applications; promoted packages outside configured source roots fail
+the existing exact source-ownership check.
+
+Filename suffixes are selection-scoped rather than globally allowlisted. A
+primary type may use its canonical filename or the active `GOOS`, `GOARCH`,
+`GOOS_GOARCH`, Go platform alias, explicitly constrained `unix` family, or one
+whole positively required declared tag. Arbitrary role suffixes and suffixes
+from another selection fail closed. An `@Application func main` outside
+`main.go` is accepted only when its exact `spice_generate` constraint, generated
+package import, and `os.Exit(generated.Main(os.Args[1:]))` body are validated by
+the compiler. Generated-root membership and the standard generated header
+independently exclude generated code. Boundary, function, and variable
 exceptions match exact workspace-relative paths; variable types use full Go
 package identity. The typed phase enforces explicit managed scopes, private
 managed fields, exact module ownership/dependencies, and protected-or-reviewed-

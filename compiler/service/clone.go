@@ -162,5 +162,8 @@ func cloneResult(result Result) Result {
 	result.definitions = cloneDefinitions(result.definitions)
 	result.actions = cloneActions(result.actions)
 	result.loadedFiles = slices.Clone(result.loadedFiles)
+	result.applicationScopes = slices.Clone(result.applicationScopes)
+	result.applicationPackages = slices.Clone(result.applicationPackages)
+	result.semanticOccurrences = slices.Clone(result.semanticOccurrences)
 	return result
 }
