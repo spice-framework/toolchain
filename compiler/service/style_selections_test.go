@@ -223,6 +223,49 @@ func TestConfiguredStyleReportsMissingSourceRoot(t *testing.T) {
 	}
 }
 
+func TestSelectedHandwrittenSourcesAcceptsCanonicalWorkspaceAlias(t *testing.T) {
+	physicalRoot := writeStyleSelectionModule(t, map[string]string{
+		"app/worker.go": "package app\n\ntype Worker struct{}\n",
+	})
+	aliasRoot := filepath.Join(t.TempDir(), "workspace-alias")
+	if err := os.Symlink(physicalRoot, aliasRoot); err != nil {
+		t.Skipf("workspace alias creation is unavailable: %v", err)
+	}
+	configuration := styleSelectionConfiguration(false)
+	selected, diagnostics, err := selectedHandwrittenSources(aliasRoot, configuration)
+	if err != nil {
+		t.Fatalf("selectedHandwrittenSources() error = %v", err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("selectedHandwrittenSources() diagnostics = %#v", diagnostics)
+	}
+	want := filepath.Join(aliasRoot, "app", "worker.go")
+	if !slices.Equal(selected, []string{want}) {
+		t.Fatalf("selectedHandwrittenSources() = %v, want [%s]", selected, want)
+	}
+}
+
+func TestSelectedHandwrittenSourcesRejectsTerminalSourceRootLink(t *testing.T) {
+	root := writeStyleSelectionModule(t, map[string]string{
+		"physical/worker.go": "package physical\n\ntype Worker struct{}\n",
+	})
+	linked := filepath.Join(root, "linked")
+	if err := os.Symlink(filepath.Join(root, "physical"), linked); err != nil {
+		t.Skipf("source-root link creation is unavailable: %v", err)
+	}
+	configuration := styleSelectionConfiguration(false)
+	configuration.SourceRoots = []string{"linked"}
+	selected, diagnostics, err := selectedHandwrittenSources(root, configuration)
+	if err != nil {
+		t.Fatalf("selectedHandwrittenSources() error = %v", err)
+	}
+	if len(selected) != 0 || len(diagnostics) != 1 ||
+		diagnostics[0].Code != "spice.style.configuration.source-selection" ||
+		!strings.Contains(diagnostics[0].Message, "must not be a symbolic link") {
+		t.Fatalf("selected = %v, diagnostics = %#v", selected, diagnostics)
+	}
+}
+
 func TestConfiguredStyleDeduplicatesPhysicalDiagnosticsWithSelectionIDs(t *testing.T) {
 	root := writeStyleSelectionModule(t, map[string]string{
 		"app/broken.go": "package app\n\nfunc (\n",

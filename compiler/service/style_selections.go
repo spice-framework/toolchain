@@ -284,6 +284,10 @@ func selectedHandwrittenSources(
 	root string,
 	configuration compilerstyle.Configuration,
 ) ([]string, []diagnostic.Diagnostic, error) {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve style workspace root: %w", err)
+	}
 	generated := make([]string, len(configuration.GeneratedRoots))
 	for index, relative := range configuration.GeneratedRoots {
 		generated[index] = filepath.Clean(filepath.Join(root, filepath.FromSlash(relative)))
@@ -292,9 +296,13 @@ func selectedHandwrittenSources(
 	var diagnostics []diagnostic.Diagnostic
 	for _, relative := range configuration.SourceRoots {
 		sourceRoot := filepath.Clean(filepath.Join(root, filepath.FromSlash(relative)))
-		info, statErr := os.Stat(sourceRoot)
+		info, statErr := os.Lstat(sourceRoot)
 		if statErr != nil {
 			diagnostics = append(diagnostics, sourceRootDiagnostic(root, sourceRoot, "source root cannot be inspected: "+statErr.Error()))
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			diagnostics = append(diagnostics, sourceRootDiagnostic(root, sourceRoot, "source root must not be a symbolic link"))
 			continue
 		}
 		if !info.IsDir() {
@@ -306,7 +314,7 @@ func selectedHandwrittenSources(
 			diagnostics = append(diagnostics, sourceRootDiagnostic(root, sourceRoot, "source root cannot be resolved: "+err.Error()))
 			continue
 		}
-		if !pathWithin(root, resolved) {
+		if !pathWithin(resolvedRoot, resolved) {
 			diagnostics = append(diagnostics, sourceRootDiagnostic(root, sourceRoot, "source root resolves outside the workspace"))
 			continue
 		}
