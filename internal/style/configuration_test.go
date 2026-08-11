@@ -50,7 +50,7 @@ func TestLoadConfigurationRejectsMalformedBoundaries(t *testing.T) {
 			return strings.Replace(value, "\"profile\":", "\"unknown\":true,\"profile\":", 1)
 		},
 		"wrong schema": func(value string) string {
-			return strings.Replace(value, "\"schemaVersion\": 1", "\"schemaVersion\": 2", 1)
+			return strings.Replace(value, "\"schemaVersion\": 2", "\"schemaVersion\": 1", 1)
 		},
 		"wrong profile": func(value string) string {
 			return strings.Replace(value, "java-structured", "unstructured", 1)

@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
@@ -26,6 +28,8 @@ type verifyArguments struct {
 	patterns   []string
 	profile    compilerstyle.Profile
 	profileSet bool
+	stylePath  string
+	styleSet   bool
 }
 
 // NewVerifyHandler constructs the annotation verification command handler.
@@ -69,6 +73,26 @@ func verifyPrepared(
 	options load.Options,
 	loader programLoader,
 ) int {
+	root := diagnosticWorkspaceRoot(options)
+	var styleConfiguration *compilerstyle.Configuration
+	if arguments.styleSet {
+		configurationPath := arguments.stylePath
+		if !filepath.IsAbs(configurationPath) {
+			configurationPath = filepath.Join(root, configurationPath)
+		}
+		configuration, err := compilerstyle.LoadConfiguration(configurationPath)
+		if err != nil {
+			return reportVerification(
+				arguments.format,
+				false,
+				"Spice verification failed: style configuration error.",
+				styleConfigurationFailure(err),
+				stdout,
+				stderr,
+			)
+		}
+		styleConfiguration = &configuration
+	}
 	service, err := newCompilerAnalysisService(options, loader)
 	if err != nil {
 		return reportVerification(
@@ -80,14 +104,14 @@ func verifyPrepared(
 			stderr,
 		)
 	}
-	root := diagnosticWorkspaceRoot(options)
 	result, analysisErr := service.Analyze(
 		context.Background(),
 		compilerservice.Request{
-			WorkspaceRoot: root,
-			Patterns:      arguments.patterns,
-			Mode:          compilerservice.AnalysisValidate,
-			Profile:       arguments.profile,
+			WorkspaceRoot:      root,
+			Patterns:           arguments.patterns,
+			Mode:               compilerservice.AnalysisValidate,
+			Profile:            arguments.profile,
+			StyleConfiguration: styleConfiguration,
 		},
 	)
 	closeErr := closeCompilerAnalysisService(service)
@@ -177,6 +201,20 @@ func parseVerifyArguments(arguments []string) (verifyArguments, error) {
 			index = next
 			result.profile = compilerstyle.Profile(value)
 			result.profileSet = true
+		case argument == "--style" || strings.HasPrefix(argument, "--style="):
+			value, next, err := moduleOptionValue(
+				arguments,
+				index,
+				"--style",
+				result.styleSet,
+				"path",
+			)
+			if err != nil {
+				return verifyArguments{}, err
+			}
+			index = next
+			result.stylePath = value
+			result.styleSet = true
 		case strings.HasPrefix(argument, "-"):
 			return verifyArguments{}, fmt.Errorf(
 				"unknown verification option %q",
@@ -197,10 +235,27 @@ func parseVerifyArguments(arguments []string) (verifyArguments, error) {
 	if len(result.patterns) == 0 {
 		result.patterns = []string{"./..."}
 	}
+	if result.profileSet && result.styleSet {
+		return verifyArguments{}, errors.New("--profile and --style are mutually exclusive; schema two owns the profile")
+	}
 	if err := compilerstyle.ValidateProfile(result.profile); err != nil {
 		return verifyArguments{}, err
 	}
 	return result, nil
+}
+
+func styleConfigurationFailure(err error) diagnostic.Set {
+	code := diagnostic.CodeParts("style", "configuration", "schema")
+	var configurationErr compilerstyle.ConfigurationError
+	if errors.As(err, &configurationErr) {
+		code = configurationErr.Code()
+	}
+	return diagnostic.NewSet(diagnostic.New(
+		code,
+		diagnostic.SeverityError,
+		err.Error(),
+		diagnostic.SourceLocation("", "", "", 1, 1, 0),
+	))
 }
 
 func verificationDiagnosticSummary(

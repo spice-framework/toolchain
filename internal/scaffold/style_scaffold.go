@@ -13,7 +13,7 @@ func (styleScaffold) readmeCommand(profile compilerstyle.Profile) string {
 
 func (styleScaffold) configurationContent() []byte {
 	return []byte(`{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "profile": "java-structured",
   "sourceRoots": [
     "cmd",
@@ -22,18 +22,42 @@ func (styleScaffold) configurationContent() []byte {
   "generatedRoots": [
     "internal/spicegen"
   ],
+  "buildSelections": [
+    {
+      "name": "linux-amd64-default",
+      "sourceRoots": [
+        "cmd",
+        "internal"
+      ],
+      "goos": "linux",
+      "goarch": "amd64",
+      "cgoEnabled": false,
+      "tags": []
+    },
+    {
+      "name": "windows-amd64-default",
+      "sourceRoots": [
+        "cmd",
+        "internal"
+      ],
+      "goos": "windows",
+      "goarch": "amd64",
+      "cgoEnabled": false,
+      "tags": []
+    }
+  ],
   "rules": {
     "onePrimaryTypePerFile": "error",
     "methodsInPrimaryTypeFile": "error",
     "fileNameMatchesType": "error",
     "packageFunctions": "error",
     "explicitConstructors": "error",
-    "explicitManagedScopes": "error",
+    "explicitManagedScopes": "off",
     "banInit": "error",
     "banMutablePackageState": "error",
-    "privateManagedFields": "error",
-    "moduleOwnership": "error",
-    "routeClassification": "error",
+    "privateManagedFields": "off",
+    "moduleOwnership": "off",
+    "routeClassification": "off",
     "contextFirst": "error",
     "errorLast": "error",
     "maxTypeFileLines": 500

@@ -154,6 +154,13 @@ func EventTopic() event.Publisher[Event] { panic("metadata only") }
 			want: "constructor.name",
 		},
 		{
+			name: "missing explicit constructor",
+			files: map[string]string{
+				"app/worker.go": "package app\n\n// @Service\ntype Worker struct{}\n",
+			},
+			want: "constructor.explicit",
+		},
+		{
 			name: "constructor file",
 			files: map[string]string{
 				"app/worker.go":             "package app\n\n// @Service\ntype Worker struct{}\n",
@@ -222,6 +229,37 @@ func TestBuildDoesNothingWithoutProfile(t *testing.T) {
 		ProfileNone,
 	).Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("Build(ProfileNone) diagnostics = %v", diagnostics)
+	}
+}
+
+func TestBuildConfiguredHonorsSharedRuleLevels(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/types.go": "package app\n\ntype First struct{}\ntype Second struct{}\n\nfunc helper() {}\n",
+	})
+	configuration, err := DecodeConfiguration(canonicalTestConfiguration(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration.Rules.OnePrimaryTypePerFile = RuleLevelOff
+	configuration.Rules.PackageFunctions = RuleLevelOff
+	configuration.Rules.BanMutablePackageState = RuleLevelOff
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredRejectsInvalidConfigurationAndNilProgram(t *testing.T) {
+	configuration, err := DecodeConfiguration(canonicalTestConfiguration(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := configuration.Clone()
+	invalid.Rules.ExplicitManagedScopes = RuleLevelError
+	if diagnostics := BuildConfigured(nil, resolve.Result{}, provider.Catalog{}, invalid).Diagnostics(); !containsKind(diagnostics, "configuration.unsupported-rule") {
+		t.Fatalf("invalid configuration diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+	if diagnostics := BuildConfigured(nil, resolve.Result{}, provider.Catalog{}, configuration).Diagnostics(); !containsKind(diagnostics, "internal") {
+		t.Fatalf("nil program diagnostics = %v", diagnosticStrings(diagnostics))
 	}
 }
 

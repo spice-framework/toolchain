@@ -1,19 +1,12 @@
 package style
 
-// RuleLevel controls one structural style rule.
-type RuleLevel string
+import compilerstyle "github.com/spice-framework/toolchain/compiler/style"
+
+// RuleLevel controls one shared style rule.
+type RuleLevel = compilerstyle.RuleLevel
 
 const (
-	RuleLevelOff     RuleLevel = "off"
-	RuleLevelWarning RuleLevel = "warning"
-	RuleLevelError   RuleLevel = "error"
+	RuleLevelOff     = compilerstyle.RuleLevelOff
+	RuleLevelWarning = compilerstyle.RuleLevelWarning
+	RuleLevelError   = compilerstyle.RuleLevelError
 )
-
-func (level RuleLevel) valid() bool {
-	switch level {
-	case RuleLevelOff, RuleLevelWarning, RuleLevelError:
-		return true
-	default:
-		return false
-	}
-}

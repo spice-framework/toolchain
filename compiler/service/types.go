@@ -98,6 +98,10 @@ type Request struct {
 	Overlay       map[string]Document
 	Mode          AnalysisMode
 	Profile       compilerstyle.Profile
+	// StyleConfiguration is the shared immutable schema-two policy consumed by
+	// structural and typed validation. Profile remains available for legacy
+	// profile-only callers that do not select configuration enforcement.
+	StyleConfiguration *compilerstyle.Configuration
 	// ContentHash is a caller-owned hash of all relevant workspace and overlay
 	// content. Caching is disabled when it is empty, preventing stale disk
 	// results from being reused without a complete content identity.

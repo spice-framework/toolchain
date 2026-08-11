@@ -190,6 +190,90 @@ func helper() {}
 	}
 }
 
+func TestVerifyUsesSharedSchemaTwoConfiguration(t *testing.T) {
+	root := writeGoSource(t, `package sample
+
+type First struct{}
+type Second struct{}
+
+func helper() {}
+`)
+	configurationPath, err := filepath.Abs(filepath.Join("..", "style", "testdata", "style.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runModule(root, "verify", "--style="+configurationPath, ".")
+	if code != 1 || stdout != "" ||
+		!strings.Contains(stderr, "[spice.style.file.one-primary-type]") ||
+		!strings.Contains(stderr, "[spice.style.function.package-level]") {
+		t.Fatalf("configured: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	content, err := os.ReadFile(configurationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuredOff := strings.ReplaceAll(string(content), `"onePrimaryTypePerFile": "error"`, `"onePrimaryTypePerFile": "off"`)
+	configuredOff = strings.ReplaceAll(configuredOff, `"packageFunctions": "error"`, `"packageFunctions": "off"`)
+	localPath := filepath.Join(root, "style.json")
+	if err = os.WriteFile(localPath, []byte(configuredOff), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runModule(root, "verify", "--style=style.json", ".")
+	if code != 0 || stdout == "" || stderr != "" {
+		t.Fatalf("configured off: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestVerifyReportsSchemaMigrationAndUnsupportedRuleCodes(t *testing.T) {
+	t.Parallel()
+	configurationPath, err := filepath.Abs(filepath.Join("..", "style", "testdata", "style.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(configurationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(string) string
+		code   string
+		text   string
+	}{
+		{
+			name: "schema one",
+			mutate: func(value string) string {
+				return strings.Replace(value, `"schemaVersion": 2`, `"schemaVersion": 1`, 1)
+			},
+			code: "spice.style.configuration.schema",
+			text: "migrate",
+		},
+		{
+			name: "unsupported rule",
+			mutate: func(value string) string {
+				return strings.Replace(value, `"explicitManagedScopes": "off"`, `"explicitManagedScopes": "error"`, 1)
+			},
+			code: "spice.style.configuration.unsupported-rule",
+			text: "explicitManagedScopes",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := writeGoSource(t, "package sample\n\ntype Sample struct{}\n")
+			if err := os.WriteFile(filepath.Join(root, "style.json"), []byte(test.mutate(string(content))), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, stdout, stderr := runModule(root, "verify", "--format=json", "--style=style.json", ".")
+			report := decodeDiagnosticReport(t, stdout)
+			if code != 1 || stderr != "" || report.Success || len(report.Diagnostics) != 1 ||
+				report.Diagnostics[0].Code != test.code || !strings.Contains(report.Diagnostics[0].Message, test.text) {
+				t.Fatalf("code=%d report=%#v stderr=%q", code, report, stderr)
+			}
+		})
+	}
+}
+
 func TestVerifyRejectsInvalidFormattingOptions(t *testing.T) {
 	t.Parallel()
 	for _, arguments := range [][]string{
@@ -200,6 +284,9 @@ func TestVerifyRejectsInvalidFormattingOptions(t *testing.T) {
 		{"verify", "--profile"},
 		{"verify", "--profile=java"},
 		{"verify", "--profile=java-structured", "--profile=java-structured"},
+		{"verify", "--style"},
+		{"verify", "--style=one.json", "--style=two.json"},
+		{"verify", "--profile=java-structured", "--style=style.json"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := Run(arguments, &stdout, &stderr)

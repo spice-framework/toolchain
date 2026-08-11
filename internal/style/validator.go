@@ -29,7 +29,7 @@ func NewValidator(
 ) *Validator {
 	return &Validator{
 		pass:          pass,
-		configuration: configuration.clone(),
+		configuration: configuration.Clone(),
 		workspaceRoot: filepath.Clean(workspaceRoot),
 		types:         make(map[string]namedType),
 	}

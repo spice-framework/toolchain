@@ -282,7 +282,7 @@ func main() {
 		}
 		mainName = filepath.ToSlash(filepath.Join("cmd", packageName, "main.go"))
 		patterns = "./..."
-		profileOption = " --profile=java-structured"
+		profileOption = " --style=.spice/style.json"
 		mainContent, err = format.Source([]byte(fmt.Sprintf(`package main
 
 import (
@@ -345,11 +345,11 @@ then verify and generate the application:
 `+"```text"+`
 go mod download
 go tool %s generate --target %s %s
-go tool %s verify%s %s
 %s
+go tool %s verify%s %s
 go tool %s run --target %s %s
 `+"```"+`
-`, config.Module, CLITool, targetName, patterns, CLITool, profileOption, patterns, styleScaffold{}.readmeCommand(config.Profile), CLITool, targetName, patterns)
+`, config.Module, CLITool, targetName, patterns, styleScaffold{}.readmeCommand(config.Profile), CLITool, profileOption, patterns, CLITool, targetName, patterns)
 	files = append(
 		files,
 		plannedFile{name: "README.md", content: []byte(readme), mode: 0o600},

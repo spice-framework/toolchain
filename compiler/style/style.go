@@ -8,6 +8,7 @@
 package style
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -111,6 +112,43 @@ func Build(
 		}}}
 	}
 
+	return buildJavaStructured(program, resolution, providers, nil)
+}
+
+// BuildConfigured validates the typed phase using the shared schema-two policy.
+func BuildConfigured(
+	program *load.Program,
+	resolution resolve.Result,
+	providers provider.Catalog,
+	configuration Configuration,
+) Catalog {
+	if err := configuration.Validate(); err != nil {
+		kind := "configuration.schema"
+		var configurationErr ConfigurationError
+		if errors.As(err, &configurationErr) {
+			kind = strings.TrimPrefix(configurationErr.Code(), "spice.style.")
+		}
+		return Catalog{diagnostics: []Diagnostic{{
+			Kind:    kind,
+			Message: err.Error(),
+		}}}
+	}
+	if program == nil {
+		return Catalog{diagnostics: []Diagnostic{{
+			Kind:    "internal",
+			Message: "style profile requires a loaded program",
+		}}}
+	}
+	configuration = configuration.Clone()
+	return buildJavaStructured(program, resolution, providers, &configuration.Rules)
+}
+
+func buildJavaStructured(
+	program *load.Program,
+	resolution resolve.Result,
+	providers provider.Catalog,
+	rules *Rules,
+) Catalog {
 	files := handwrittenFiles(program.PrimaryPackages())
 	typesByFile, typeFiles := declaredTypes(program.PrimarySymbols(), files)
 	annotatedFunctions := functionAnnotationKinds(resolution)
@@ -149,8 +187,39 @@ func Build(
 			providers.Providers(),
 		)...,
 	)
+	if rules != nil {
+		catalog.diagnostics = filterConfiguredDiagnostics(catalog.diagnostics, *rules)
+	}
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
+}
+
+func filterConfiguredDiagnostics(diagnostics []Diagnostic, rules Rules) []Diagnostic {
+	result := make([]Diagnostic, 0, len(diagnostics))
+	for _, item := range diagnostics {
+		level := RuleLevelError
+		switch item.Kind {
+		case "file.one-primary-type", "file.unrelated-declaration":
+			level = rules.OnePrimaryTypePerFile
+		case "file.name":
+			level = rules.FileNameMatchesType
+		case "file.method-owner":
+			level = rules.MethodsInPrimaryFile
+		case "function.package-level":
+			level = rules.PackageFunctions
+		case "constructor.explicit", "constructor.name", "constructor.location":
+			level = rules.ExplicitConstructors
+		case "package.mutable-global":
+			level = rules.BanMutablePackageState
+		case "function.init":
+			level = rules.BanInit
+		default:
+		}
+		if level != RuleLevelOff {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 type sourceFile struct {
@@ -534,8 +603,23 @@ func associatedFunction(name string, typeNames []string) bool {
 func constructorDiagnostics(providers []provider.Provider) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, item := range providers {
-		if item.Source != provider.SourceStereotype ||
-			item.Construction != provider.ConstructionFactory {
+		if item.Source != provider.SourceStereotype {
+			continue
+		}
+		if item.Construction == provider.ConstructionAllocate {
+			diagnostics = append(diagnostics, symbolDiagnostic(
+				item.Symbol,
+				"constructor.explicit",
+				fmt.Sprintf(
+					"profile %s requires an explicit New%s constructor for managed type %s",
+					ProfileJavaStructured,
+					item.Symbol.Name,
+					item.Symbol.DisplayLabel,
+				),
+			))
+			continue
+		}
+		if item.Construction != provider.ConstructionFactory {
 			continue
 		}
 		expected := "New" + item.Symbol.Name

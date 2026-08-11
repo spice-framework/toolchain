@@ -44,7 +44,7 @@ validation:
 
 ```text
 go tool github.com/spice-framework/toolchain/cmd/spicestyle --config=.spice/style.json ./...
-go tool github.com/spice-framework/toolchain/cmd/spice verify --profile=java-structured ./...
+go tool github.com/spice-framework/toolchain/cmd/spice verify --style=.spice/style.json ./...
 ```
 
 The profile keeps valid Go while enforcing one primary named type per ordinary
@@ -53,10 +53,23 @@ co-location, approved boundary files, context/error conventions, explicit
 managed-interface relationships, and the absence of loose behavior or mutable
 globals. `doc.go`, an exact package-main entrypoint, one typed `*_bean.go`
 provider, and one typed `*_topic.go` marker remain deliberate Go/Spice
-boundaries. [`CODE_STYLE.md`](CODE_STYLE.md) is the normative rule,
-configuration, migration, and diagnostic reference. The LSP accepts the same
-profile in its Spice settings and offers source generation for validated
-`@Enum` helpers.
+boundaries. The Spice core repository owns the normative
+[`CODE_STYLE.md`](https://github.com/spice-framework/spice/blob/0d4ed59cd3a618011d3c4f493714a3a67070ee84/CODE_STYLE.md)
+contract at commit `0d4ed59cd3a618011d3c4f493714a3a67070ee84`, with reviewed
+SHA-256 `9beeec406dba8f9a6c288dd83d2bac60955885c7d5811c37518165cf94673f24`.
+Toolchain does not maintain a second schema-two policy copy.
+
+Schema two is decoded once by the standalone structural analyzer and typed
+compiler phase. Unknown fields, schema one, invalid or noncanonical roots,
+platforms, tags, and build-selection order fail closed. A schema-one failure
+names the required migration to schema two and `buildSelections`. Enabled
+rules are checked against a phase-capability registry; the scaffold therefore
+keeps `explicitManagedScopes`, `privateManagedFields`, `moduleOwnership`, and
+`routeClassification` off until their typed diagnostic families land. Exact
+multi-context execution of every validated build selection remains the next
+bounded Toolchain slice; this slice does not claim that loading guarantee yet.
+The LSP accepts the profile in its Spice settings and offers source generation
+for validated `@Enum` helpers.
 
 Create a profile-shaped application and class-oriented declarations with:
 

@@ -120,7 +120,7 @@ func TestCreateWritesJavaStructuredApplicationLayout(t *testing.T) {
 		t.Fatalf("generated style configuration: %v", err)
 	}
 	readme := readScaffoldFile(t, destination, "README.md")
-	if !strings.Contains(readme, "verify --profile=java-structured ./...") ||
+	if !strings.Contains(readme, "verify --style=.spice/style.json ./...") ||
 		!strings.Contains(readme, StyleTool+" --config=.spice/style.json ./...") {
 		t.Fatalf("README.md = %s", readme)
 	}

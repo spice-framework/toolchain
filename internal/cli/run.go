@@ -298,7 +298,7 @@ Usage:
   spice new (module|service|repository|controller|component|enum) name [--profile=java-structured] [--directory path] [--package name]
   spice new --module path [application-init-option ...]
   spice add [--tool] [--apply] [--directory path] package@version
-  spice verify [--format text|json] [package-pattern ...]
+  spice verify [--format text|json] [--profile java-structured | --style path] [package-pattern ...]
   spice annotations [package-pattern ...]
   spice annotations list [package-pattern ...]
   spice annotations doctor [package-pattern ...]

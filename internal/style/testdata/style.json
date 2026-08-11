@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "profile": "java-structured",
   "sourceRoots": [
     "testdata/src"
@@ -7,18 +7,40 @@
   "generatedRoots": [
     "testdata/src/example.com/valid/internal/spicegen"
   ],
+  "buildSelections": [
+    {
+      "name": "linux-amd64-default",
+      "sourceRoots": [
+        "testdata/src"
+      ],
+      "goos": "linux",
+      "goarch": "amd64",
+      "cgoEnabled": false,
+      "tags": []
+    },
+    {
+      "name": "windows-amd64-default",
+      "sourceRoots": [
+        "testdata/src"
+      ],
+      "goos": "windows",
+      "goarch": "amd64",
+      "cgoEnabled": false,
+      "tags": []
+    }
+  ],
   "rules": {
     "onePrimaryTypePerFile": "error",
     "methodsInPrimaryTypeFile": "error",
     "fileNameMatchesType": "error",
     "packageFunctions": "error",
     "explicitConstructors": "error",
-    "explicitManagedScopes": "error",
+    "explicitManagedScopes": "off",
     "banInit": "error",
     "banMutablePackageState": "error",
-    "privateManagedFields": "error",
-    "moduleOwnership": "error",
-    "routeClassification": "error",
+    "privateManagedFields": "off",
+    "moduleOwnership": "off",
+    "routeClassification": "off",
     "contextFirst": "error",
     "errorLast": "error",
     "maxTypeFileLines": 500

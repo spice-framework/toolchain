@@ -286,6 +286,7 @@ type normalizedRequest struct {
 	overlay  map[string]Document
 	mode     AnalysisMode
 	profile  compilerstyle.Profile
+	style    *compilerstyle.Configuration
 	content  string
 	sequence uint64
 }
@@ -521,12 +522,15 @@ func (service *Service) analyze(
 	)
 	if len(primaryProviderCatalog.Diagnostics()) == 0 &&
 		request.profile != compilerstyle.ProfileNone {
-		styleCatalog := compilerstyle.Build(
-			program,
-			resolution,
-			primaryProviderCatalog,
-			request.profile,
-		)
+		styleCatalog := compilerstyle.Build(program, resolution, primaryProviderCatalog, request.profile)
+		if request.style != nil {
+			styleCatalog = compilerstyle.BuildConfigured(
+				program,
+				resolution,
+				primaryProviderCatalog,
+				*request.style,
+			)
+		}
 		if diagnostics := styleCatalog.Diagnostics(); len(diagnostics) != 0 {
 			result.diagnostics = versionDiagnostics(
 				diagnosticadapt.Style(request.root, diagnostics),
@@ -910,7 +914,20 @@ func (service *Service) normalizeRequest(
 			"compiler service validation analysis must not select a target",
 		)
 	}
-	if err := compilerstyle.ValidateProfile(request.Profile); err != nil {
+	profile := request.Profile
+	var styleConfiguration *compilerstyle.Configuration
+	if request.StyleConfiguration != nil {
+		configuration := request.StyleConfiguration.Clone()
+		if err := configuration.Validate(); err != nil {
+			return normalizedRequest{}, err
+		}
+		if profile != compilerstyle.ProfileNone && profile != compilerstyle.ProfileJavaStructured {
+			return normalizedRequest{}, errors.New("compiler service style configuration conflicts with requested profile")
+		}
+		profile = compilerstyle.ProfileJavaStructured
+		styleConfiguration = &configuration
+	}
+	if err := compilerstyle.ValidateProfile(profile); err != nil {
 		return normalizedRequest{}, err
 	}
 	root, err := filepath.Abs(request.WorkspaceRoot)
@@ -943,7 +960,8 @@ func (service *Service) normalizeRequest(
 		patterns: patterns,
 		overlay:  overlay,
 		mode:     request.Mode,
-		profile:  request.Profile,
+		profile:  profile,
+		style:    styleConfiguration,
 		content:  request.ContentHash,
 		sequence: request.Sequence,
 	}, nil
@@ -1470,31 +1488,33 @@ func (service *Service) cacheKey(
 	}
 	options := service.analysisLoadOptions(request)
 	payload := struct {
-		Root              string
-		Target            string
-		Mode              AnalysisMode
-		Profile           compilerstyle.Profile
-		Patterns          []string
-		Overlay           map[string]Document
-		Environment       []string
-		BuildFlags        []string
-		AuxiliaryPackages []string
-		Namespace         string
-		Definitions       []annotation.Definition
-		ContentHash       string
+		Root               string
+		Target             string
+		Mode               AnalysisMode
+		Profile            compilerstyle.Profile
+		StyleConfiguration *compilerstyle.Configuration
+		Patterns           []string
+		Overlay            map[string]Document
+		Environment        []string
+		BuildFlags         []string
+		AuxiliaryPackages  []string
+		Namespace          string
+		Definitions        []annotation.Definition
+		ContentHash        string
 	}{
-		Root:              normalizedWorkspaceKey(request.root),
-		Target:            request.target,
-		Mode:              request.mode,
-		Profile:           request.profile,
-		Patterns:          request.patterns,
-		Overlay:           request.overlay,
-		Environment:       options.Env,
-		BuildFlags:        options.BuildFlags,
-		AuxiliaryPackages: options.AuxiliaryPackages,
-		Namespace:         service.config.cacheNamespace,
-		Definitions:       service.config.registry.Definitions(),
-		ContentHash:       request.content,
+		Root:               normalizedWorkspaceKey(request.root),
+		Target:             request.target,
+		Mode:               request.mode,
+		Profile:            request.profile,
+		StyleConfiguration: request.style,
+		Patterns:           request.patterns,
+		Overlay:            request.overlay,
+		Environment:        options.Env,
+		BuildFlags:         options.BuildFlags,
+		AuxiliaryPackages:  options.AuxiliaryPackages,
+		Namespace:          service.config.cacheNamespace,
+		Definitions:        service.config.registry.Definitions(),
+		ContentHash:        request.content,
 	}
 	content, err := json.Marshal(payload)
 	if err != nil {
