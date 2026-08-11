@@ -94,6 +94,36 @@ func TestSelectAutoConfigurationBuildsDependencyClosure(t *testing.T) {
 	}
 }
 
+func TestSelectAutoConfigurationAdmitsCompilerFeatureDependency(t *testing.T) {
+	t.Parallel()
+
+	loggerType := types.NewPointer(testNamedType("Logger"))
+	processorType := testNamedType("Processor")
+	processor := Provider{
+		Source: SourceAutoConfiguration, SymbolID: "logging-processor",
+		Name: "loggingProcessor", Output: processorType,
+		OutputTypeID: "example.com/client.Processor",
+		Dependencies: []Dependency{{
+			Kind: DependencySingle, Type: loggerType,
+			TypeID: "*example.com/client.Logger",
+		}},
+	}
+	defaults := Catalog{providers: []Provider{processor}}
+
+	selected, decisions := SelectAutoConfiguration(Catalog{}, defaults)
+	if len(selected.Providers()) != 0 || len(decisions) != 1 ||
+		decisions[0].Status != AutoConfigurationInactive {
+		t.Fatalf("selection without feature = %#v, %#v", selected.Providers(), decisions)
+	}
+	selected, decisions = SelectAutoConfigurationWithAvailable(
+		Catalog{}, defaults, loggerType,
+	)
+	if len(selected.Providers()) != 1 || len(decisions) != 1 ||
+		decisions[0].Status != AutoConfigurationSelected {
+		t.Fatalf("selection with feature = %#v, %#v", selected.Providers(), decisions)
+	}
+}
+
 func TestSelectAutoConfigurationExtendsRepeatedOutputCollectionsByName(
 	t *testing.T,
 ) {

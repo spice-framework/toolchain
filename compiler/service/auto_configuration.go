@@ -1,9 +1,12 @@
 package service
 
 import (
+	"go/types"
 	"sort"
 
+	"github.com/spice-framework/spice/annotation/sdk"
 	compilerauto "github.com/spice-framework/toolchain/compiler/autoconfigure"
+	compilerbootstrap "github.com/spice-framework/toolchain/compiler/bootstrap"
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
 	diagnosticadapt "github.com/spice-framework/toolchain/compiler/diagnostic/adapt"
 	"github.com/spice-framework/toolchain/compiler/load"
@@ -42,6 +45,7 @@ func (service *Service) prepareProviderCatalogs(
 		program,
 		primary,
 		configurations,
+		loggingAutoConfigurationEnabled(resolution),
 	)
 	summary := summarizeAutoConfigurations(configurations, decisions)
 	if !diagnostics.Empty() {
@@ -58,6 +62,7 @@ func buildAutoConfigurationCatalog(
 	program *load.Program,
 	primary provider.Catalog,
 	configurations []compilerauto.Configuration,
+	loggingEnabled bool,
 ) (
 	provider.Catalog,
 	[]provider.AutoConfigurationDecision,
@@ -91,7 +96,11 @@ func buildAutoConfigurationCatalog(
 			request.overlay,
 		)
 	}
-	selected, decisions := provider.SelectAutoConfiguration(primary, defaults)
+	selected, decisions := provider.SelectAutoConfigurationWithAvailable(
+		primary,
+		defaults,
+		loggingAutoConfigurationTypes(defaults, loggingEnabled)...,
+	)
 	if diagnostics := selected.Diagnostics(); len(diagnostics) != 0 {
 		return provider.Catalog{}, decisions, versionDiagnostics(
 			diagnosticadapt.Provider(request.root, diagnostics),
@@ -99,6 +108,35 @@ func buildAutoConfigurationCatalog(
 		)
 	}
 	return selected, decisions, diagnostic.NewSet()
+}
+
+func loggingAutoConfigurationEnabled(resolution resolve.Result) bool {
+	for _, occurrence := range resolution.Occurrences {
+		contribution, found := occurrence.DescriptorContribution(sdk.ContributionBootstrap)
+		if found && contribution.Bootstrap != nil &&
+			contribution.Bootstrap.Capability == string(compilerbootstrap.CapabilityLogging) {
+			return true
+		}
+	}
+	return false
+}
+
+func loggingAutoConfigurationTypes(
+	defaults provider.Catalog,
+	enabled bool,
+) []types.Type {
+	if !enabled {
+		return nil
+	}
+	const loggerTypeID = "*github.com/spice-framework/spice/logging.Logger"
+	for _, item := range defaults.Providers() {
+		for _, dependency := range item.Dependencies {
+			if dependency.TypeID == loggerTypeID {
+				return []types.Type{dependency.MatchType()}
+			}
+		}
+	}
+	return nil
 }
 
 func summarizeAutoConfigurations(

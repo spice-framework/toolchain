@@ -32,12 +32,33 @@ func SelectAutoConfiguration(
 	primary Catalog,
 	defaults Catalog,
 ) (Catalog, []AutoConfigurationDecision) {
+	return SelectAutoConfigurationWithAvailable(primary, defaults)
+}
+
+// SelectAutoConfigurationWithAvailable selects defaults while admitting
+// compiler-owned feature types that enter the final graph after default
+// pruning. The supplied types satisfy dependencies only; they never replace a
+// default output or become generated providers through this selection pass.
+func SelectAutoConfigurationWithAvailable(
+	primary Catalog,
+	defaults Catalog,
+	featureTypes ...types.Type,
+) (Catalog, []AutoConfigurationDecision) {
 	decisions := make([]AutoConfigurationDecision, 0, len(defaults.providers))
 	if len(defaults.diagnostics) != 0 {
 		return defaults, decisions
 	}
 
 	available := primary.Providers()
+	for index, featureType := range featureTypes {
+		if featureType == nil {
+			continue
+		}
+		available = append(available, Provider{
+			Source: SourceLogging, SymbolID: fmt.Sprintf("spice.feature.available.%d", index),
+			Output: featureType, OutputTypeID: TypeID(featureType),
+		})
+	}
 	pending := defaults.Providers()
 	eligible := pending[:0]
 	for _, candidate := range pending {
