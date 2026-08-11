@@ -142,20 +142,61 @@ func TestVerifyRequiresAbsentOwnedOutputAndRelistsInput(t *testing.T) {
 
 func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	t.Parallel()
-	for repository, policy := range releasePolicies {
-		var want []selectedModule
-		if repository != "spice" {
-			want = []selectedModule{
-				{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-				{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
-			}
-		}
-		if repository == "spice-agent-provider-openai" || repository == "spice-agent-tools-coding" {
-			want = append(want, selectedModule{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion})
+	wantPolicies := map[string][]selectedModule{
+		"spice": nil,
+		"spice-agent": {
+			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+		},
+		"spice-agent-provider-openai": {
+			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
+		},
+		"spice-agent-tools-coding": {
+			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
+		},
+		"spice-agent-tui": {
+			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
+		},
+	}
+	if len(releasePolicies) != len(wantPolicies) {
+		t.Fatalf("release policy count = %d, want %d", len(releasePolicies), len(wantPolicies))
+	}
+	for repository, want := range wantPolicies {
+		policy, found := releasePolicies[repository]
+		if !found {
+			t.Errorf("policy %s is missing", repository)
+			continue
 		}
 		if !slices.Equal(policy.requiredModules, want) {
 			t.Errorf("policy %s required modules = %#v, want %#v", repository, policy.requiredModules, want)
 		}
+	}
+}
+
+func TestFoundationWavePreservesHistoricalAgentAndCodingSelections(t *testing.T) {
+	t.Parallel()
+	wantAgentModules := []selectedModule{
+		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+	}
+	if got := releasePolicies["spice-agent"].requiredModules; !slices.Equal(got, wantAgentModules) {
+		t.Errorf("Agent required modules = %#v, want %#v", got, wantAgentModules)
+	}
+	wantCodingModules := []selectedModule{
+		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
+		{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
+		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentExtensionVersion},
+		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentExtensionVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: agentExtensionVersion},
+	}
+	if got := distributionPolicies["spice-agent-coding"].requiredModules; !slices.Equal(got, wantCodingModules) {
+		t.Errorf("Coding required modules = %#v, want %#v", got, wantCodingModules)
 	}
 }
 
@@ -200,18 +241,28 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
+		"spice":                       spiceFoundationVersion,
 		"spice-agent":                 agentCoreReleaseVersion,
 		"spice-agent-provider-openai": agentExtensionVersion,
 		"spice-agent-tools-coding":    agentExtensionVersion,
-		"spice-agent-tui":             agentExtensionVersion,
+		"spice-agent-tui":             agentTUIReleaseVersion,
 	}
 	for repository, version := range want {
 		if got := releasePolicies[repository].version; got != version {
 			t.Errorf("policy %s version = %q, want %q", repository, got, version)
 		}
 	}
-	if got := distributionPolicies["spice-agent-coding"].version; got != agentDistributionVersion {
-		t.Errorf("distribution version = %q, want %q", got, agentDistributionVersion)
+	wantDistributions := map[string]string{
+		"toolchain":          toolchainDistributionVersion,
+		"spice-agent-coding": agentDistributionVersion,
+	}
+	if len(distributionPolicies) != len(wantDistributions) {
+		t.Fatalf("distribution policy count = %d, want %d", len(distributionPolicies), len(wantDistributions))
+	}
+	for repository, version := range wantDistributions {
+		if got := distributionPolicies[repository].version; got != version {
+			t.Errorf("distribution %s version = %q, want %q", repository, got, version)
+		}
 	}
 }
 

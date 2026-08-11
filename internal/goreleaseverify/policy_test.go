@@ -14,32 +14,117 @@ import (
 
 func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 	t.Parallel()
-	for _, request := range []PolicyRequest{
+	for _, test := range []struct {
+		name    string
+		request PolicyRequest
+	}{
 		{
-			Repository: "spice-agent",
-			Source:     "https://github.com/spice-framework/spice-agent",
-			Module:     "github.com/spice-framework/spice-agent",
-			Version:    agentCoreReleaseVersion,
-			Profile:    ProfileGoModule,
+			name: "Spice foundation",
+			request: PolicyRequest{
+				Repository: "spice",
+				Source:     "https://github.com/spice-framework/spice",
+				Module:     "github.com/spice-framework/spice",
+				Version:    spiceFoundationVersion,
+				Profile:    ProfileGoModule,
+			},
 		},
 		{
-			Repository: "spice-agent-coding",
-			Source:     "https://github.com/spice-framework/spice-agent-coding",
-			Module:     "github.com/spice-framework/spice-agent-coding",
-			Version:    agentDistributionVersion,
-			Profile:    ProfileDistribution,
+			name: "Toolchain distribution",
+			request: PolicyRequest{
+				Repository: "toolchain",
+				Source:     "https://github.com/spice-framework/toolchain",
+				Module:     "github.com/spice-framework/toolchain",
+				Version:    toolchainDistributionVersion,
+				Profile:    ProfileDistribution,
+			},
+		},
+		{
+			name: "Agent TUI",
+			request: PolicyRequest{
+				Repository: "spice-agent-tui",
+				Source:     "https://github.com/spice-framework/spice-agent-tui",
+				Module:     "github.com/spice-framework/spice-agent-tui",
+				Version:    agentTUIReleaseVersion,
+				Profile:    ProfileGoModule,
+			},
+		},
+		{
+			name: "Agent core",
+			request: PolicyRequest{
+				Repository: "spice-agent",
+				Source:     "https://github.com/spice-framework/spice-agent",
+				Module:     "github.com/spice-framework/spice-agent",
+				Version:    agentCoreReleaseVersion,
+				Profile:    ProfileGoModule,
+			},
+		},
+		{
+			name: "Agent coding distribution",
+			request: PolicyRequest{
+				Repository: "spice-agent-coding",
+				Source:     "https://github.com/spice-framework/spice-agent-coding",
+				Module:     "github.com/spice-framework/spice-agent-coding",
+				Version:    agentDistributionVersion,
+				Profile:    ProfileDistribution,
+			},
 		},
 	} {
-		request := request
-		t.Run(request.Profile, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			authorization, err := CheckPolicy(request)
+			authorization, err := CheckPolicy(test.request)
 			if err != nil {
 				t.Fatalf("CheckPolicy(exact) error = %v", err)
 			}
-			want := PolicyAuthorization(request)
+			want := PolicyAuthorization(test.request)
 			if authorization != want {
 				t.Fatalf("CheckPolicy(exact) = %#v, want %#v", authorization, want)
+			}
+		})
+	}
+}
+
+func TestCheckPolicyRejectsStaleFoundationWaveIdentities(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		request  PolicyRequest
+		versions []string
+	}{
+		{
+			name: "Spice foundation",
+			request: PolicyRequest{
+				Repository: "spice", Source: "https://github.com/spice-framework/spice",
+				Module: "github.com/spice-framework/spice", Profile: ProfileGoModule,
+			},
+			versions: []string{"v0.1.0-preview.1", agentFoundationVersion},
+		},
+		{
+			name: "Toolchain distribution",
+			request: PolicyRequest{
+				Repository: "toolchain", Source: "https://github.com/spice-framework/toolchain",
+				Module: "github.com/spice-framework/toolchain", Profile: ProfileDistribution,
+			},
+			versions: []string{"v0.1.0-preview.1", "v0.1.0-preview.2"},
+		},
+		{
+			name: "Agent TUI",
+			request: PolicyRequest{
+				Repository: "spice-agent-tui", Source: "https://github.com/spice-framework/spice-agent-tui",
+				Module: "github.com/spice-framework/spice-agent-tui", Profile: ProfileGoModule,
+			},
+			versions: []string{"v0.1.0-preview.1"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			for _, version := range test.versions {
+				request := test.request
+				request.Version = version
+				authorization, err := CheckPolicy(request)
+				if err == nil || !strings.Contains(err.Error(), "do not match") ||
+					authorization != (PolicyAuthorization{}) {
+					t.Fatalf("CheckPolicy(stale %s) = %#v, %v", version, authorization, err)
+				}
 			}
 		})
 	}

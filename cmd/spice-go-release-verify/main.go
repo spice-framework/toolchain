@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -103,35 +102,23 @@ func runPolicyCheck(arguments []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeExit(stderr, 1, "%v", err)
 	}
-	payload, err := json.Marshal(policyCheckOutput{
-		Profile:    authorization.Profile,
-		Repository: authorization.Repository,
-		Module:     authorization.Module,
-		Version:    authorization.Version,
-		Source:     authorization.Source,
-	})
-	if err != nil {
-		return writeExit(stderr, 1, "encode authorized release policy")
-	}
-	payload = append(payload, '\n')
+	payload := fmt.Sprintf(
+		"%s\t%s\t%s\t%s\n",
+		authorization.Profile,
+		authorization.Repository,
+		authorization.Module,
+		authorization.Version,
+	)
 	if len(payload) > maxPolicyCheckOutputBytes {
 		return writeExit(stderr, 1, "authorized release policy exceeds output bound")
 	}
-	if _, err := stdout.Write(payload); err != nil {
+	if _, err := io.WriteString(stdout, payload); err != nil {
 		return 1
 	}
 	return 0
 }
 
 const maxPolicyCheckOutputBytes = 2 << 10
-
-type policyCheckOutput struct {
-	Profile    string `json:"profile"`
-	Repository string `json:"repository"`
-	Module     string `json:"module"`
-	Version    string `json:"version"`
-	Source     string `json:"source"`
-}
 
 func writeExit(writer io.Writer, code int, format string, arguments ...any) int {
 	if _, err := fmt.Fprintf(writer, "spice-go-release-verify: "+format+"\n", arguments...); err != nil {

@@ -14,7 +14,7 @@ import (
 func TestDependencyFreeSpicePolicyAndCommittedGraph(t *testing.T) {
 	t.Parallel()
 	policy := releasePolicies["spice"]
-	if policy.module != "github.com/spice-framework/spice" || policy.version != "v0.1.0-preview.2" ||
+	if policy.module != "github.com/spice-framework/spice" || policy.version != spiceFoundationVersion ||
 		len(policy.requiredModules) != 0 {
 		t.Fatalf("dependency-free Spice policy = %#v", policy)
 	}

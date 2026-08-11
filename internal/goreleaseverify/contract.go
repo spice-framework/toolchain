@@ -25,13 +25,16 @@ const (
 	maxVendorFiles          = 100_000
 	maxVendorBytes          = 512 << 20
 
-	rendererIdentity           = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
-	agentFoundationVersion     = "v0.1.0-preview.2"
-	toolchainVersion           = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
-	agentCoreReleaseVersion    = "v0.1.0-preview.6"
-	agentCoreDependencyVersion = "v0.1.0-preview.4"
-	agentExtensionVersion      = "v0.1.0-preview.1"
-	agentDistributionVersion   = "v0.1.0-preview.4"
+	rendererIdentity             = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
+	agentFoundationVersion       = "v0.1.0-preview.2"
+	toolchainVersion             = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
+	spiceFoundationVersion       = "v0.1.0-preview.3"
+	toolchainDistributionVersion = "v0.1.0-preview.3"
+	agentTUIReleaseVersion       = "v0.1.0-preview.2"
+	agentCoreReleaseVersion      = "v0.1.0-preview.6"
+	agentCoreDependencyVersion   = "v0.1.0-preview.4"
+	agentExtensionVersion        = "v0.1.0-preview.1"
+	agentDistributionVersion     = "v0.1.0-preview.4"
 )
 
 // Config contains separately trusted release identity and untrusted artifact
@@ -114,6 +117,30 @@ type distributionTarget struct {
 // The organization workflow pins the renderer and verifier independently, so
 // neither repository can expand release authority by itself.
 var distributionPolicies = map[string]distributionPolicy{
+	"toolchain": {
+		repository:   "toolchain",
+		module:       "github.com/spice-framework/toolchain",
+		source:       "https://github.com/spice-framework/toolchain",
+		version:      toolchainDistributionVersion,
+		metadataFile: "spice-release.json",
+		requiredModules: []selectedModule{
+			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+		},
+		binaries: []distributionBinary{
+			{name: "spice", packagePath: "./cmd/spice"},
+		},
+		targets: []distributionTarget{
+			{goos: "linux", goarch: "amd64"},
+			{goos: "linux", goarch: "arm64"},
+			{goos: "darwin", goarch: "amd64"},
+			{goos: "darwin", goarch: "arm64"},
+			{goos: "windows", goarch: "amd64"},
+			{goos: "windows", goarch: "arm64"},
+		},
+		payloadFiles:  []string{"LICENSE", "README.md"},
+		versionSymbol: "github.com/spice-framework/toolchain/internal/cli.Version",
+		commitSymbol:  "github.com/spice-framework/toolchain/internal/cli.Commit",
+	},
 	"spice-agent-coding": {
 		repository:   "spice-agent-coding",
 		module:       "github.com/spice-framework/spice-agent-coding",
@@ -155,7 +182,7 @@ var distributionPolicies = map[string]distributionPolicy{
 var releasePolicies = map[string]releasePolicy{
 	"spice": {
 		repository: "spice", module: "github.com/spice-framework/spice",
-		source: "https://github.com/spice-framework/spice", version: "v0.1.0-preview.2",
+		source: "https://github.com/spice-framework/spice", version: spiceFoundationVersion,
 		metadataFile: "spice-release.json",
 	},
 	"spice-agent": {
@@ -189,11 +216,11 @@ var releasePolicies = map[string]releasePolicy{
 	},
 	"spice-agent-tui": {
 		repository: "spice-agent-tui", module: "github.com/spice-framework/spice-agent-tui",
-		source: "https://github.com/spice-framework/spice-agent-tui", version: "v0.1.0-preview.1",
+		source: "https://github.com/spice-framework/spice-agent-tui", version: agentTUIReleaseVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
 		},
 	},
 }

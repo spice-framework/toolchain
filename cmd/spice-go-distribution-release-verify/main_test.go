@@ -43,6 +43,36 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
+func TestRunSelectsExactToolchainPolicyBeforeSourceInspection(t *testing.T) {
+	t.Parallel()
+	valid := []string{
+		"-artifacts", "missing", "-verified-output", "verified", "-root", "missing",
+		"-repository", "toolchain",
+		"-source", "https://github.com/spice-framework/toolchain",
+		"-module", "github.com/spice-framework/toolchain",
+		"-version", "v0.1.0-preview.3", "-commit", strings.Repeat("a", 40),
+		"-profile", "go-distribution-v1",
+	}
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		want      string
+	}{
+		{name: "exact policy", arguments: valid, want: "trusted repository"},
+		{name: "stale preview.1", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.1"), want: "do not match"},
+		{name: "stale preview.2", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.2"), want: "do not match"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), test.arguments, &stdout, &stderr)
+			if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.want) {
+				t.Fatalf("run(Toolchain %s) = %d, stdout %q, stderr %q", test.name, code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func replaceDistributionArgument(arguments []string, flagName, value string) []string {
 	result := append([]string{}, arguments...)
 	for index := range len(result) - 1 {

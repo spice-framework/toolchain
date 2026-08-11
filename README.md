@@ -215,9 +215,9 @@ workflows authorize an exact verifier version with an ordinary root `go.mod`
 
 Generic `go-module-v1` releases use the separate
 `cmd/spice-go-release-verify` boundary. It accepts only dependency-free
-`spice@v0.1.0-preview.2`, `spice-agent@v0.1.0-preview.6`, and the other three
-explicitly reviewed Spice Agent module
-policies, rejects starters and distribution
+`spice@v0.1.0-preview.3`, `spice-agent@v0.1.0-preview.6`, the independently
+authorized provider and coding-tools previews, and
+`spice-agent-tui@v0.1.0-preview.2`. It rejects starters and distribution
 profiles, and independently binds repository, source, module, version, commit,
 committed release intent, required module selections, vendor selection,
 archive bytes, release metadata, checksums, and SPDX 2.3 contents. It runs only
@@ -238,10 +238,16 @@ first attempts ordinary private-workspace removal, repairs only owner access
 inside that private tree when required, and retries removal without following
 symlinks. A persistent cleanup failure remains a verification error, so an
 apparently successful verification cannot silently leak temporary state.
-All four Agent module policies and the `spice-agent-coding` distribution policy
-require the immutable Spice foundation `v0.1.0-preview.2`; their toolchain,
-sibling-module, metadata, binary, and payload selections remain independently
-pinned. The distribution's next authorized version is `v0.1.0-preview.4`;
+The Agent core, provider, coding-tools, and `spice-agent-coding` distribution
+policies retain the immutable Spice foundation `v0.1.0-preview.2` and their
+historical Toolchain and sibling selections. The separately authorized TUI
+preview.2 policy instead requires immutable Spice preview.3 and Toolchain
+preview.3. Toolchain distribution preview.3 requires Spice preview.3 and
+authorizes only one `spice` command, six targets, LICENSE, README, and the two
+typed CLI identity symbols. This closed foundation wave independently matches
+Development commit `6210baa460975be0bfcb12c919cab307da8c3f46`; neither
+repository can expand it alone. The Coding distribution's authorized version
+remains `v0.1.0-preview.4`;
 preview.1 is rejected after release run `31333877865`
 stopped at the missing candidate `verify-release` target before rendering or
 artifact production. Published preview.2 remains immutable. Preview.3 release
@@ -252,9 +258,8 @@ runner path. Preview.4 authorizes only the corrected candidate boundary.
 Release run `31349650978` subsequently completed installed-byte execution on
 Linux and Windows, keyless attestation, provenance authentication, and
 protected publication of the immutable preview.4 prerelease.
-Provider,
-coding-tools, and TUI releases and all three distribution sibling selections
-remain preview.1.
+Provider and coding-tools releases and all three Coding distribution sibling
+selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
 `spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
 that dependency graph remains unchanged while the Agent module's own release
@@ -267,9 +272,10 @@ Before creating an immutable tag, release operators can run
 source, module, version, and profile. This bounded, deterministic check reads
 only the verifier's compiled policy and performs no Git, filesystem, artifact,
 module, or network operation. Operators compare its exact authorization with
-the separately reviewed development plan through the deterministic JSON
-`profile`, `repository`, `module`, and `version` fields; Toolchain additionally
-binds `source`. Full post-tag verification remains mandatory.
+the separately reviewed development plan through one tab-separated
+`profile`, `repository`, `module`, and `version` line. Toolchain validates the
+canonical `source` input before emitting that directly comparable tuple. Full
+post-tag verification remains mandatory.
 The dependency-free Spice policy omits both `go.sum` and vendor. It rejects
 requirements, tools, replacements, excludes, ignores, partial graph metadata,
 and every `vendor/` path, then independently proves the selected module and
@@ -283,9 +289,10 @@ renderer directory directly.
 
 Binary distributions use the sibling
 `cmd/spice-go-distribution-release-verify` boundary. Its closed
-`go-distribution-v1` policy authorizes only `spice-agent-coding`, its two
-commands, six operating-system/architecture targets, committed payloads,
-required modules, and typed build-identity symbols. The verifier materializes
+`go-distribution-v1` policies authorize the unchanged `spice-agent-coding`
+surface and the separate Toolchain preview.3 surface. Each fixes its commands,
+six operating-system/architecture targets, committed payloads, required
+modules, and typed build-identity symbols. The verifier materializes
 the exact tagged Git tree, publicly authenticates and byte-compares regenerated
 vendor, performs network-disabled `-trimpath` builds for every target, proves
 the exact symbols with `go tool nm`, executes host binaries through

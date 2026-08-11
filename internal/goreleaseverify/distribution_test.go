@@ -14,6 +14,49 @@ import (
 	"time"
 )
 
+func TestToolchainDistributionPolicyIsClosed(t *testing.T) {
+	t.Parallel()
+	policy := distributionPolicies["toolchain"]
+	valid := Config{
+		RepositoryName: policy.repository, CanonicalSource: policy.source,
+		Module: policy.module, Version: policy.version, Profile: ProfileDistribution,
+	}
+	if _, err := selectDistributionPolicy(valid); err != nil {
+		t.Fatalf("selectDistributionPolicy(Toolchain) error = %v", err)
+	}
+	wantModules := []selectedModule{{
+		path: "github.com/spice-framework/spice", version: spiceFoundationVersion,
+	}}
+	wantBinaries := []distributionBinary{{name: "spice", packagePath: "./cmd/spice"}}
+	wantTargets := []distributionTarget{
+		{goos: "linux", goarch: "amd64"},
+		{goos: "linux", goarch: "arm64"},
+		{goos: "darwin", goarch: "amd64"},
+		{goos: "darwin", goarch: "arm64"},
+		{goos: "windows", goarch: "amd64"},
+		{goos: "windows", goarch: "arm64"},
+	}
+	if policy.repository != "toolchain" || policy.module != "github.com/spice-framework/toolchain" ||
+		policy.source != "https://github.com/spice-framework/toolchain" ||
+		policy.version != toolchainDistributionVersion || policy.metadataFile != "spice-release.json" ||
+		!slices.Equal(policy.requiredModules, wantModules) || !slices.Equal(policy.binaries, wantBinaries) ||
+		!slices.Equal(policy.targets, wantTargets) || !slices.Equal(policy.payloadFiles, []string{"LICENSE", "README.md"}) ||
+		policy.versionSymbol != "github.com/spice-framework/toolchain/internal/cli.Version" ||
+		policy.commitSymbol != "github.com/spice-framework/toolchain/internal/cli.Commit" {
+		t.Fatalf("Toolchain distribution policy = %#v", policy)
+	}
+	if got := len(expectedDistributionAssetNames(policy)); got != 9 {
+		t.Fatalf("Toolchain distribution artifact subjects = %d, want 9", got)
+	}
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2"} {
+		stale := valid
+		stale.Version = version
+		if _, err := selectDistributionPolicy(stale); err == nil {
+			t.Fatalf("selectDistributionPolicy(Toolchain %s) error = nil", version)
+		}
+	}
+}
+
 func TestDistributionPolicyIsClosed(t *testing.T) {
 	t.Parallel()
 	policy := distributionPolicies["spice-agent-coding"]

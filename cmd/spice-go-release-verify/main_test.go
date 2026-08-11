@@ -49,43 +49,82 @@ func TestWriteExitHandlesWriterFailure(t *testing.T) {
 	}
 }
 
-func TestRunPolicyCheckAuthorizesExactModulePolicy(t *testing.T) {
+func TestRunPolicyCheckAuthorizesExactComparablePolicies(t *testing.T) {
 	t.Parallel()
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{
-		"policy-check",
-		"--repository=spice-agent",
-		"--source=https://github.com/spice-framework/spice-agent",
-		"--module=github.com/spice-framework/spice-agent",
-		"--version=v0.1.0-preview.6",
-		"--profile=go-module-v1",
-	}, &stdout, &stderr)
-	want := "{\"profile\":\"go-module-v1\",\"repository\":\"spice-agent\"," +
-		"\"module\":\"github.com/spice-framework/spice-agent\"," +
-		"\"version\":\"v0.1.0-preview.6\"," +
-		"\"source\":\"https://github.com/spice-framework/spice-agent\"}\n"
-	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
-		t.Fatalf("run(policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	for _, test := range []struct {
+		name       string
+		repository string
+		version    string
+		profile    string
+	}{
+		{name: "Spice foundation", repository: "spice", version: "v0.1.0-preview.3", profile: "go-module-v1"},
+		{name: "Toolchain distribution", repository: "toolchain", version: "v0.1.0-preview.3", profile: "go-distribution-v1"},
+		{name: "Agent TUI", repository: "spice-agent-tui", version: "v0.1.0-preview.2", profile: "go-module-v1"},
+		{name: "Agent core", repository: "spice-agent", version: "v0.1.0-preview.6", profile: "go-module-v1"},
+		{name: "Agent coding distribution", repository: "spice-agent-coding", version: "v0.1.0-preview.4", profile: "go-distribution-v1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			module := "github.com/spice-framework/" + test.repository
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), []string{
+				"policy-check",
+				"--repository=" + test.repository,
+				"--source=https://github.com/spice-framework/" + test.repository,
+				"--module=" + module,
+				"--version=" + test.version,
+				"--profile=" + test.profile,
+			}, &stdout, &stderr)
+			want := test.profile + "\t" + test.repository + "\t" + module + "\t" + test.version + "\n"
+			if code != 0 || stdout.String() != want || stderr.Len() != 0 {
+				t.Fatalf("run(policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+			}
+		})
 	}
 }
 
-func TestRunPolicyCheckAuthorizesExactDistributionPolicy(t *testing.T) {
+func TestRunPolicyCheckStillValidatesSourceOutsideComparableTuple(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
 		"policy-check",
-		"--repository=spice-agent-coding",
-		"--source=https://github.com/spice-framework/spice-agent-coding",
-		"--module=github.com/spice-framework/spice-agent-coding",
-		"--version=v0.1.0-preview.4",
-		"--profile=go-distribution-v1",
+		"--repository=spice",
+		"--source=https://github.com/spice-framework/spice-fork",
+		"--module=github.com/spice-framework/spice",
+		"--version=v0.1.0-preview.3",
+		"--profile=go-module-v1",
 	}, &stdout, &stderr)
-	want := "{\"profile\":\"go-distribution-v1\",\"repository\":\"spice-agent-coding\"," +
-		"\"module\":\"github.com/spice-framework/spice-agent-coding\"," +
-		"\"version\":\"v0.1.0-preview.4\"," +
-		"\"source\":\"https://github.com/spice-framework/spice-agent-coding\"}\n"
-	if code != 0 || stdout.String() != want || stderr.Len() != 0 {
-		t.Fatalf("run(distribution policy-check) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "do not match") {
+		t.Fatalf("run(source mismatch) = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunPolicyCheckRejectsStaleFoundationWavePreviews(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		repository string
+		version    string
+		profile    string
+	}{
+		{repository: "spice", version: "v0.1.0-preview.1", profile: "go-module-v1"},
+		{repository: "spice", version: "v0.1.0-preview.2", profile: "go-module-v1"},
+		{repository: "toolchain", version: "v0.1.0-preview.1", profile: "go-distribution-v1"},
+		{repository: "toolchain", version: "v0.1.0-preview.2", profile: "go-distribution-v1"},
+		{repository: "spice-agent-tui", version: "v0.1.0-preview.1", profile: "go-module-v1"},
+	} {
+		module := "github.com/spice-framework/" + test.repository
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{
+			"policy-check",
+			"--repository=" + test.repository,
+			"--source=https://github.com/spice-framework/" + test.repository,
+			"--module=" + module,
+			"--version=" + test.version,
+			"--profile=" + test.profile,
+		}, &stdout, &stderr)
+		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "do not match") {
+			t.Fatalf("run(stale %s %s) = %d, stdout %q, stderr %q", test.repository, test.version, code, stdout.String(), stderr.String())
+		}
 	}
 }
 
