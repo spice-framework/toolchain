@@ -66,7 +66,11 @@ fail closed. Every declared selection is loaded independently with ambient
 diagnostics retain the ordered selection names, and a handwritten file that no
 selection reaches is an error. For schema-two verification, configured source
 roots are authoritative; trailing CLI package patterns do not narrow away part
-of that reviewed universe. Within each selection, the compiler derives every
+of that reviewed universe. Authorized annotation-tool provenance, build, and
+startup remain a host operation: CLI, `spicestyle`, and LSP pin the running
+toolchain's native `GOOS`/`GOARCH`, disable CGO and ambient build flags, and
+stay offline without automatic toolchain downloads. Configured target values
+apply only to application analysis. Within each selection, the compiler derives every
 `@Application` package and compiler-validated `spice_generate` entrypoint, then
 validates each application composition independently. Identical configuration
 keys, environment names, providers, or routes in unrelated applications do not

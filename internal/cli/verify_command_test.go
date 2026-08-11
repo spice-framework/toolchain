@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spice-framework/toolchain/compiler/diagnostic"
+	"github.com/spice-framework/toolchain/compiler/load"
 )
 
 func TestVerifyJSONSuccessAndValidationFailure(t *testing.T) {
@@ -226,6 +227,51 @@ func helper() {}
 	code, stdout, stderr = runModule(root, "verify", "--style=style.json", ".")
 	if code != 0 || stdout == "" || stderr != "" {
 		t.Fatalf("configured off: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestVerifyStartsAnnotationToolOnHostUnderHostileAmbientTarget(t *testing.T) {
+	t.Setenv("CGO_ENABLED", "1")
+	t.Setenv("GOARCH", "amd64")
+	t.Setenv("GOFLAGS", "-tags=ambient")
+	t.Setenv("GOOS", "plan9")
+
+	root := writeModule(t, map[string]string{"app/doc.go": `// Package sample owns the test module.
+// @Module
+package sample
+`})
+	configurationPath, err := filepath.Abs(filepath.Join("..", "style", "testdata", "style.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(configurationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "style.json"),
+		[]byte(styleConfigurationForApp(string(content))),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(
+		[]string{"verify", "--format=json", "--style=style.json", "."},
+		&stdout,
+		&stderr,
+		load.Options{Dir: root, Env: os.Environ()},
+		load.Load,
+	)
+	report := decodeDiagnosticReport(t, stdout.String())
+	if code != 0 || stderr.String() != "" || !report.Success ||
+		len(report.Diagnostics) != 0 {
+		t.Fatalf(
+			"code=%d report=%#v stderr=%q",
+			code,
+			report,
+			stderr.String(),
+		)
 	}
 }
 

@@ -484,12 +484,18 @@ func TestServerDeveloperWorkflowUsesVersionedCompilerResults(t *testing.T) {
 	}
 }
 
-func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
+func TestServerNavigatesImportedDescriptorAndImplementationUnderHostileTargetEnvironment(
+	t *testing.T,
+) {
 	t.Parallel()
 	root, mainPath, source := writeImportedLSPModule(t)
 	server, err := New(Config{
 		NewService: func(string) (*compilerservice.Service, error) {
-			return compilerservice.New(compilerservice.Config{})
+			return compilerservice.New(compilerservice.Config{
+				LoadOptions: load.Options{
+					Env: hostileAnnotationToolEnvironment(),
+				},
+			})
 		},
 		AnalysisDelay: 10 * time.Millisecond,
 	})
@@ -613,6 +619,31 @@ func TestServerNavigatesImportedDescriptorAndImplementation(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	finished = true
+}
+
+func hostileAnnotationToolEnvironment() []string {
+	result := os.Environ()
+	for _, setting := range []struct {
+		name  string
+		value string
+	}{
+		{name: "CGO_ENABLED", value: "1"},
+		{name: "GOARCH", value: "amd64"},
+		{name: "GOFLAGS", value: "-tags=ambient"},
+		{name: "GOOS", value: "plan9"},
+	} {
+		filtered := make([]string, 0, len(result)+1)
+		for _, entry := range result {
+			name, _, found := strings.Cut(entry, "=")
+			if found && strings.EqualFold(name, setting.name) {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		result = filtered
+		result = append(result, setting.name+"="+setting.value)
+	}
+	return result
 }
 
 func writeAnnotationReference(t *testing.T, root string) {

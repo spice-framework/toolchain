@@ -416,26 +416,50 @@ func offlineEnvironment(environment []string, mode string) []string {
 	if environment == nil {
 		environment = os.Environ()
 	}
-	result := replaceEnvironmentValue(environment, "GOPROXY", "off")
-	flags := environmentValue(result, "GOFLAGS")
-	fields := strings.Fields(flags)
-	filtered := make([]string, 0, len(fields)+1)
-	for index := 0; index < len(fields); index++ {
-		if fields[index] == "-mod" {
-			index++
-			continue
-		}
-		if strings.HasPrefix(fields[index], "-mod=") {
-			continue
-		}
-		filtered = append(filtered, fields[index])
+	result := append([]string(nil), environment...)
+	for _, name := range []string{
+		"GO386",
+		"GOAMD64",
+		"GOARM",
+		"GOARM64",
+		"GOMIPS",
+		"GOMIPS64",
+		"GOPPC64",
+		"GORISCV64",
+		"GOWASM",
+	} {
+		result = removeEnvironmentValue(result, name)
 	}
-	filtered = append(filtered, "-mod="+mode)
-	return replaceEnvironmentValue(
-		result,
-		"GOFLAGS",
-		strings.Join(filtered, " "),
-	)
+	for _, setting := range []struct {
+		name  string
+		value string
+	}{
+		{name: "CGO_ENABLED", value: "0"},
+		{name: "GOARCH", value: runtime.GOARCH},
+		{name: "GOAUTH", value: "off"},
+		{name: "GOENV", value: "off"},
+		{name: "GOEXPERIMENT", value: ""},
+		{name: "GOFLAGS", value: "-mod=" + mode},
+		{name: "GOOS", value: runtime.GOOS},
+		{name: "GOPROXY", value: "off"},
+		{name: "GOSUMDB", value: "off"},
+		{name: "GOTOOLCHAIN", value: "local"},
+	} {
+		result = replaceEnvironmentValue(result, setting.name, setting.value)
+	}
+	return result
+}
+
+func removeEnvironmentValue(environment []string, name string) []string {
+	result := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		key, _, found := strings.Cut(entry, "=")
+		if found && strings.EqualFold(key, name) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 func replaceEnvironmentValue(
@@ -452,16 +476,6 @@ func replaceEnvironmentValue(
 		result = append(result, entry)
 	}
 	return append(result, name+"="+value)
-}
-
-func environmentValue(environment []string, name string) string {
-	for _, entry := range environment {
-		key, value, found := strings.Cut(entry, "=")
-		if found && strings.EqualFold(key, name) {
-			return value
-		}
-	}
-	return ""
 }
 
 func renderStderr(value string) string {

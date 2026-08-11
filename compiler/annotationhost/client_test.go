@@ -73,6 +73,63 @@ func TestClientLaunchesAuthorizedOfflineToolAndAnalyzes(t *testing.T) {
 	}
 }
 
+func TestClientUsesHostToolchainUnderHostileTargetEnvironment(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr string
+	}{
+		{name: "host identity", mode: "host-environment"},
+		{name: "real tool failure", mode: "crash", wantErr: "fixture crash"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := writeToolFixture(t)
+			client, err := Start(t.Context(), Config{
+				Root:         root,
+				ToolPath:     fixtureTool,
+				Environment:  hostileToolEnvironment(test.mode),
+				StartTimeout: 15 * time.Second,
+			})
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("Start() error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Start() error = %v", err)
+			}
+			if err := client.Close(t.Context()); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+		})
+	}
+}
+
+func hostileToolEnvironment(mode string) []string {
+	result := os.Environ()
+	for _, setting := range []struct {
+		name  string
+		value string
+	}{
+		{name: "CGO_ENABLED", value: "1"},
+		{name: "GOAMD64", value: "v4"},
+		{name: "GOARCH", value: "amd64"},
+		{name: "GOENV", value: filepath.Join("missing", "goenv")},
+		{name: "GOEXPERIMENT", value: "definitely-invalid"},
+		{name: "GOFLAGS", value: "-tags=ambient"},
+		{name: "GOOS", value: "plan9"},
+		{name: "GOPROXY", value: "https://proxy.invalid"},
+		{name: "GOSUMDB", value: "sum.invalid"},
+		{name: "GOTOOLCHAIN", value: "auto"},
+		{name: "SPICE_FIXTURE_MODE", value: mode},
+	} {
+		result = replaceEnvironmentValue(result, setting.name, setting.value)
+	}
+	return result
+}
+
 func TestValidateDescriptorPackagesRejectsMissingDuplicateAndForeign(
 	t *testing.T,
 ) {
@@ -268,6 +325,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/spice-framework/spice/annotation/sdk"
@@ -279,6 +338,21 @@ func main() {
 		os.Exit(2)
 	}
 	mode := os.Getenv("SPICE_FIXTURE_MODE")
+	if mode == "host-environment" &&
+		(runtime.GOOS != os.Getenv("GOOS") ||
+			runtime.GOARCH != os.Getenv("GOARCH") ||
+			os.Getenv("CGO_ENABLED") != "0" ||
+			os.Getenv("GOENV") != "off" ||
+			os.Getenv("GOTOOLCHAIN") != "local" ||
+			os.Getenv("GOPROXY") != "off" ||
+			os.Getenv("GOSUMDB") != "off" ||
+			strings.Contains(os.Getenv("GOFLAGS"), "ambient")) {
+		fmt.Fprintf(os.Stderr, "host environment mismatch: runtime=%s/%s env=%s/%s cgo=%s goenv=%s toolchain=%s proxy=%s sumdb=%s flags=%s",
+			runtime.GOOS, runtime.GOARCH, os.Getenv("GOOS"), os.Getenv("GOARCH"),
+			os.Getenv("CGO_ENABLED"), os.Getenv("GOENV"), os.Getenv("GOTOOLCHAIN"),
+			os.Getenv("GOPROXY"), os.Getenv("GOSUMDB"), os.Getenv("GOFLAGS"))
+		os.Exit(4)
+	}
 	if mode == "contaminate" {
 		fmt.Print("unexpected stdout\n")
 	}

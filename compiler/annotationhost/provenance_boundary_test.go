@@ -2,6 +2,7 @@ package annotationhost
 
 import (
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -38,14 +39,26 @@ func TestOfflineEnvironmentReplacesEveryModuleModeSpelling(t *testing.T) {
 		"PATH=fixture",
 		"GOPROXY=https://proxy.invalid",
 		"GOFLAGS=-race -mod vendor -tags=integration -mod=readonly",
+		"GOOS=plan9",
+		"GOARCH=amd64",
+		"CGO_ENABLED=1",
+		"GOTOOLCHAIN=auto",
 	}
 	got := offlineEnvironment(original, "vendor")
 	if !slices.Contains(got, "GOPROXY=off") ||
-		!slices.Contains(got, "GOFLAGS=-race -tags=integration -mod=vendor") {
+		!slices.Contains(got, "GOFLAGS=-mod=vendor") ||
+		!slices.Contains(got, "GOOS="+runtime.GOOS) ||
+		!slices.Contains(got, "GOARCH="+runtime.GOARCH) ||
+		!slices.Contains(got, "CGO_ENABLED=0") ||
+		!slices.Contains(got, "GOTOOLCHAIN=local") {
 		t.Fatalf("offlineEnvironment() = %v", got)
 	}
 	for _, value := range got {
-		if strings.Contains(value, "proxy.invalid") || strings.Contains(value, "-mod=readonly") {
+		if strings.Contains(value, "proxy.invalid") ||
+			strings.Contains(value, "-mod=readonly") ||
+			strings.Contains(value, "-tags=integration") ||
+			value == "GOOS=plan9" || value == "CGO_ENABLED=1" ||
+			value == "GOTOOLCHAIN=auto" {
 			t.Fatalf("stale online/module mode retained: %q", value)
 		}
 	}
