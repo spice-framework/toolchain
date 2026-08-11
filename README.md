@@ -110,6 +110,29 @@ generated implementation uses no reflection, runtime proxy, service locator,
 or package-global registry. `ApplicationOptions` owns retry, cache,
 authorization, and method observers per application instance.
 
+## Spice-native logging
+
+`@observability.Logging` generates an instance-owned
+`*logging.Logger`, registers exact compiler-owned module/component scopes, and
+makes that logger injectable through the ordinary typed provider graph. An
+application `@Bean` returning the exact logger type replaces the generated
+fallback. Generated `Application.Logger` and `Application.LoggingController`
+accessors expose the selected capability without a registry or global slog
+state.
+
+Generated configuration owns `spice.logging.format`, `spice.logging.level`,
+`spice.logging.levels`, and `spice.logging.add-source`. Embedded applications
+discard output unless `ApplicationOptions.Logging` supplies exactly one writer
+or handler; generated commands bind their caller-owned stderr. The deprecated
+`*slog.Logger` option remains a one-preview compatibility adapter and conflicts
+with the new option when both are set.
+
+Logging adapters are ordered before application observers across lifecycle,
+HTTP, authorization, scheduling, async, retry, cache, events, transactions,
+and observed methods. `management.Enable(expose=["loggers"],
+access="loopback")` additionally generates method-specific GET/POST logger
+control routes and is rejected unless logging is enabled.
+
 ## Develop
 
 The repository requires exactly Go 1.26.5. Use:
@@ -281,8 +304,8 @@ the proof finishes.
 
 The repository retains the filtered history of the compiler/tooling boundary.
 Its public-core bridge is pinned to
-`github.com/spice-framework/spice@v0.1.0-preview.1.0.20260807031220-45e4f9d3e12d`
-(commit `45e4f9d3e12dff29adeeece5adf65046e2eaad67`). The Apache-2.0 license and
+`github.com/spice-framework/spice@v0.1.0-preview.2.0.20260811041952-0e79bc4f3b29`
+(commit `0e79bc4f3b294cd0a429598c4921391f2e4d10e2`). The Apache-2.0 license and
 pinned quality-tool versions were carried from the extracted source history,
 then the module identities and standalone gate were adapted here. No migration
 script or machine-specific replacement is part of the published tree.

@@ -12,7 +12,7 @@ func Singleton() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Singleton",
 		Summary: "Assigns application-owned singleton bean scope.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Examples: []sdk.Example{{
 			Title: "Application-owned bean",
 			Code:  "// @Singleton\ntype Catalog struct{}",

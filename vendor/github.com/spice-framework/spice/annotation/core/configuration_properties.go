@@ -12,11 +12,12 @@ import (
 // Field metadata remains on ordinary Go struct tags. Spice derives stable
 // keys, defaults, required values, secret redaction, validation, and generated
 // metadata without reflecting over the application at runtime. Prefix is
-// optional and must be dot-separated identifiers.
+// optional and must be dot-separated lowercase identifiers; each segment may
+// contain single interior hyphens.
 //
 //	// @import { ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
-//	// @ConfigurationProperties(prefix="orders")
-//	type OrderProperties struct {
+//	// @ConfigurationProperties(prefix="agent.runtime-plugin")
+//	type RuntimePluginProperties struct {
 //		Limit int `spice:"limit,default=100"`
 //	}
 func ConfigurationProperties() sdk.Definition {
@@ -27,11 +28,11 @@ func ConfigurationProperties() sdk.Definition {
 		Arguments: []sdk.Argument{{
 			Name:        "prefix",
 			Kinds:       []sdk.Kind{sdk.KindString},
-			Description: "Optional dot-separated property-key prefix.",
+			Description: "Optional dot-separated lowercase property-key prefix; segments may contain single interior hyphens.",
 		}},
 		Examples: []sdk.Example{{
 			Title: "Typed configuration properties",
-			Code:  "// @ConfigurationProperties(prefix=\"orders\")\ntype OrderProperties struct{}",
+			Code:  "// @ConfigurationProperties(prefix=\"agent.runtime-plugin\")\ntype RuntimePluginProperties struct{}",
 		}},
 		Compatibility: sdk.Compatibility{
 			Since:        "0.2.0",

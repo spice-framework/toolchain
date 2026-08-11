@@ -98,6 +98,8 @@ const (
 	// SourceAutoConfiguration identifies a statically decoded library default
 	// selected by an explicit Go import.
 	SourceAutoConfiguration Source = "auto-configuration"
+	// SourceLogging identifies the compiler-owned fallback *logging.Logger.
+	SourceLogging Source = "logging"
 )
 
 // Construction identifies the generated construction form.
@@ -2180,6 +2182,7 @@ func allSelectableProviders(
 			providers[index].Source != SourceStereotype &&
 			providers[index].Source != SourceStarter &&
 			providers[index].Source != SourceAutoConfiguration &&
+			providers[index].Source != SourceLogging &&
 			providers[index].Source != "" {
 			return false
 		}

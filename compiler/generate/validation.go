@@ -179,6 +179,9 @@ func providerVisibilityDiagnostics(
 	}
 	var diagnostics []Diagnostic
 	for _, item := range providers {
+		if item.Source == provider.SourceLogging {
+			continue
+		}
 		switch {
 		case item.PackagePath == target.PackagePath:
 			diagnostics = append(diagnostics, providerRenderDiagnostic(

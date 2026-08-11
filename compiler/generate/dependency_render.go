@@ -62,6 +62,7 @@ func importAliasesWithPolicies(
 	}
 	if features.logging {
 		aliases[observabilityPath] = "spiceobservability"
+		aliases[loggingPath] = "spicelogging"
 	}
 	if features.authorization {
 		aliases[securityPath] = "spicesecurity"
@@ -122,6 +123,7 @@ func importAliasesWithPolicies(
 		"spiceevent":                {},
 		"spiceintercept":            {},
 		"spicelifecycle":            {},
+		"spicelogging":              {},
 		"spicemanagement":           {},
 		"spiceobservability":        {},
 		"spiceschedule":             {},

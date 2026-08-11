@@ -8,7 +8,7 @@ const (
 	// CoreModule is the public runtime, annotation descriptor, and SDK module.
 	CoreModule = "github.com/spice-framework/spice"
 	// CoreVersion is the exact core revision validated by this toolchain slice.
-	CoreVersion = "v0.1.0-preview.1.0.20260807031220-45e4f9d3e12d"
+	CoreVersion = "v0.1.0-preview.2.0.20260811041952-0e79bc4f3b29"
 	// ToolchainModule is the compiler, CLI, LSP, and annotation-tool module.
 	ToolchainModule = "github.com/spice-framework/toolchain"
 	// CLITool is the Spice command package applications invoke through go tool.

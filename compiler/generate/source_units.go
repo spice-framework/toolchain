@@ -231,6 +231,8 @@ func sourceUnitProvider(item provider.Provider) bool {
 		return true
 	case provider.SourceEvent:
 		return len(item.Interfaces) != 0
+	case provider.SourceLogging:
+		return false
 	}
 	return len(item.Interfaces) != 0
 }
@@ -771,7 +773,7 @@ func sourceUnitConstructsProvider(item provider.Provider) bool {
 		provider.SourceAutoConfiguration,
 		provider.SourceStereotype:
 		return true
-	case provider.SourceConfiguration, provider.SourceEvent:
+	case provider.SourceConfiguration, provider.SourceEvent, provider.SourceLogging:
 		return false
 	}
 	return false

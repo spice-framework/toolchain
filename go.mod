@@ -11,7 +11,7 @@ tool (
 )
 
 require (
-	github.com/spice-framework/spice v0.1.0-preview.1.0.20260807031220-45e4f9d3e12d
+	github.com/spice-framework/spice v0.1.0-preview.2.0.20260811041952-0e79bc4f3b29
 	golang.org/x/mod v0.38.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/tools v0.48.0

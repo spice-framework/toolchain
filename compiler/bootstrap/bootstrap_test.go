@@ -147,6 +147,48 @@ func TestManagementAccessDefaultsToLoopback(t *testing.T) {
 	}
 }
 
+func TestLoggerManagementRequiresLoggingAndLoopback(t *testing.T) {
+	t.Parallel()
+	management := func(access string) resolve.Occurrence {
+		arguments := []annotation.Argument{{
+			Name: "expose",
+			Value: annotation.Value{Kind: annotation.KindList, List: []annotation.Value{{
+				Kind: annotation.KindString, String: "loggers",
+			}}},
+		}}
+		if access != "" {
+			arguments = append(arguments, annotation.Argument{
+				Name: "access", Value: annotation.Value{Kind: annotation.KindString, String: access},
+			})
+		}
+		return bootstrapOccurrence(1, "app", ManagementAnnotation, annotation.TargetFunction, "Commerce", arguments...)
+	}
+	tests := []struct {
+		name        string
+		occurrences []resolve.Occurrence
+		contains    string
+	}{
+		{name: "missing logging", occurrences: []resolve.Occurrence{management("")}, contains: "requires @observability.Logging"},
+		{name: "public", occurrences: []resolve.Occurrence{
+			management("public"),
+			bootstrapOccurrence(2, "app", LoggingAnnotation, annotation.TargetFunction, "Commerce"),
+		}, contains: `requires access="loopback"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			result := Compile(
+				resolve.Result{Occurrences: test.occurrences},
+				[]Application{{SymbolID: "app", Name: "Commerce"}},
+				Builtins(),
+			)
+			if diagnostics := diagnosticText(result.Diagnostics()); !strings.Contains(diagnostics, test.contains) {
+				t.Fatalf("Compile() diagnostics = %q", diagnostics)
+			}
+		})
+	}
+}
+
 func TestCompileRejectsInvalidManagementAccess(t *testing.T) {
 	t.Parallel()
 	result := Compile(

@@ -13,7 +13,7 @@ func Order() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Order",
 		Summary: "Orders beans injected into slices and maps.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Arguments: []sdk.Argument{{
 			Name:        "value",
 			Kinds:       []sdk.Kind{sdk.KindInteger},

@@ -13,7 +13,7 @@ func Primary() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Primary",
 		Summary: "Selects the preferred matching bean.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Examples: []sdk.Example{{
 			Title: "Preferred bean",
 			Code:  "// @Primary\ntype StripeProcessor struct{}",

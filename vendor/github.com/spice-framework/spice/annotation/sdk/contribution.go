@@ -90,7 +90,10 @@ type BeanMetadataContribution struct {
 	Scope      BeanScope `json:"scope,omitempty"`
 }
 
-// ConfigurationContribution marks one typed configuration declaration.
+// ConfigurationContribution marks one typed configuration declaration. Prefix
+// is empty or a dot-separated sequence of lowercase identifier segments. Each
+// segment may contain digits after its first letter and single interior
+// hyphens, for example "agent.runtime-plugin".
 type ConfigurationContribution struct {
 	Prefix string `json:"prefix,omitempty"`
 }
@@ -736,15 +739,35 @@ func validateOptionalPrefix(name, value string) error {
 		)
 	}
 	for segment := range strings.SplitSeq(value, ".") {
-		if !validIdentifier(segment) {
+		if !validConfigurationPrefixSegment(segment) {
 			return fmt.Errorf(
-				"annotation %s prefix %q is not dot-separated identifiers",
+				"annotation %s prefix %q must be dot-separated lowercase identifiers with optional single interior hyphens",
 				name,
 				value,
 			)
 		}
 	}
 	return nil
+}
+
+func validConfigurationPrefixSegment(value string) bool {
+	if value == "" || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	previousHyphen := false
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		switch {
+		case character >= 'a' && character <= 'z',
+			character >= '0' && character <= '9':
+			previousHyphen = false
+		case character == '-' && !previousHyphen:
+			previousHyphen = true
+		default:
+			return false
+		}
+	}
+	return !previousHyphen
 }
 
 func validateOptionalRoutePrefix(value string) error {

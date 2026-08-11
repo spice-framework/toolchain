@@ -40,6 +40,7 @@ type commandFeatures struct {
 	metrics           bool
 	configProps       bool
 	modules           bool
+	loggers           bool
 	hasMux            bool
 	authorization     bool
 	scheduling        bool
@@ -72,6 +73,7 @@ func commandFeaturesFor(
 		metrics:          slices.Contains(endpoints, compilerbootstrap.EndpointMetrics),
 		configProps:      slices.Contains(endpoints, compilerbootstrap.EndpointConfigProps),
 		modules:          slices.Contains(endpoints, compilerbootstrap.EndpointModules),
+		loggers:          slices.Contains(endpoints, compilerbootstrap.EndpointLoggers),
 		hasMux:           hasControllers || managementEnabled || httpObservation,
 		httpObservation:  httpObservation,
 	}
@@ -133,25 +135,41 @@ func writeBootstrapObservers(source *bytes.Buffer, features commandFeatures) {
 	if !features.logging {
 		return
 	}
-	source.WriteString("\tlogger := options.Logger\n")
-	source.WriteString("\tif logger == nil {\n")
-	source.WriteString("\t\tlogger = slog.New(slog.NewJSONHandler(os.Stderr, nil))\n")
-	source.WriteString("\t}\n")
-	source.WriteString("\tlifecycleLogs, err := spiceobservability.NewSlogLifecycleObserver(logger)\n")
+	source.WriteString("\tloggingObservers, err := spiceobservability.NewLoggingObservers(application.logger)\n")
 	source.WriteString("\tif err != nil {\n")
-	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure lifecycle logging: %w\", err))\n")
+	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure Spice logging observers: %w\", err))\n")
 	source.WriteString("\t}\n")
-	source.WriteString("\tobservers = append([]spicelifecycle.Observer{lifecycleLogs}, observers...)\n")
+	source.WriteString("\tobservers = append([]spicelifecycle.Observer{loggingObservers.Lifecycle}, observers...)\n")
 	if features.hasMux {
-		source.WriteString("\thttpLogs, err := spiceobservability.NewSlogHTTPObserver(logger)\n")
-		source.WriteString("\tif err != nil {\n")
-		source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure HTTP logging: %w\", err))\n")
-		source.WriteString("\t}\n")
 		if features.metrics {
-			source.WriteString("\thttpObservers = append(httpObservers[:1], append([]spiceweb.HTTPObserver{httpLogs}, httpObservers[1:]...)...)\n")
+			source.WriteString("\thttpObservers = append(httpObservers[:1], append([]spiceweb.HTTPObserver{loggingObservers.HTTP}, httpObservers[1:]...)...)\n")
 		} else {
-			source.WriteString("\thttpObservers = append([]spiceweb.HTTPObserver{httpLogs}, httpObservers...)\n")
+			source.WriteString("\thttpObservers = append([]spiceweb.HTTPObserver{loggingObservers.HTTP}, httpObservers...)\n")
 		}
+	}
+	if features.authorization {
+		source.WriteString("\toptions.AuthorizationObservers = append([]spicesecurity.Observer{loggingObservers.Authorization}, options.AuthorizationObservers...)\n")
+	}
+	if features.scheduling {
+		source.WriteString("\toptions.ScheduleObservers = append([]spiceschedule.Observer{loggingObservers.Schedule}, options.ScheduleObservers...)\n")
+	}
+	if features.asynchronous {
+		source.WriteString("\toptions.AsyncObservers = append([]spiceasync.Observer{loggingObservers.Async}, options.AsyncObservers...)\n")
+	}
+	if features.events {
+		source.WriteString("\toptions.EventObservers = append([]spiceevent.Observer{loggingObservers.Event}, options.EventObservers...)\n")
+	}
+	if features.transactions {
+		source.WriteString("\toptions.TransactionObservers = append([]spicedata.Observer{loggingObservers.Transaction}, options.TransactionObservers...)\n")
+	}
+	if features.caching {
+		source.WriteString("\toptions.CacheObservers = append([]spicecache.Observer{loggingObservers.Cache}, options.CacheObservers...)\n")
+	}
+	if features.retry {
+		source.WriteString("\toptions.RetryObservers = append([]spiceretry.Observer{loggingObservers.Retry}, options.RetryObservers...)\n")
+	}
+	if features.methodObservation {
+		source.WriteString("\toptions.MethodObservers = append([]spiceobservability.MethodObserver{loggingObservers.Method}, options.MethodObservers...)\n")
 	}
 }
 
@@ -284,6 +302,9 @@ func writeManagementSetup(
 	if features.modules {
 		source.WriteString("\t\tModules: &managementModules,\n")
 	}
+	if features.loggers {
+		source.WriteString("\t\tLogging: application.LoggingController(),\n")
+	}
 	source.WriteString("\t\tExpose: []spicemanagement.Endpoint{\n")
 	for _, endpoint := range features.endpoints {
 		fmt.Fprintf(source, "\t\t\t%s,\n", managementEndpointName(endpoint))
@@ -298,8 +319,10 @@ func writeManagementSetup(
 	source.WriteString("\tif err != nil {\n")
 	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"configure management handler: %w\", err))\n")
 	source.WriteString("\t}\n")
-	source.WriteString("\tif err := spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler); err != nil {\n")
-	source.WriteString("\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"register management routes: %w\", err))\n")
+	source.WriteString("\tfor _, pattern := range managementHandler.Patterns() {\n")
+	source.WriteString("\t\tif err := spiceweb.Register(routeMux, pattern, managementHandler); err != nil {\n")
+	source.WriteString("\t\t\treturn nil, application.coordinator.Abort(ctx, fmt.Errorf(\"register management routes: %w\", err))\n")
+	source.WriteString("\t\t}\n")
 	source.WriteString("\t}\n")
 }
 
@@ -404,6 +427,8 @@ func managementEndpointName(endpoint compilerbootstrap.Endpoint) string {
 		return "spicemanagement.EndpointConfigProps"
 	case compilerbootstrap.EndpointModules:
 		return "spicemanagement.EndpointModules"
+	case compilerbootstrap.EndpointLoggers:
+		return "spicemanagement.EndpointLoggers"
 	}
 	return strconv.Quote(string(endpoint))
 }
@@ -420,6 +445,11 @@ type CommandOptions struct {
 	Arguments []string
 	Stdout io.Writer
 	Stderr io.Writer
+`)
+	if features.logging {
+		source.WriteString("\tLogging *LoggingOptions\n")
+	}
+	source.WriteString(`
 	Logger *slog.Logger
 	ShutdownTimeout time.Duration
 	ShutdownContext ShutdownContextFactory
@@ -441,7 +471,6 @@ type CommandOptions struct {
 		Arguments: arguments,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
-		Logger: logger,
 		Application: ApplicationOptions{
 			Sources: []spiceconfig.Source{environment},
 		},
@@ -486,7 +515,15 @@ func RunCommand(options CommandOptions) int {
 	applicationOptions := options.Application
 `)
 	if features.logging {
-		source.WriteString("\tapplicationOptions.Logger = logger\n")
+		source.WriteString("\tif applicationOptions.Logging == nil && applicationOptions.Logger == nil {\n")
+		source.WriteString("\t\tif options.Logging != nil {\n")
+		source.WriteString("\t\t\tapplicationOptions.Logging = options.Logging\n")
+		source.WriteString("\t\t} else if options.Logger != nil {\n")
+		source.WriteString("\t\t\tapplicationOptions.Logger = options.Logger\n")
+		source.WriteString("\t\t} else {\n")
+		source.WriteString("\t\t\tapplicationOptions.Logging = &LoggingOptions{Writer: stderr}\n")
+		source.WriteString("\t\t}\n")
+		source.WriteString("\t}\n")
 	}
 	source.WriteString(`	logger.InfoContext(ctx, "Spice application constructing", slog.String("application", TargetID))
 	application, err := NewApplicationWithOptions(ctx, applicationOptions)

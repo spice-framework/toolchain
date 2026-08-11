@@ -137,6 +137,7 @@ func writeServicePolicyDeclaration(
 	fmt.Fprintf(source, "\ttarget %s\n", renderedType(service.Provider.Output, aliases))
 	if service.ManagerProviderID != "" {
 		source.WriteString("\tmanager *spicedata.Manager\n")
+		source.WriteString("\ttransactionObservers []spicedata.Observer\n")
 	}
 	if serviceUsesAuthorization(service) {
 		source.WriteString("\tauthorizer *spicesecurity.Authorizer\n")
@@ -164,6 +165,9 @@ func writeServicePolicyDeclaration(
 		}
 	}
 	source.WriteString("}\n\n")
+	if service.ManagerProviderID != "" {
+		writeServiceTransactionObserver(source, typeName)
+	}
 	writeServicePolicyConstructor(source, service, typeName, aliases)
 	if serviceUsesRetry(service) {
 		fmt.Fprintf(source, "func (decorator *%s) observeRetry(ctx context.Context, observation spiceretry.Observation) {\n", typeName)
@@ -217,7 +221,7 @@ func writeServicePolicyConstructor(
 	fmt.Fprintf(source, ") (%s, error) {\n", renderedType(service.Interface.Type, aliases))
 	fmt.Fprintf(source, "\tdecorator := &%s{target: target", typeName)
 	if service.ManagerProviderID != "" {
-		source.WriteString(", manager: manager")
+		source.WriteString(", manager: manager, transactionObservers: append([]spicedata.Observer(nil), options.TransactionObservers...)")
 	}
 	if serviceUsesAuthorization(service) {
 		source.WriteString(", authorizer: authorizer")
@@ -229,6 +233,12 @@ func writeServicePolicyConstructor(
 		source.WriteString(", methodObservers: append([]spiceobservability.MethodObserver(nil), options.MethodObservers...)")
 	}
 	source.WriteString("}\n")
+	if service.ManagerProviderID != "" {
+		source.WriteString("\tfor index, observer := range decorator.transactionObservers {\n")
+		source.WriteString("\t\tif observer == nil {\n")
+		source.WriteString("\t\t\treturn nil, fmt.Errorf(\"construct service policies: transaction observer %d is nil\", index)\n")
+		source.WriteString("\t\t}\n\t}\n")
+	}
 	if serviceUsesRetry(service) {
 		source.WriteString("\tfor index, observer := range decorator.retryObservers {\n")
 		source.WriteString("\t\tif observer == nil {\n")
@@ -251,6 +261,35 @@ func writeServicePolicyConstructor(
 		}
 	}
 	source.WriteString("\treturn decorator, nil\n")
+	source.WriteString("}\n\n")
+}
+
+func writeServiceTransactionObserver(source *bytes.Buffer, typeName string) {
+	fmt.Fprintf(source, "func (decorator *%s) observeTransaction(\n", typeName)
+	source.WriteString("\tctx context.Context,\n")
+	source.WriteString("\tdefinition spicedata.Definition,\n")
+	source.WriteString("\tinvoke func(context.Context) error,\n")
+	source.WriteString(") (resultErr error) {\n")
+	source.WriteString("\tobservedContext := ctx\n")
+	source.WriteString("\tfinishers := make([]func(spicedata.Result), 0, len(decorator.transactionObservers))\n")
+	source.WriteString("\tfor _, observer := range decorator.transactionObservers {\n")
+	source.WriteString("\t\tnext, finish := observer.BeginTransaction(observedContext, definition)\n")
+	source.WriteString("\t\tif next != nil { observedContext = next }\n")
+	source.WriteString("\t\tif finish != nil { finishers = append(finishers, finish) }\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tstarted := time.Now()\n")
+	source.WriteString("\tfinish := func(result spicedata.Result) {\n")
+	source.WriteString("\t\tfor index := len(finishers) - 1; index >= 0; index-- { finishers[index](result) }\n")
+	source.WriteString("\t}\n")
+	source.WriteString("\tdefer func() {\n")
+	source.WriteString("\t\trecovered := recover()\n")
+	source.WriteString("\t\tif recovered == nil { return }\n")
+	source.WriteString("\t\tfinish(spicedata.Result{Definition: definition, Duration: time.Since(started), Err: spicedata.ErrPanicked, Panicked: true})\n")
+	source.WriteString("\t\tpanic(recovered)\n")
+	source.WriteString("\t}()\n")
+	source.WriteString("\tresultErr = invoke(observedContext)\n")
+	source.WriteString("\tfinish(spicedata.Result{Definition: definition, Duration: time.Since(started), Err: resultErr})\n")
+	source.WriteString("\treturn resultErr\n")
 	source.WriteString("}\n\n")
 }
 
@@ -486,15 +525,18 @@ func writeDecoratedMethodBody(
 	if method.Transaction != nil {
 		source.WriteString("\ttransactionNext := invoke\n")
 		source.WriteString("\tinvoke = func(current context.Context) error {\n")
-		source.WriteString("\t\treturn decorator.manager.Within(current, spicedata.Definition{\n")
+		source.WriteString("\t\tdefinition := spicedata.Definition{\n")
 		fmt.Fprintf(source, "\t\t\tID: %s,\n", strconv.Quote(method.MethodID))
 		fmt.Fprintf(source, "\t\t\tModule: %s,\n", strconv.Quote(service.Module))
 		fmt.Fprintf(source, "\t\t\tIsolation: %s,\n", serviceIsolationLevel(method.Transaction.Isolation))
 		if method.Transaction.ReadOnly {
 			source.WriteString("\t\t\tReadOnly: true,\n")
 		}
-		source.WriteString("\t\t}, func(transactionContext context.Context, _ spicedata.Executor) error {\n")
-		source.WriteString("\t\t\treturn transactionNext(transactionContext)\n")
+		source.WriteString("\t\t}\n")
+		source.WriteString("\t\treturn decorator.observeTransaction(current, definition, func(observedContext context.Context) error {\n")
+		source.WriteString("\t\t\treturn decorator.manager.Within(observedContext, definition, func(transactionContext context.Context, _ spicedata.Executor) error {\n")
+		source.WriteString("\t\t\t\treturn transactionNext(transactionContext)\n")
+		source.WriteString("\t\t\t})\n")
 		source.WriteString("\t\t})\n\t}\n")
 	}
 	if method.Retry != nil {

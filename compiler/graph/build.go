@@ -628,6 +628,8 @@ func providerRole(item *provider.Provider) string {
 		return "configuration provider"
 	case provider.SourceEvent:
 		return "event topic provider"
+	case provider.SourceLogging:
+		return "logging fallback provider"
 	}
 	return "provider"
 }

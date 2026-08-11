@@ -47,6 +47,8 @@ func writeApplicationOptions(
 		source.WriteString("\tAuthorizationWriteFailure spicesecurity.WriteFailure\n")
 	}
 	if features.logging {
+		source.WriteString("\tLogging *LoggingOptions\n")
+		source.WriteString("\t// Logger is deprecated; use Logging.\n")
 		source.WriteString("\tLogger *slog.Logger\n")
 	}
 	if features.scheduling {
@@ -61,6 +63,9 @@ func writeApplicationOptions(
 	if features.events {
 		source.WriteString("\tEventObservers []spiceevent.Observer\n")
 	}
+	if features.transactions {
+		source.WriteString("\tTransactionObservers []spicedata.Observer\n")
+	}
 	if features.caching {
 		source.WriteString("\tCacheClock func() time.Time\n")
 		source.WriteString("\tCacheObservers []spicecache.Observer\n")
@@ -72,6 +77,17 @@ func writeApplicationOptions(
 		source.WriteString("\tMethodObservers []spiceobservability.MethodObserver\n")
 	}
 	source.WriteString("\tObservers []spicelifecycle.Observer\n")
+	source.WriteString("}\n\n")
+}
+
+func writeLoggingOptions(source *bytes.Buffer, features commandFeatures) {
+	if !features.logging {
+		return
+	}
+	source.WriteString("type LoggingOptions struct {\n")
+	source.WriteString("\tWriter io.Writer\n")
+	source.WriteString("\tHandler slog.Handler\n")
+	source.WriteString("\tConfiguration *spicelogging.Configuration\n")
 	source.WriteString("}\n\n")
 }
 
@@ -106,6 +122,7 @@ func writeConfigurationAPI(
 	configTypes []configuration.Type,
 	caches []compilercache.Boundary,
 	asynchronous bool,
+	logging bool,
 ) {
 	source.WriteString("func ConfigurationSchema() (spiceconfig.Schema, error) {\n")
 	source.WriteString("\treturn spiceconfig.NewSchema(\n")
@@ -150,6 +167,9 @@ func writeConfigurationAPI(
 		source.WriteString("\t\t\tHasDefault: true,\n")
 		source.WriteString("\t\t},\n")
 	}
+	if logging {
+		writeLoggingConfigurationProperties(source)
+	}
 	source.WriteString("\t\tspiceconfig.Property{\n")
 	fmt.Fprintf(source, "\t\t\tKey: %s,\n", strconv.Quote(shutdownConfigurationKey))
 	source.WriteString("\t\t\tKind: spiceconfig.KindDuration,\n")
@@ -159,6 +179,26 @@ func writeConfigurationAPI(
 	source.WriteString("\t\t},\n")
 	source.WriteString("\t)\n")
 	source.WriteString("}\n\n")
+}
+
+func writeLoggingConfigurationProperties(source *bytes.Buffer) {
+	properties := []struct {
+		key, environment, defaultValue, kind string
+	}{
+		{loggingFormatKey, "SPICE_LOGGING_FORMAT", "json", "spiceconfig.KindString"},
+		{loggingLevelKey, "SPICE_LOGGING_LEVEL", "info", "spiceconfig.KindString"},
+		{loggingLevelsKey, "SPICE_LOGGING_LEVELS", "", "spiceconfig.KindString"},
+		{loggingAddSourceKey, "SPICE_LOGGING_ADD_SOURCE", "false", "spiceconfig.KindBoolean"},
+	}
+	for _, property := range properties {
+		source.WriteString("\t\tspiceconfig.Property{\n")
+		fmt.Fprintf(source, "\t\t\tKey: %s,\n", strconv.Quote(property.key))
+		fmt.Fprintf(source, "\t\t\tKind: %s,\n", property.kind)
+		fmt.Fprintf(source, "\t\t\tEnvironment: %s,\n", strconv.Quote(property.environment))
+		fmt.Fprintf(source, "\t\t\tDefault: %s,\n", strconv.Quote(property.defaultValue))
+		source.WriteString("\t\t\tHasDefault: true,\n")
+		source.WriteString("\t\t},\n")
+	}
 }
 
 func writeCacheConfigurationProperties(

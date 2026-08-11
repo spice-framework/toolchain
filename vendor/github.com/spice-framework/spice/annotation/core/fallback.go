@@ -13,7 +13,7 @@ func Fallback() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Fallback",
 		Summary: "Selects a bean only when no regular candidate matches.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Examples: []sdk.Example{{
 			Title: "Fallback bean",
 			Code:  "// @Fallback\ntype OfflineProcessor struct{}",

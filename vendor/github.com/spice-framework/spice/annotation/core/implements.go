@@ -33,7 +33,7 @@ func Implements() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Implements",
 		Summary: "Explicitly binds one concrete bean to named Go interfaces.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Arguments: []sdk.Argument{{
 			Name:        "interfaces",
 			Kinds:       []sdk.Kind{sdk.KindIdentifier},

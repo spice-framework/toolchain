@@ -704,8 +704,13 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 		"func RunCommand(options CommandOptions) int",
 		"signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)",
 		`Key:         "spice.shutdown-timeout"`,
-		"spiceobservability.NewSlogLifecycleObserver(logger)",
-		"spiceobservability.NewSlogHTTPObserver(logger)",
+		"spiceobservability.NewLoggingObservers(application.logger)",
+		`Key:         "spice.logging.format"`,
+		`Key:         "spice.logging.level"`,
+		`Key:         "spice.logging.levels"`,
+		`Key:         "spice.logging.add-source"`,
+		"func (application *Application) Logger() *spicelogging.Logger",
+		"func (application *Application) LoggingController() *spicelogging.Controller",
 		"managementMetrics := spicemanagement.NewHTTPMetrics()",
 		"spicemanagement.NewConfigurationReport(configurationSchema, configurationSnapshot)",
 		"spicemanagement.NewModuleReport(",
@@ -713,8 +718,10 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 		"spicemanagement.EndpointMetrics",
 		"spicemanagement.EndpointConfigProps",
 		"spicemanagement.EndpointModules",
+		"spicemanagement.EndpointLoggers",
+		"application.LoggingController()",
 		`Access: spicemanagement.Access("loopback")`,
-		"spiceweb.Register(routeMux, managementHandler.Pattern(), managementHandler)",
+		"for _, pattern := range managementHandler.Patterns()",
 		"application.mux = routeMux",
 		"return ExitFailure",
 	} {
@@ -748,6 +755,59 @@ func TestRenderGeneratesAnnotationDrivenCommandBootstrap(t *testing.T) {
 		generatedCommandTest,
 	)
 	runGoTest(t, root, "./internal/spicegen/command")
+}
+
+func TestRenderInjectsLoggingFallbackAndSelectsApplicationLogger(t *testing.T) {
+	t.Parallel()
+	root := writeModule(t, "example.com/loggingapp", map[string]string{
+		"app/application.go": `package app
+
+import "github.com/spice-framework/spice/logging"
+
+type Service struct { Logger *logging.Logger }
+
+// @Bean
+func AppLogger() *logging.Logger {
+	logger, _ := logging.New(logging.Options{Application: "owned"})
+	return logger
+}
+
+// @Bean
+func NewService(logger *logging.Logger) *Service { return &Service{Logger: logger} }
+
+// @Application
+// @observability.Logging
+func Command(*Service) {}
+`,
+	})
+	program, model, applicationTarget := buildApplication(t, root, "./...")
+	providers := model.Providers()
+	if !slices.ContainsFunc(providers, func(item provider.Provider) bool {
+		return item.Source == provider.SourceLogging && item.Fallback &&
+			item.OutputTypeID == "*github.com/spice-framework/spice/logging.Logger"
+	}) {
+		t.Fatalf("Providers() has no logging fallback: %#v", providers)
+	}
+	target, diagnostics := DefaultTarget(program, applicationTarget)
+	if len(diagnostics) != 0 {
+		t.Fatalf("DefaultTarget() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	plan, diagnostics := Render(program, model, applicationTarget, target)
+	if len(diagnostics) != 0 {
+		t.Fatalf("Render() diagnostics = %v", generationDiagnosticStrings(diagnostics))
+	}
+	source := string(generatedGoContent(t, plan))
+	for _, expected := range []string{
+		"spiceLogger := application.logger",
+		"application.logger = dependencies.appLogger",
+		"NewLoggingObservers(application.logger)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("generated logging source missing %q:\n%s", expected, source)
+		}
+	}
+	writePlan(t, root, plan)
+	runGoTest(t, root, "./...")
 }
 
 func TestRenderGeneratesLifecycleOwnedFixedDelayScheduler(t *testing.T) {
@@ -3036,6 +3096,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -3092,6 +3153,7 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 	}{
 		{path: "/actuator/health", status: http.StatusOK},
 		{path: "/actuator/metrics", status: http.StatusOK},
+		{path: "/actuator/loggers", status: http.StatusOK},
 		{path: "/actuator/info", status: http.StatusNotFound},
 		{path: "/actuator/health/liveness", status: http.StatusNotFound},
 		{path: "/actuator/health/readiness", status: http.StatusNotFound},
@@ -3168,6 +3230,19 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 		) {
 		t.Fatalf("modules report = %#v", modules)
 	}
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, managementRequest("/actuator/loggers"))
+	var levels struct { Scopes []struct { Scope string } ` + "`" + `json:"scopes"` + "`" + ` }
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &levels) != nil || len(levels.Scopes) == 0 {
+		t.Fatalf("loggers response = %d %s", response.Code, response.Body)
+	}
+	update := httptest.NewRequest(http.MethodPost, "/actuator/loggers", strings.NewReader(` + "`" + `{"scope":"root","level":"debug"}` + "`" + `))
+	update.RemoteAddr = "127.0.0.1:49152"
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, update)
+	if response.Code != http.StatusNoContent || application.LoggingController().Snapshot().Scopes[0].EffectiveLevel.String() != "DEBUG" {
+		t.Fatalf("logger update = %d %s", response.Code, response.Body)
+	}
 	remoteRequest := httptest.NewRequest(http.MethodGet, "/actuator/health", nil)
 	remoteRequest.RemoteAddr = "192.0.2.10:49152"
 	remoteRequest.Header.Set("X-Forwarded-For", "127.0.0.1")
@@ -3179,6 +3254,22 @@ func TestGeneratedCommandCheckAndManagementAllowlist(t *testing.T) {
 	}
 	if err := application.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() error = %v", err)
+	}
+	invalid, invalidErr := NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Sources: []spiceconfig.Source{source},
+		Logging: &LoggingOptions{Writer: io.Discard, Handler: slog.DiscardHandler},
+	})
+	if invalid != nil || invalidErr == nil || !strings.Contains(invalidErr.Error(), "exactly one writer or handler") {
+		t.Fatalf("conflicting logging sinks = %#v, %v", invalid, invalidErr)
+	}
+	invalid, invalidErr = NewApplicationWithOptions(context.Background(), ApplicationOptions{
+		Sources: []spiceconfig.Source{commandSource(t, map[string]string{
+			"command.secret": "true", "spice.logging.levels": "unknown=debug",
+		})},
+		Logging: &LoggingOptions{Writer: io.Discard},
+	})
+	if invalid != nil || invalidErr == nil || !strings.Contains(invalidErr.Error(), "unknown scope") {
+		t.Fatalf("unknown logging scope = %#v, %v", invalid, invalidErr)
 	}
 }
 
@@ -4040,7 +4131,7 @@ func (*Server) Stop(ctx context.Context) error {
 import "example.com/command/components"
 
 // @Application
-// @management.Enable(expose=["metrics", "health", "configprops", "modules"], access="loopback")
+// @management.Enable(expose=["metrics", "health", "configprops", "modules", "loggers"], access="loopback")
 // @observability.Logging
 func Command(*components.Server) {
 	panic("application marker bodies must not execute")

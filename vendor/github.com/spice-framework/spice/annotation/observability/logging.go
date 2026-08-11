@@ -9,18 +9,18 @@ import (
 	"github.com/spice-framework/spice/annotation/sdk"
 )
 
-// Logging enables structured application and module lifecycle logging.
+// Logging enables Spice-native structured application logging.
 //
-// Generated observations use slog-compatible structured records and preserve
-// application, module, component, operation, and phase fields. No global
-// logger is installed; the logger remains an explicit dependency.
+// Generated observations use a selected injectable logging.Logger, preserve
+// compiler-owned scope metadata, and cover every active Spice observation
+// seam. No global logger is installed.
 //
 //	// @import { Logging } from "github.com/spice-framework/spice/annotation/observability"
 //	// @Logging
 func Logging() sdk.Definition {
 	return sdk.Definition{
 		Name:    "observability.Logging",
-		Summary: "Enables generated structured lifecycle logging.",
+		Summary: "Enables injectable Spice-native structured logging.",
 		Targets: []sdk.Target{sdk.TargetFunction},
 		Examples: []sdk.Example{{
 			Title: "Structured logging",
@@ -38,7 +38,7 @@ func Logging() sdk.Definition {
 	}
 }
 
-// ObservabilityLoggingHandler contributes structured lifecycle logging.
+// ObservabilityLoggingHandler contributes Spice-native structured logging.
 func ObservabilityLoggingHandler(
 	_ context.Context,
 	invocation sdk.Invocation,

@@ -68,7 +68,7 @@ func writeProviders(
 				item,
 				variable,
 				dependencies[item.SymbolID],
-				providerModules[item.SymbolID],
+				effectiveProviderModule(item, providerModules),
 				adapter,
 				overrideFields[item.SymbolID],
 				aliases,
@@ -86,7 +86,7 @@ func writeProviders(
 				item,
 				variable,
 				dependencies[item.SymbolID],
-				providerModules[item.SymbolID],
+				effectiveProviderModule(item, providerModules),
 				adapter,
 				overrideFields[item.SymbolID],
 				aliases,
@@ -127,6 +127,9 @@ func writeProviders(
 			); err != nil {
 				return err
 			}
+		case provider.SourceLogging:
+			fmt.Fprintf(source, "\t%s := application.logger\n", variable)
+			fmt.Fprintf(source, "\t_ = %s\n", variable)
 		default:
 			return fmt.Errorf("provider %s has unsupported source %q", item.SymbolID, item.Source)
 		}

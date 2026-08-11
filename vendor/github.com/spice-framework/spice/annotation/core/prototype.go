@@ -14,7 +14,7 @@ func Prototype() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.Prototype",
 		Summary: "Assigns caller-owned prototype bean scope.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Examples: []sdk.Example{{
 			Title: "Caller-owned bean",
 			Code:  "// @Prototype\ntype WorkUnit struct{}",

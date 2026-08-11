@@ -251,7 +251,7 @@ func writeHooks(
 		fmt.Fprintf(
 			source,
 			"\t\t\tModule: %s,\n",
-			strconv.Quote(providerModules[component.Provider.SymbolID]),
+			strconv.Quote(effectiveProviderModule(component.Provider, providerModules)),
 		)
 		fmt.Fprintf(source, "\t\t\tStart: %s.%s,\n", variable, component.Start.Method.Name)
 		if component.Stop != nil {
@@ -411,4 +411,14 @@ func providerModuleIDs(
 		result[item.SymbolID] = packageModules[item.PackagePath]
 	}
 	return result
+}
+
+func effectiveProviderModule(item provider.Provider, providerModules map[string]string) string {
+	if module := providerModules[item.SymbolID]; module != "" {
+		return module
+	}
+	if item.PackagePath == "" {
+		return ""
+	}
+	return "spice.unassigned:" + item.PackagePath
 }

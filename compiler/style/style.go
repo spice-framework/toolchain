@@ -15,6 +15,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spice-framework/spice/annotation"
@@ -187,11 +188,124 @@ func buildJavaStructured(
 			providers.Providers(),
 		)...,
 	)
+	catalog.diagnostics = append(
+		catalog.diagnostics,
+		loggingDiagnostics(files)...,
+	)
 	if rules != nil {
 		catalog.diagnostics = filterConfiguredDiagnostics(catalog.diagnostics, *rules)
 	}
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
+}
+
+func loggingDiagnostics(files map[string]sourceFile) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, filePath := range sortedFilePaths(files) {
+		file := files[filePath]
+		imports := importPaths(file.syntax)
+		ast.Inspect(file.syntax, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if qualifier, ok := selector.X.(*ast.Ident); ok &&
+				imports[qualifier.Name] == "log/slog" &&
+				(selector.Sel.Name == "SetDefault" || selector.Sel.Name == "Default") {
+				position, physical := positions(file, selector.Pos())
+				diagnostics = append(diagnostics, Diagnostic{
+					Position: position, PhysicalPosition: physical,
+					Kind:    "logging.global",
+					Message: "profile java-structured forbids process-global slog state; inject *logging.Logger",
+				})
+			}
+			if loggingCall(selector.Sel.Name) && containsRawErrorLogging(call.Args, imports) {
+				position, physical := positions(file, selector.Pos())
+				diagnostics = append(diagnostics, Diagnostic{
+					Position: position, PhysicalPosition: physical,
+					Kind:    "logging.raw-error",
+					Message: "profile java-structured forbids raw error text in logs; use logging.ErrorFields or an explicit logging.SafeError",
+				})
+			}
+			return true
+		})
+	}
+	return diagnostics
+}
+
+func importPaths(file *ast.File) map[string]string {
+	result := make(map[string]string, len(file.Imports))
+	for _, specification := range file.Imports {
+		importPath, err := strconv.Unquote(specification.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := filepath.Base(importPath)
+		if specification.Name != nil {
+			name = specification.Name.Name
+		}
+		result[name] = importPath
+	}
+	return result
+}
+
+func loggingCall(name string) bool {
+	switch name {
+	case "Log", "LogAttrs", "Trace", "Debug", "Info", "Warn", "Error":
+		return true
+	default:
+		return false
+	}
+}
+
+func containsRawErrorLogging(arguments []ast.Expr, imports map[string]string) bool {
+	found := false
+	for _, argument := range arguments {
+		ast.Inspect(argument, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if selector.Sel.Name == "Error" && len(call.Args) == 0 {
+				found = true
+				return false
+			}
+			qualifier, qualified := selector.X.(*ast.Ident)
+			if qualified && imports[qualifier.Name] == "log/slog" &&
+				selector.Sel.Name == "Any" && firstStringArgument(call.Args) == "error" {
+				found = true
+				return false
+			}
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+func firstStringArgument(arguments []ast.Expr) string {
+	if len(arguments) == 0 {
+		return ""
+	}
+	literal, ok := arguments[0].(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return ""
+	}
+	value, err := strconv.Unquote(literal.Value)
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
 func filterConfiguredDiagnostics(diagnostics []Diagnostic, rules Rules) []Diagnostic {

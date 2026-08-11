@@ -143,7 +143,9 @@ func TransactionPolicy(*Root) {}
 		"defaultServicePolicy, err :=",
 	)
 	for _, required := range []string{
-		"decorator.manager.Within(current, spicedata.Definition{",
+		"decorator.observeTransaction(current, definition",
+		"decorator.manager.Within(observedContext, definition",
+		"transactionObservers []spicedata.Observer",
 		"Isolation: sql.LevelSerializable",
 		"ReadOnly:  true",
 		"func(transactionContext context.Context, _ spicedata.Executor) error",

@@ -110,6 +110,34 @@ func TestBuildRejectsJavaStructuredViolations(t *testing.T) {
 			want: "file.one-primary-type",
 		},
 		{
+			name: "global slog",
+			files: map[string]string{
+				"app/worker.go": `package app
+
+import "log/slog"
+
+type Worker struct{}
+
+func (*Worker) Configure(logger *slog.Logger) { slog.SetDefault(logger) }
+`,
+			},
+			want: "logging.global",
+		},
+		{
+			name: "raw error logging",
+			files: map[string]string{
+				"app/worker.go": `package app
+
+import "log/slog"
+
+type Worker struct { logger *slog.Logger }
+
+func (worker *Worker) Run(err error) { worker.logger.Error("failed", "error", err.Error()) }
+`,
+			},
+			want: "logging.raw-error",
+		},
+		{
 			name: "receiver colocation",
 			files: map[string]string{
 				"app/worker.go":        "package app\n\ntype Worker struct{}\n",

@@ -72,6 +72,7 @@ const (
 	eventPath         = "github.com/spice-framework/spice/event"
 	interceptPath     = "github.com/spice-framework/spice/intercept"
 	lifecyclePath     = "github.com/spice-framework/spice/lifecycle"
+	loggingPath       = "github.com/spice-framework/spice/logging"
 	managementPath    = "github.com/spice-framework/spice/management"
 	observabilityPath = "github.com/spice-framework/spice/observability"
 	retryPath         = "github.com/spice-framework/spice/retry"
@@ -82,6 +83,10 @@ const (
 
 	shutdownConfigurationKey = "spice.shutdown-timeout"
 	asyncConcurrencyKey      = "spice.async.max-concurrency"
+	loggingFormatKey         = "spice.logging.format"
+	loggingLevelKey          = "spice.logging.level"
+	loggingLevelsKey         = "spice.logging.levels"
+	loggingAddSourceKey      = "spice.logging.add-source"
 )
 
 var targetIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -658,6 +663,7 @@ func renderTargetFiles(
 		configTypes,
 		append(caches, serviceCacheBoundaries(policies)...),
 		features.asynchronous,
+		features.logging,
 	)
 
 	localProviderVariables, dependencyProviderVariables := targetProviderVariables(providers)
@@ -695,12 +701,24 @@ func renderTargetFiles(
 	}
 
 	hasLifecycleFeatures := len(model.Components()) != 0 || len(jobs) != 0
+	generatedLoggingScopes := loggingScopes(
+		model,
+		applicationTarget,
+		providers,
+		providerModules,
+	)
+	selectedLoggerVariable := selectedApplicationLoggerVariable(
+		providers,
+		localProviderVariables,
+	)
 	assembly := renderAssemblyTargetSource(
 		target,
 		features,
 		componentFields,
 		dependencyExposedVariables,
 		hasLifecycleFeatures,
+		generatedLoggingScopes,
+		selectedLoggerVariable,
 	)
 
 	featureSource := renderFeaturesTargetSource(
@@ -734,6 +752,7 @@ func renderTargetFiles(
 	var lifecycleSource bytes.Buffer
 	writeLifecycleMethods(&lifecycleSource)
 	writeComponentsMethod(&lifecycleSource)
+	writeLoggingAccessors(&lifecycleSource, features)
 	writeAsyncApplicationMethods(&lifecycleSource, asyncTasks, aliases)
 	if features.hasMux {
 		writeHandlerMethod(&lifecycleSource)
@@ -963,6 +982,8 @@ func renderAssemblyTargetSource(
 	componentFields []generatedComponentField,
 	providerVariables map[string]string,
 	hasLifecycleFeatures bool,
+	loggingScopes []generatedLoggingScope,
+	selectedLoggerVariable string,
 ) []byte {
 	var source bytes.Buffer
 	source.WriteString("func NewApplication(ctx context.Context, observers ...spicelifecycle.Observer) (*Application, error) {\n")
@@ -975,6 +996,8 @@ func renderAssemblyTargetSource(
 		strconv.Quote("construct application "+target.ID+": context is nil"),
 	)
 	source.WriteString("\tapplication := &Application{coordinator: spicelifecycle.NewCoordinator()}\n")
+	writeConfigurationResolution(&source, target)
+	writeLoggingSetup(&source, features, loggingScopes)
 	writeBootstrapObservers(&source, features)
 	writeAuthorizationSetup(&source, features)
 	source.WriteString("\tfor index, observer := range observers {\n")
@@ -982,7 +1005,6 @@ func renderAssemblyTargetSource(
 	source.WriteString("\t\t\treturn nil, fmt.Errorf(\"register lifecycle observer %d: %w\", index, err)\n")
 	source.WriteString("\t\t}\n")
 	source.WriteString("\t}\n")
-	writeConfigurationResolution(&source, target)
 	source.WriteString("\tdependencies, err := constructApplicationDependencies(ctx, application, options, configurationSnapshot")
 	if features.authorization {
 		source.WriteString(", authorizer")
@@ -992,6 +1014,7 @@ func renderAssemblyTargetSource(
 	source.WriteString("\t\treturn nil, err\n")
 	source.WriteString("\t}\n")
 	source.WriteString("\t_ = dependencies\n")
+	writeSelectedApplicationLogger(&source, selectedLoggerVariable)
 	writeComponentAssignments(
 		&source,
 		componentFields,
@@ -1031,11 +1054,15 @@ func renderContractsTargetSource(
 	writeComponentsType(&source, componentFields, aliases)
 	writeBeanOverridesType(&source, componentFields, aliases)
 	writeRouteInterceptorsType(&source, routeInterceptorFields, aliases)
+	writeLoggingOptions(&source, features)
 	source.WriteString("type Application struct {\n")
 	source.WriteString("\tcoordinator *spicelifecycle.Coordinator\n")
 	source.WriteString("\thooks []spicelifecycle.Hook\n")
 	source.WriteString("\tshutdownTimeout time.Duration\n")
 	source.WriteString("\tcomponents Components\n")
+	if features.logging {
+		source.WriteString("\tlogger *spicelogging.Logger\n")
+	}
 	if features.asynchronous {
 		source.WriteString("\tasyncExecutor *spiceasync.Executor\n")
 		writeAsyncApplicationFields(&source, asyncTasks, aliases)

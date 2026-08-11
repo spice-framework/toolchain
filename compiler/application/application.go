@@ -361,6 +361,21 @@ func BuildWithOptions(
 		return model
 	}
 	model.configTypes = configurationCatalog.Types()
+	bootstrapDefinitions := compilerbootstrap.Builtins()
+	bootstrapDefinitions = append(
+		bootstrapDefinitions,
+		options.BootstrapDefinitions...,
+	)
+	bootstrapApplications := bootstrapApplicationsFromResolution(resolution)
+	bootstrapResult := compilerbootstrap.Compile(
+		resolution,
+		bootstrapApplications,
+		bootstrapDefinitions,
+	)
+	if diagnostics := bootstrapResult.Diagnostics(); len(diagnostics) != 0 {
+		model.diagnostics = bootstrapDiagnostics(diagnostics)
+		return model
+	}
 
 	providerCatalog, events, providerModelDiagnostics := buildProviderMetadata(
 		program,
@@ -374,6 +389,20 @@ func BuildWithOptions(
 	model.diagnostics = providerModelDiagnostics
 	if len(model.diagnostics) != 0 {
 		return model
+	}
+	if loggingFeatureEnabled(bootstrapResult, bootstrapApplications) {
+		if loggingType := exactLoggingType(providerCatalog.Providers()); loggingType != nil {
+			providerCatalog = provider.Add(providerCatalog, provider.Provider{
+				Source: provider.SourceLogging, Role: "framework-logging",
+				SymbolID: "spice.logging.Logger", Name: "spiceLogger",
+				Fallback: true, Output: loggingType,
+				OutputTypeID: provider.TypeID(loggingType),
+			})
+			if diagnostics := providerCatalog.Diagnostics(); len(diagnostics) != 0 {
+				model.diagnostics = providerDiagnostics(diagnostics)
+				return model
+			}
+		}
 	}
 	providerGraph := graph.Build(providerCatalog)
 	if diagnostics := providerGraph.Diagnostics(); len(diagnostics) != 0 {
@@ -465,20 +494,6 @@ func BuildWithOptions(
 	if len(model.diagnostics) != 0 {
 		return model
 	}
-	bootstrapDefinitions := compilerbootstrap.Builtins()
-	bootstrapDefinitions = append(
-		bootstrapDefinitions,
-		options.BootstrapDefinitions...,
-	)
-	bootstrapResult := compilerbootstrap.Compile(
-		resolution,
-		bootstrapApplications(model.targets),
-		bootstrapDefinitions,
-	)
-	if diagnostics := bootstrapResult.Diagnostics(); len(diagnostics) != 0 {
-		model.diagnostics = bootstrapDiagnostics(diagnostics)
-		return model
-	}
 	for index := range model.targets {
 		model.targets[index].bootstrap = bootstrapResult.Metadata(model.targets[index].SymbolID)
 	}
@@ -488,6 +503,54 @@ func BuildWithOptions(
 		model.edges,
 	)
 	return model
+}
+
+func bootstrapApplicationsFromResolution(resolution resolve.Result) []compilerbootstrap.Application {
+	applications := make([]compilerbootstrap.Application, 0)
+	seen := make(map[string]struct{})
+	for _, occurrence := range resolution.Occurrences {
+		if !occurrence.HasContribution(sdk.ContributionApplication) {
+			continue
+		}
+		if _, duplicate := seen[occurrence.SymbolID]; duplicate {
+			continue
+		}
+		seen[occurrence.SymbolID] = struct{}{}
+		applications = append(applications, compilerbootstrap.Application{
+			SymbolID: occurrence.SymbolID,
+			Name:     occurrence.Name,
+		})
+	}
+	sort.SliceStable(applications, func(left, right int) bool {
+		return applications[left].SymbolID < applications[right].SymbolID
+	})
+	return applications
+}
+
+func loggingFeatureEnabled(
+	result compilerbootstrap.Result,
+	applications []compilerbootstrap.Application,
+) bool {
+	for _, application := range applications {
+		if result.Metadata(application.SymbolID).Enabled(compilerbootstrap.CapabilityLogging) {
+			return true
+		}
+	}
+	return false
+}
+
+func exactLoggingType(providers []provider.Provider) types.Type {
+	for _, item := range providers {
+		if pointerNamedType(item.Output, "github.com/spice-framework/spice/logging", "Logger") {
+			return item.Output
+		}
+		for _, dependency := range item.Dependencies {
+			if pointerNamedType(dependency.MatchType(), "github.com/spice-framework/spice/logging", "Logger") {
+				return dependency.MatchType()
+			}
+		}
+	}
+	return nil
 }
 
 type scopedProviderUse struct {
@@ -830,17 +893,6 @@ func buildHTTPMetadata(
 		transactionCatalog.Boundaries(),
 		cacheCatalog.Boundaries(),
 		nil
-}
-
-func bootstrapApplications(targets []Target) []compilerbootstrap.Application {
-	result := make([]compilerbootstrap.Application, len(targets))
-	for index, target := range targets {
-		result[index] = compilerbootstrap.Application{
-			SymbolID: target.SymbolID,
-			Name:     target.Name,
-		}
-	}
-	return result
 }
 
 func bootstrapRequirementDiagnostics(

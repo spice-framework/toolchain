@@ -25,7 +25,7 @@ func Qualifier() sdk.Definition {
 	return sdk.Definition{
 		Name:       "core.Qualifier",
 		Summary:    "Names a bean candidate or constructor dependency.",
-		Targets:    []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetParameter},
+		Targets:    []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod, sdk.TargetParameter},
 		Repeatable: true,
 		Arguments: []sdk.Argument{{
 			Name:        "value",

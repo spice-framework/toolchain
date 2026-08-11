@@ -27,7 +27,7 @@ type Capability string
 const (
 	// CapabilityManagement is the generated management HTTP surface.
 	CapabilityManagement Capability = "management"
-	// CapabilityLogging is structured lifecycle and HTTP logging.
+	// CapabilityLogging is typed structured logging across generated seams.
 	CapabilityLogging Capability = "observability.logging"
 	// CapabilityHTTPObservation composes explicitly selected starter outputs
 	// into generated HTTP route observation.
@@ -54,6 +54,7 @@ const (
 	EndpointMetrics     Endpoint = "metrics"
 	EndpointConfigProps Endpoint = "configprops"
 	EndpointModules     Endpoint = "modules"
+	EndpointLoggers     Endpoint = "loggers"
 )
 
 // OptionDefinition describes the semantic rules for one feature argument.
@@ -411,9 +412,40 @@ func Compile(
 	for symbolID, metadata := range result.metadata {
 		sortFeatures(metadata.features)
 		result.metadata[symbolID] = metadata
+		result.diagnostics = append(
+			result.diagnostics,
+			loggingManagementDiagnostics(symbolID, metadata)...,
+		)
 	}
 	sortDiagnostics(result.diagnostics)
 	return result
+}
+
+func loggingManagementDiagnostics(symbolID string, metadata Metadata) []Diagnostic {
+	management, enabled := metadata.Management()
+	if !enabled || !slices.Contains(management.Endpoints(), EndpointLoggers) {
+		return nil
+	}
+	feature, _ := metadata.feature(CapabilityManagement)
+	diagnostic := func(kind, message string) Diagnostic {
+		return Diagnostic{
+			Position: feature.Position, PhysicalPosition: feature.PhysicalPosition,
+			SymbolID: symbolID, Annotation: feature.Annotation, Kind: kind, Message: message,
+		}
+	}
+	if !metadata.Enabled(CapabilityLogging) {
+		return []Diagnostic{diagnostic(
+			"missing-logging-capability",
+			"management endpoint \"loggers\" requires @observability.Logging on the same application",
+		)}
+	}
+	if management.Access() != "loopback" {
+		return []Diagnostic{diagnostic(
+			"unsafe-logger-management-access",
+			"management endpoint \"loggers\" requires access=\"loopback\"",
+		)}
+	}
+	return nil
 }
 
 func indexCapabilities(
@@ -880,6 +912,7 @@ func endpointNames() []string {
 		string(EndpointMetrics),
 		string(EndpointConfigProps),
 		string(EndpointModules),
+		string(EndpointLoggers),
 	}
 }
 

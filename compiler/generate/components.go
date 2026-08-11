@@ -40,6 +40,9 @@ func generatedComponentFields(
 	var candidates []candidate
 	baseCounts := make(map[string]int)
 	for index, item := range providers {
+		if item.Source == provider.SourceLogging {
+			continue
+		}
 		output := item.Output
 		if exposed, found := policyInterfaces[item.SymbolID]; found {
 			output = exposed

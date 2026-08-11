@@ -29,7 +29,7 @@ func Enable() sdk.Definition {
 				Name:             "expose",
 				Kinds:            []sdk.Kind{sdk.KindList},
 				ListElementKinds: []sdk.Kind{sdk.KindString},
-				AllowedValues:    []string{"health", "liveness", "readiness", "info", "metrics", "configprops", "modules"},
+				AllowedValues:    []string{"health", "liveness", "readiness", "info", "metrics", "configprops", "modules", "loggers"},
 				Description:      "Explicit management endpoint identifiers to expose.",
 				Required:         true,
 			},

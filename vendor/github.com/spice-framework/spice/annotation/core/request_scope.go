@@ -13,7 +13,7 @@ func RequestScope() sdk.Definition {
 	return sdk.Definition{
 		Name:    "core.RequestScope",
 		Summary: "Assigns explicit request-owned bean scope.",
-		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction},
+		Targets: []sdk.Target{sdk.TargetType, sdk.TargetFunction, sdk.TargetMethod},
 		Examples: []sdk.Example{{
 			Title: "Request-owned bean",
 			Code:  "// @RequestScope\ntype RequestContext struct{}",

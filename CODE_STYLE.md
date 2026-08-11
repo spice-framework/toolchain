@@ -4,8 +4,8 @@ The normative `java-structured` application contract is owned by the Spice
 core repository. Toolchain intentionally does not fork or reinterpret that
 policy.
 
-- Canonical commit: [`spice-framework/spice@0d4ed59cd3a618011d3c4f493714a3a67070ee84`](https://github.com/spice-framework/spice/blob/0d4ed59cd3a618011d3c4f493714a3a67070ee84/CODE_STYLE.md)
-- Reviewed SHA-256: `9beeec406dba8f9a6c288dd83d2bac60955885c7d5811c37518165cf94673f24`
+- Canonical commit: [`spice-framework/spice@0e79bc4f3b294cd0a429598c4921391f2e4d10e2`](https://github.com/spice-framework/spice/blob/0e79bc4f3b294cd0a429598c4921391f2e4d10e2/CODE_STYLE.md)
+- Reviewed SHA-256: `09c014e2d7eb93bf2b395e24e4e6ff2466c05d164d4778a11cf7433164bffb76`
 - Profile: `java-structured`
 - Configuration schema: `2`
 

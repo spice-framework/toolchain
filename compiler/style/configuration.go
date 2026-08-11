@@ -19,9 +19,9 @@ const (
 	maximumConfigurationBytes = 1 << 20
 	styleSchemaVersion        = 2
 	// CanonicalPolicyCommit is the exact Spice commit owning schema two.
-	CanonicalPolicyCommit = "0d4ed59cd3a618011d3c4f493714a3a67070ee84"
+	CanonicalPolicyCommit = "0e79bc4f3b294cd0a429598c4921391f2e4d10e2"
 	// CanonicalPolicySHA256 is the reviewed canonical CODE_STYLE.md identity.
-	CanonicalPolicySHA256 = "9beeec406dba8f9a6c288dd83d2bac60955885c7d5811c37518165cf94673f24"
+	CanonicalPolicySHA256 = "09c014e2d7eb93bf2b395e24e4e6ff2466c05d164d4778a11cf7433164bffb76"
 )
 
 // Configuration is the immutable schema-two java-structured style contract.
