@@ -829,11 +829,19 @@ func TestAnalysisSettingsAndModuleRootBoundaries(t *testing.T) {
 		) {
 		t.Fatalf("normalizeAnalysisSettings() = %+v, %v", settings, err)
 	}
+	styleSettings, err := normalizeAnalysisSettings(&analysisSettings{
+		Style: ".spice/style.json",
+	})
+	if err != nil || styleSettings.Style != ".spice/style.json" {
+		t.Fatalf("normalizeAnalysisSettings(style) = %+v, %v", styleSettings, err)
+	}
 	for _, invalid := range []analysisSettings{
 		{Target: " Commerce"},
 		{Patterns: []string{""}},
 		{Patterns: []string{" ./..."}},
 		{Profile: "java"},
+		{Style: " .spice/style.json"},
+		{Profile: "java-structured", Style: ".spice/style.json"},
 	} {
 		if _, normalizeErr := normalizeAnalysisSettings(&invalid); normalizeErr == nil {
 			t.Errorf(

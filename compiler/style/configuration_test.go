@@ -1,8 +1,10 @@
 package style
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,7 +50,7 @@ func TestDecodeConfigurationRejectsSchemaOneWithMigration(t *testing.T) {
 	}
 }
 
-func TestDecodeConfigurationRejectsUnimplementedEnabledRules(t *testing.T) {
+func TestDecodeConfigurationAcceptsEverySchemaTwoTypedRule(t *testing.T) {
 	t.Parallel()
 	content := string(canonicalTestConfiguration(t))
 	for _, rule := range []string{
@@ -60,9 +62,7 @@ func TestDecodeConfigurationRejectsUnimplementedEnabledRules(t *testing.T) {
 		t.Run(rule, func(t *testing.T) {
 			t.Parallel()
 			mutated := strings.Replace(content, `"`+rule+`": "off"`, `"`+rule+`": "error"`, 1)
-			_, err := DecodeConfiguration([]byte(mutated))
-			if err == nil || !strings.Contains(err.Error(), "spice.style.configuration.unsupported-rule") ||
-				!strings.Contains(err.Error(), rule) {
+			if _, err := DecodeConfiguration([]byte(mutated)); err != nil {
 				t.Fatalf("enabled rule %s error = %v", rule, err)
 			}
 		})
@@ -182,6 +182,9 @@ func TestConfigurationValidationRejectsEveryBoundary(t *testing.T) {
 		{name: "empty source roots", mutate: func(value *Configuration) { value.SourceRoots = nil }, want: "sourceRoots must not be empty"},
 		{name: "unsorted source roots", mutate: func(value *Configuration) { value.SourceRoots = []string{"z", "a"} }, want: "sourceRoots must be sorted"},
 		{name: "duplicate source root", mutate: func(value *Configuration) { value.SourceRoots = []string{"source", "source"} }, want: "duplicate"},
+		{name: "overlapping source roots", mutate: func(value *Configuration) {
+			value.SourceRoots = []string{"testdata/src", "testdata/src/example.com"}
+		}, want: "overlapping roots"},
 		{name: "invalid source root", mutate: func(value *Configuration) { value.SourceRoots = []string{"../source"} }, want: "invalid root"},
 		{name: "generated as source", mutate: func(value *Configuration) { value.GeneratedRoots = []string{"testdata/src"} }, want: "reintroduced"},
 		{name: "rule level", mutate: func(value *Configuration) { value.Rules.PackageFunctions = "fatal" }, want: "unsupported level"},
@@ -213,6 +216,12 @@ func TestConfigurationValidationRejectsEveryBoundary(t *testing.T) {
 		{name: "function maximum", mutate: func(value *Configuration) {
 			value.PackageFunctionExceptions = []PackageFunctionException{{Glob: "**/main.go", Symbol: "main", Maximum: -1, Reason: "required"}}
 		}, want: "must not be negative"},
+		{name: "contribution maximum", mutate: func(value *Configuration) {
+			value.PackageFunctionExceptions = []PackageFunctionException{{Glob: "**/*_bean.go", ContributionKind: "provider", Reason: "required"}}
+		}, want: "requires a positive maximum"},
+		{name: "symbol maximum", mutate: func(value *Configuration) {
+			value.PackageFunctionExceptions = []PackageFunctionException{{Glob: "**/main.go", Symbol: "main", Maximum: 1, Reason: "required"}}
+		}, want: "valid only with contributionKind"},
 		{name: "variable exception", mutate: func(value *Configuration) {
 			value.PackageVariableExceptions = []PackageVariableException{{Glob: "**/assets.go"}}
 		}, want: "symbol, type, reason, and issue"},
@@ -244,4 +253,36 @@ func canonicalTestConfiguration(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return content
+}
+
+func FuzzDecodeConfigurationIsDeterministic(f *testing.F) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "internal", "style", "testdata", "style.json"))
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(content)
+	f.Add([]byte(`{"schemaVersion":2}`))
+	f.Fuzz(func(t *testing.T, input []byte) {
+		first, firstErr := DecodeConfiguration(input)
+		second, secondErr := DecodeConfiguration(input)
+		if fmt.Sprint(firstErr) != fmt.Sprint(secondErr) {
+			t.Fatalf("DecodeConfiguration() errors differ: %v != %v", firstErr, secondErr)
+		}
+		if firstErr == nil && !reflect.DeepEqual(first, second) {
+			t.Fatal("DecodeConfiguration() success is nondeterministic")
+		}
+	})
+}
+
+func BenchmarkDecodeSchemaTwoConfiguration(b *testing.B) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "internal", "style", "testdata", "style.json"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, decodeErr := DecodeConfiguration(content); decodeErr != nil {
+			b.Fatal(decodeErr)
+		}
+	}
 }

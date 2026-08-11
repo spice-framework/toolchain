@@ -361,8 +361,11 @@ func (validator *Validator) boundaryFunction(relative, symbol string) bool {
 				return true
 			}
 		case exception.ContributionKind != "":
-			// Typed contribution validation is owned by compiler/style.
-			return true
+			// Contribution exceptions require the shared typed compiler result.
+			// The standalone analysis.Pass cannot prove descriptor-backed
+			// metadata, so it must fail closed instead of granting a filename
+			// exemption.
+			continue
 		}
 	}
 	return false

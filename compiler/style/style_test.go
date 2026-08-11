@@ -268,6 +268,7 @@ func TestBuildConfiguredHonorsSharedRuleLevels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureTestSourceRoots(&configuration)
 	configuration.Rules.OnePrimaryTypePerFile = RuleLevelOff
 	configuration.Rules.PackageFunctions = RuleLevelOff
 	configuration.Rules.BanMutablePackageState = RuleLevelOff
@@ -281,13 +282,369 @@ func TestBuildConfiguredRejectsInvalidConfigurationAndNilProgram(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := configuration.Clone()
-	invalid.Rules.ExplicitManagedScopes = RuleLevelError
-	if diagnostics := BuildConfigured(nil, resolve.Result{}, provider.Catalog{}, invalid).Diagnostics(); !containsKind(diagnostics, "configuration.unsupported-rule") {
-		t.Fatalf("invalid configuration diagnostics = %v", diagnosticStrings(diagnostics))
-	}
 	if diagnostics := BuildConfigured(nil, resolve.Result{}, provider.Catalog{}, configuration).Diagnostics(); !containsKind(diagnostics, "internal") {
 		t.Fatalf("nil program diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredEnforcesSchemaTwoTypedFamilies(t *testing.T) {
+	tests := []struct {
+		name      string
+		files     map[string]string
+		configure func(*Configuration)
+		want      string
+	}{
+		{
+			name: "managed scope",
+			files: map[string]string{
+				"app/worker.go": "package app\n\n// @Component(constructor=NewWorker)\ntype Worker struct{}\n\nfunc NewWorker() *Worker { return &Worker{} }\n",
+			},
+			configure: func(configuration *Configuration) {
+				configuration.Rules.ExplicitManagedScopes = RuleLevelError
+			},
+			want: "bean.scope",
+		},
+		{
+			name: "managed field privacy",
+			files: map[string]string{
+				"app/worker.go": "package app\n\n// @Component(constructor=NewWorker)\ntype Worker struct { Public string; private string }\n\nfunc NewWorker() *Worker { return &Worker{} }\n",
+			},
+			configure: func(configuration *Configuration) {
+				configuration.Rules.PrivateManagedFields = RuleLevelError
+			},
+			want: "bean.fields-private",
+		},
+		{
+			name: "configuration field privacy",
+			files: map[string]string{
+				"app/factory.go": "package app\n\n// @Configuration\ntype Factory struct { Public string }\n",
+			},
+			configure: func(configuration *Configuration) {
+				configuration.Rules.PrivateManagedFields = RuleLevelError
+			},
+			want: "bean.fields-private",
+		},
+		{
+			name: "module ownership",
+			files: map[string]string{
+				"app/worker.go": "package app\n\ntype Worker struct{}\n",
+			},
+			configure: func(configuration *Configuration) {
+				configuration.Rules.ModuleOwnership = RuleLevelError
+			},
+			want: "package.module",
+		},
+		{
+			name: "module dependency",
+			files: map[string]string{
+				"app/inventory/doc.go": "// @Module\npackage inventory\n\ntype Item struct{}\n",
+				"app/orders/doc.go":    "// @Module\npackage orders\n",
+				"app/orders/use.go":    "package orders\n\nimport \"example.com/style/app/inventory\"\n\nvar Item inventory.Item\n",
+			},
+			configure: func(configuration *Configuration) {
+				configuration.Rules.ModuleOwnership = RuleLevelError
+			},
+			want: "module.dependency",
+		},
+		{
+			name: "route classification",
+			files: map[string]string{
+				"app/api.go": `package app
+
+import "net/http"
+
+// @Controller(prefix="/api")
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("/health")
+func (*API) Health(http.ResponseWriter, *http.Request) {}
+`,
+			},
+			configure: func(configuration *Configuration) {
+				configuration.Rules.RouteClassification = RuleLevelError
+			},
+			want: "route.classification",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			program, resolution, providers := loadStyleFixture(t, test.files)
+			configuration := configuredTestConfiguration(t)
+			test.configure(&configuration)
+			diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics()
+			if !containsKind(diagnostics, test.want) {
+				t.Fatalf("BuildConfigured() diagnostics = %v, want %q", diagnosticStrings(diagnostics), test.want)
+			}
+		})
+	}
+}
+
+func TestBuildConfiguredAcceptsTypedFamilyProofs(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/doc.go": `// @Module
+package app
+`,
+		"app/api.go": `package app
+
+import "net/http"
+
+// @Controller(prefix="/api")
+type API struct{ dependency string }
+
+// @Bean
+// @Singleton
+func NewAPI() *API { return &API{} }
+
+// @Get("/health")
+// @security.Authorize(authenticated=true)
+func (*API) Health(http.ResponseWriter, *http.Request) {}
+`,
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.ExplicitManagedScopes = RuleLevelError
+	configuration.Rules.PrivateManagedFields = RuleLevelError
+	configuration.Rules.ModuleOwnership = RuleLevelError
+	configuration.Rules.RouteClassification = RuleLevelError
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredHonorsOnlyExactReviewedPublicRoute(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/api.go": `package app
+
+import "net/http"
+
+// @Controller(prefix="/api")
+type API struct{}
+
+// @Bean
+func NewAPI() *API { return &API{} }
+
+// @Get("/health")
+func (*API) Health(http.ResponseWriter, *http.Request) {}
+`,
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.RouteClassification = RuleLevelError
+	configuration.PublicRoutes = []PublicRoute{{
+		Package: "example.com/style/app", Receiver: "API", Method: "Health",
+		Reason: "Operational health endpoint", Issue: "STYLE-1",
+	}}
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+
+	configuration.PublicRoutes[0].Method = "Ready"
+	diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics()
+	if !containsKind(diagnostics, "route.classification") {
+		t.Fatalf("method-mismatched public-route diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredExcludesGeneratedPackagesFromModuleOwnership(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/doc.go":                      "// @Module\npackage app\n",
+		"app/internal/spicegen/output.go": "package spicegen\n\nfunc GeneratedBoundary() {}\n",
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.OnePrimaryTypePerFile = RuleLevelError
+	configuration.Rules.PackageFunctions = RuleLevelError
+	configuration.Rules.ModuleOwnership = RuleLevelError
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredMapsInvalidModuleEdgesToDependencyFamily(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/orders/doc.go": `// @Module(allowedDependencies=["example.com/style/app/missing"])
+package orders
+`,
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.ModuleOwnership = RuleLevelError
+	diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics()
+	if !containsKind(diagnostics, "module.dependency") || containsKind(diagnostics, "package.module") {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredRejectsInexactWorkspaceAndExceptionMatches(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/nested/app/helper.go": "package app\n\nfunc Boundary() {}\n",
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.PackageFunctions = RuleLevelError
+	configuration.PackageFunctionExceptions = append(
+		configuration.PackageFunctionExceptions,
+		PackageFunctionException{
+			Glob: "app/helper.go", Symbol: "Boundary", Reason: "Deliberate mismatch proof",
+		},
+	)
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); !containsKind(diagnostics, "function.package-level") {
+		t.Fatalf("suffix-matched exception diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+
+	root := inferredWorkspaceRoot(program)
+	diagnostics := BuildConfiguredAt(
+		filepath.Join(root, "app"),
+		program,
+		resolution,
+		providers,
+		configuration,
+	).Diagnostics()
+	if !containsKind(diagnostics, "configuration.source-selection") {
+		t.Fatalf("inexact-workspace diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredRequiresPackagePathExactVariableType(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/embed/fs.go": "package embed\n\ntype FS struct{}\n",
+		"app/assets.go": `package app
+
+import embed "example.com/style/app/embed"
+
+type Assets struct{}
+
+var files embed.FS
+`,
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.BanMutablePackageState = RuleLevelError
+	diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics()
+	if !containsKind(diagnostics, "package.mutable-global") {
+		t.Fatalf("package-name-only variable exception diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredHonorsExactFunctionVariableAndBoundaryExceptions(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/application.go": "package app\n\n// @Application\nfunc Application() {}\n",
+		"app/assets.go": `package app
+
+import "embed"
+
+type Assets struct{}
+
+//go:embed fixture.txt
+var files embed.FS
+`,
+		"app/fixture.txt": "fixture",
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.OnePrimaryTypePerFile = RuleLevelError
+	configuration.Rules.PackageFunctions = RuleLevelError
+	configuration.Rules.BanMutablePackageState = RuleLevelError
+	configuration.AllowedBoundaryFiles = append(configuration.AllowedBoundaryFiles, "**/application.go")
+	configuration.PackageFunctionExceptions = append(
+		configuration.PackageFunctionExceptions,
+		PackageFunctionException{
+			Glob: "**/application.go", ContributionKind: "application", Maximum: 1,
+			Reason: "Exact non-process application proof marker",
+		},
+	)
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+
+	configuration.PackageVariableExceptions[0].Type = "string"
+	diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics()
+	if !containsKind(diagnostics, "package.mutable-global") {
+		t.Fatalf("type-mismatched variable exception diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredRejectsApplicationMarkerWithBehavior(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/application.go": "package app\n\n// @Application\nfunc Application() { println(\"runs\") }\n",
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.PackageFunctions = RuleLevelError
+	configuration.PackageFunctionExceptions = append(
+		configuration.PackageFunctionExceptions,
+		PackageFunctionException{
+			Glob: "**/application.go", ContributionKind: "application", Maximum: 1,
+			Reason: "Exact non-process application proof marker",
+		},
+	)
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); !containsKind(diagnostics, "function.package-level") {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func TestBuildConfiguredRunsCompleteStructuralPhase(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/worker.go": `package app
+
+import "context"
+
+type Worker struct { ctx context.Context }
+
+func (worker *Worker) Run(value string, ctx context.Context) (error, string) { return nil, value }
+func (w *Worker) Stop() {}
+`,
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.MethodsInPrimaryFile = RuleLevelError
+	configuration.Rules.ContextFirst = RuleLevelError
+	configuration.Rules.ErrorLast = RuleLevelError
+	configuration.Rules.MaxTypeFileLines = 1
+	diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics()
+	for _, kind := range []string{"context.first", "context.stored", "error.last", "file.lines", "receiver.name"} {
+		if !containsKind(diagnostics, kind) {
+			t.Errorf("BuildConfigured() diagnostics = %v, want %q", diagnosticStrings(diagnostics), kind)
+		}
+	}
+}
+
+func TestBuildConfiguredRequiresConstructorResultAssociation(t *testing.T) {
+	program, resolution, providers := loadStyleFixture(t, map[string]string{
+		"app/worker.go": "package app\n\ntype Worker struct{}\n\nfunc NewWorker() int { return 1 }\n",
+	})
+	configuration := configuredTestConfiguration(t)
+	configuration.Rules.PackageFunctions = RuleLevelError
+	if diagnostics := BuildConfigured(program, resolution, providers, configuration).Diagnostics(); !containsKind(diagnostics, "function.package-level") {
+		t.Fatalf("BuildConfigured() diagnostics = %v", diagnosticStrings(diagnostics))
+	}
+}
+
+func configuredTestConfiguration(t *testing.T) Configuration {
+	t.Helper()
+	configuration, err := DecodeConfiguration(canonicalTestConfiguration(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureTestSourceRoots(&configuration)
+	configuration.Rules = Rules{
+		OnePrimaryTypePerFile:  RuleLevelOff,
+		MethodsInPrimaryFile:   RuleLevelOff,
+		FileNameMatchesType:    RuleLevelOff,
+		PackageFunctions:       RuleLevelOff,
+		ExplicitConstructors:   RuleLevelOff,
+		ExplicitManagedScopes:  RuleLevelOff,
+		BanInit:                RuleLevelOff,
+		BanMutablePackageState: RuleLevelOff,
+		PrivateManagedFields:   RuleLevelOff,
+		ModuleOwnership:        RuleLevelOff,
+		RouteClassification:    RuleLevelOff,
+		ContextFirst:           RuleLevelOff,
+		ErrorLast:              RuleLevelOff,
+		MaxTypeFileLines:       500,
+	}
+	return configuration
+}
+
+func configureTestSourceRoots(configuration *Configuration) {
+	configuration.SourceRoots = []string{"app"}
+	configuration.GeneratedRoots = []string{"app/internal/spicegen"}
+	for index := range configuration.BuildSelections {
+		configuration.BuildSelections[index].SourceRoots = []string{"app"}
 	}
 }
 
@@ -329,7 +686,7 @@ func loadStyleFixture(
 	program, err := load.Load(
 		context.Background(),
 		load.Options{Dir: root},
-		"./app",
+		"./app/...",
 	)
 	if err != nil {
 		t.Fatalf("load.Load() error = %v", err)

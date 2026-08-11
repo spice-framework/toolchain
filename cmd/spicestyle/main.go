@@ -2,43 +2,52 @@
 package main
 
 import (
+	"io"
 	"os"
 	"strings"
 
-	"github.com/spice-framework/toolchain/internal/style"
-	"golang.org/x/tools/go/analysis/multichecker"
+	"github.com/spice-framework/toolchain/internal/cli"
 )
 
 func main() {
-	os.Args = normalizeArguments(os.Args)
-	multichecker.Main(style.Analyzer)
+	//nolint:forbidigo // This process entrypoint owns the command exit status.
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(arguments []string, stdout, stderr io.Writer) int {
+	return cli.Run(normalizeArguments(arguments), stdout, stderr)
 }
 
 func normalizeArguments(arguments []string) []string {
-	result := make([]string, 0, len(arguments))
+	result := []string{"verify"}
+	configured := false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		switch argument {
-		case "--format=text", "-format=text":
-			continue
-		case "--format=json", "-format=json":
-			result = append(result, "-json")
+		case "-json":
+			result = append(result, "--format=json")
 		case "--config", "-config":
+			configured = true
 			if index+1 < len(arguments) {
 				index++
-				result = append(result, "-spicestyle.config="+arguments[index])
+				result = append(result, "--style="+arguments[index])
 			} else {
-				result = append(result, "-spicestyle.config")
+				result = append(result, "--style")
 			}
 		default:
 			if value, found := strings.CutPrefix(argument, "--config="); found {
-				result = append(result, "-spicestyle.config="+value)
+				result = append(result, "--style="+value)
+				configured = true
 			} else if value, found := strings.CutPrefix(argument, "-config="); found {
-				result = append(result, "-spicestyle.config="+value)
+				result = append(result, "--style="+value)
+				configured = true
 			} else {
 				result = append(result, argument)
 			}
 		}
+	}
+	if !configured {
+		result = append(result, "--style=.spice/style.json")
 	}
 	return result
 }

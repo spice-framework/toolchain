@@ -434,6 +434,7 @@ func New%s() *%s {
 	if config.Kind == DeclarationController {
 		annotationPackage = FrameworkModule + "/annotation/web"
 		declaration = fmt.Sprintf(`// @import { Singleton } from %q
+// @import { Authorize } from %q
 // @import { Controller, Get } from %q
 
 package %s
@@ -450,8 +451,9 @@ func New%s() *%s {
 }
 
 // @Get("/")
+// @Authorize(authenticated=true)
 func (controller *%s) Index(writer http.ResponseWriter, request *http.Request) {}
-`, FrameworkModule+"/annotation/core", annotationPackage, config.Package, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name)
+`, FrameworkModule+"/annotation/core", FrameworkModule+"/annotation/security", annotationPackage, config.Package, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name, config.Name)
 	}
 	if config.Kind == DeclarationEnum {
 		declaration = fmt.Sprintf(`// @import { Enum } from %q

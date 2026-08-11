@@ -13,7 +13,7 @@ The boundary is intentionally explicit:
 - `github.com/spice-framework/spice` owns public application-facing Go APIs.
 - `github.com/spice-framework/toolchain` owns compiler and executable code.
 - applications authorize `cmd/spice`, `cmd/spice-annotation-core`, and the
-  optional `cmd/spicestyle` analyzer with ordinary Go `tool` directives;
+  optional `cmd/spicestyle` schema-two verifier with ordinary Go `tool` directives;
 - the official annotation process serves descriptors from the core module, but
   third-party descriptors and tools remain in the same resolved Go module;
 - generated application code imports public core packages and never imports the
@@ -38,9 +38,9 @@ go tool github.com/spice-framework/toolchain/cmd/spice build ./...
 ```
 
 Applications that want class-oriented source organization can enable the
-two-layer profile. The standalone analyzer enforces Go structure from a strict
-configuration, while `spice verify` adds typed annotation, provider, and module
-validation:
+schema-two profile. `spicestyle` and `spice verify --style` both use the same
+strict decoder, exact build-selection executor, structural checks, and typed
+annotation/provider/module validation:
 
 ```text
 go tool github.com/spice-framework/toolchain/cmd/spicestyle --config=.spice/style.json ./...
@@ -54,22 +54,27 @@ managed-interface relationships, and the absence of loose behavior or mutable
 globals. `doc.go`, an exact package-main entrypoint, one typed `*_bean.go`
 provider, and one typed `*_topic.go` marker remain deliberate Go/Spice
 boundaries. The Spice core repository owns the normative
-[`CODE_STYLE.md`](https://github.com/spice-framework/spice/blob/0d4ed59cd3a618011d3c4f493714a3a67070ee84/CODE_STYLE.md)
-contract at commit `0d4ed59cd3a618011d3c4f493714a3a67070ee84`, with reviewed
-SHA-256 `9beeec406dba8f9a6c288dd83d2bac60955885c7d5811c37518165cf94673f24`.
+[`CODE_STYLE.md`](https://github.com/spice-framework/spice/blob/0e79bc4f3b294cd0a429598c4921391f2e4d10e2/CODE_STYLE.md)
+contract at commit `0e79bc4f3b294cd0a429598c4921391f2e4d10e2`, with reviewed
+SHA-256 `09c014e2d7eb93bf2b395e24e4e6ff2466c05d164d4778a11cf7433164bffb76`.
 Toolchain does not maintain a second schema-two policy copy.
 
-Schema two is decoded once by the standalone structural analyzer and typed
-compiler phase. Unknown fields, schema one, invalid or noncanonical roots,
-platforms, tags, and build-selection order fail closed. A schema-one failure
-names the required migration to schema two and `buildSelections`. Enabled
-rules are checked against a phase-capability registry; the scaffold therefore
-keeps `explicitManagedScopes`, `privateManagedFields`, `moduleOwnership`, and
-`routeClassification` off until their typed diagnostic families land. Exact
-multi-context execution of every validated build selection remains the next
-bounded Toolchain slice; this slice does not claim that loading guarantee yet.
-The LSP accepts the profile in its Spice settings and offers source generation
-for validated `@Enum` helpers.
+Schema two is decoded once per verification request. Unknown fields, schema
+one, invalid or noncanonical roots, platforms, tags, and build-selection order
+fail closed. Every declared selection is loaded independently with ambient
+`GOFLAGS`, `GOOS`, `GOARCH`, and `CGO_ENABLED` removed; duplicate physical
+diagnostics retain the ordered selection names, and a handwritten file that no
+selection reaches is an error. For schema-two verification, configured source
+roots are authoritative; trailing CLI package patterns do not narrow away part
+of that reviewed universe. Generated-root membership and the standard generated
+header independently exclude generated code. Boundary, function, and variable
+exceptions match exact workspace-relative paths; variable types use full Go
+package identity. The typed phase enforces explicit managed scopes, private
+managed fields, exact module ownership/dependencies, and protected-or-reviewed-
+public route classification. The generated scaffold enables every schema-two
+family. LSP clients select the same contract with the `spice.style` setting (for
+example `.spice/style.json`); compiler-owned generation tags remain explicit and
+cannot reintroduce ambient build state.
 
 Create a profile-shaped application and class-oriented declarations with:
 

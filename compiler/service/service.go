@@ -280,15 +280,16 @@ func normalizedSpiceVersion(value string) string {
 }
 
 type normalizedRequest struct {
-	root     string
-	target   string
-	patterns []string
-	overlay  map[string]Document
-	mode     AnalysisMode
-	profile  compilerstyle.Profile
-	style    *compilerstyle.Configuration
-	content  string
-	sequence uint64
+	root      string
+	target    string
+	patterns  []string
+	overlay   map[string]Document
+	mode      AnalysisMode
+	profile   compilerstyle.Profile
+	style     *compilerstyle.Configuration
+	selection *compilerstyle.BuildSelection
+	content   string
+	sequence  uint64
 }
 
 // Analyze executes one read-only typed compiler analysis.
@@ -324,7 +325,12 @@ func (service *Service) Analyze(
 		}
 	}
 
-	result, err := service.analyze(analysisCtx, normalized)
+	var result Result
+	if normalized.style != nil {
+		result, err = service.analyzeConfiguredSelections(analysisCtx, normalized)
+	} else {
+		result, err = service.analyze(analysisCtx, normalized)
+	}
 	if err != nil {
 		if staleErr := service.rejectStale(normalized); staleErr != nil {
 			return Result{}, staleErr
@@ -425,6 +431,7 @@ func (service *Service) analyze(
 	}
 	if program != nil {
 		result.goInterfaces = summarizeGoInterfaces(request.root, program)
+		result.loadedFiles = primaryProgramFiles(program)
 	}
 	if !loadDiagnostics.Empty() {
 		result.diagnostics = loadDiagnostics
@@ -524,7 +531,8 @@ func (service *Service) analyze(
 		request.profile != compilerstyle.ProfileNone {
 		styleCatalog := compilerstyle.Build(program, resolution, primaryProviderCatalog, request.profile)
 		if request.style != nil {
-			styleCatalog = compilerstyle.BuildConfigured(
+			styleCatalog = compilerstyle.BuildConfiguredAt(
+				request.root,
 				program,
 				resolution,
 				primaryProviderCatalog,
@@ -846,6 +854,9 @@ func (service *Service) analysisLoadOptions(
 		options.AuxiliaryPackages,
 		service.config.starterCatalog.EntryPointPackages()...,
 	)
+	if request.selection != nil {
+		options = exactStyleSelectionOptions(options, *request.selection)
+	}
 	if request.mode == AnalysisGenerate {
 		options.PrepareGeneratedApplicationEntrypoints = true
 		options = withAnalysisBuildTag(options)

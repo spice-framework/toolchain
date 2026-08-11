@@ -207,12 +207,14 @@ func (server *Server) refreshAll(raw json.RawMessage) {
 		server.target = settings.Target
 		server.patterns = slices.Clone(settings.Patterns)
 		server.profile = settings.Profile
+		server.style = settings.Style
 	}
 	for key, workspace := range server.workspaces {
 		if params.Settings.Spice != nil {
 			workspace.target = settings.Target
 			workspace.patterns = slices.Clone(settings.Patterns)
 			workspace.profile = settings.Profile
+			workspace.style = settings.Style
 		}
 		server.scheduleWorkspaceLocked(key, workspace)
 	}
@@ -248,6 +250,7 @@ type analysisSnapshot struct {
 	target   string
 	patterns []string
 	profile  compilerstyle.Profile
+	style    string
 	sequence uint64
 	overlay  map[string]compilerservice.Document
 	versions map[string]int
@@ -273,6 +276,7 @@ func (server *Server) beginAnalysis(key string, sequence uint64) {
 		target:   workspace.target,
 		patterns: slices.Clone(workspace.patterns),
 		profile:  workspace.profile,
+		style:    workspace.style,
 		sequence: sequence,
 		overlay: make(
 			map[string]compilerservice.Document,
@@ -298,16 +302,31 @@ func (server *Server) beginAnalysis(key string, sequence uint64) {
 
 	defer server.analysisWait.Done()
 	defer workspace.analysis.Done()
+	defer cancel()
 	go cancelWhenDone(ctx, cancel, done)
+	var styleConfiguration *compilerstyle.Configuration
+	if snapshot.style != "" {
+		configurationPath := snapshot.style
+		if !filepath.IsAbs(configurationPath) {
+			configurationPath = filepath.Join(snapshot.root, configurationPath)
+		}
+		configuration, loadErr := compilerstyle.LoadConfiguration(configurationPath)
+		if loadErr != nil {
+			server.showError(loadErr)
+			return
+		}
+		styleConfiguration = &configuration
+	}
 	result, err := snapshot.service.Analyze(
 		ctx,
 		compilerservice.Request{
-			WorkspaceRoot: snapshot.root,
-			Target:        snapshot.target,
-			Patterns:      snapshot.patterns,
-			Overlay:       snapshot.overlay,
-			Sequence:      snapshot.sequence,
-			Profile:       snapshot.profile,
+			WorkspaceRoot:      snapshot.root,
+			Target:             snapshot.target,
+			Patterns:           snapshot.patterns,
+			Overlay:            snapshot.overlay,
+			Sequence:           snapshot.sequence,
+			Profile:            snapshot.profile,
+			StyleConfiguration: styleConfiguration,
 		},
 	)
 	cancel()

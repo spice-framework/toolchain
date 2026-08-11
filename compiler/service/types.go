@@ -387,6 +387,7 @@ type Result struct {
 	plan           generate.Plan
 	targetName     string
 	files          int
+	loadedFiles    []string
 	hasPlan        bool
 }
 

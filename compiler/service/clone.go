@@ -161,5 +161,6 @@ func cloneResult(result Result) Result {
 	result.goInterfaces = cloneGoInterfaceCatalog(result.goInterfaces)
 	result.definitions = cloneDefinitions(result.definitions)
 	result.actions = cloneActions(result.actions)
+	result.loadedFiles = slices.Clone(result.loadedFiles)
 	return result
 }

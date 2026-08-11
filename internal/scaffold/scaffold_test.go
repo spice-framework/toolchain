@@ -153,7 +153,7 @@ func TestCreateDeclarationWritesTypedDeterministicScaffolds(t *testing.T) {
 		{DeclarationModule, "orders", "doc.go", []string{"// @Module", "package orders"}},
 		{DeclarationService, "OrderService", "order_service.go", []string{"// @Service(constructor=NewOrderService)", "// @Singleton", "type OrderService struct", "func NewOrderService() *OrderService"}},
 		{DeclarationRepository, "OrderRepository", "order_repository.go", []string{"// @Repository(constructor=NewOrderRepository)", "// @Singleton", "func NewOrderRepository() *OrderRepository"}},
-		{DeclarationController, "OrderController", "order_controller.go", []string{"// @Controller(constructor=NewOrderController)", "// @Singleton", "// @Get(\"/\")", "net/http"}},
+		{DeclarationController, "OrderController", "order_controller.go", []string{"// @Controller(constructor=NewOrderController)", "// @Singleton", "// @Get(\"/\")", "// @Authorize(authenticated=true)", "net/http"}},
 		{DeclarationComponent, "PasswordHasher", "password_hasher.go", []string{"// @Component(constructor=NewPasswordHasher)", "// @Singleton", "func NewPasswordHasher() *PasswordHasher"}},
 		{DeclarationEnum, "OrderStatus", "order_status.go", []string{"// @Enum", "OrderStatusUnknown OrderStatus = \"unknown\""}},
 	}

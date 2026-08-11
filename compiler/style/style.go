@@ -113,11 +113,30 @@ func Build(
 		}}}
 	}
 
-	return buildJavaStructured(program, resolution, providers, nil)
+	return buildJavaStructured(program, resolution, providers, nil, "")
 }
 
 // BuildConfigured validates the typed phase using the shared schema-two policy.
 func BuildConfigured(
+	program *load.Program,
+	resolution resolve.Result,
+	providers provider.Catalog,
+	configuration Configuration,
+) Catalog {
+	return BuildConfiguredAt(
+		inferredWorkspaceRoot(program),
+		program,
+		resolution,
+		providers,
+		configuration,
+	)
+}
+
+// BuildConfiguredAt validates schema two against one exact workspace root.
+// Compiler-service callers must use this form so configured roots and file
+// exceptions are never inferred from arbitrary absolute-path suffixes.
+func BuildConfiguredAt(
+	workspaceRoot string,
 	program *load.Program,
 	resolution resolve.Result,
 	providers provider.Catalog,
@@ -140,25 +159,61 @@ func BuildConfigured(
 			Message: "style profile requires a loaded program",
 		}}}
 	}
+	workspaceRoot = filepath.Clean(workspaceRoot)
+	if workspaceRoot == "." || !filepath.IsAbs(workspaceRoot) {
+		return Catalog{diagnostics: []Diagnostic{{
+			Kind:    "configuration.source-selection",
+			Message: "style profile requires an absolute workspace root",
+		}}}
+	}
 	configuration = configuration.Clone()
-	return buildJavaStructured(program, resolution, providers, &configuration.Rules)
+	if diagnostics := configuredSourceOwnershipDiagnostics(
+		program,
+		workspaceRoot,
+		configuration,
+	); len(diagnostics) != 0 {
+		sortDiagnostics(diagnostics)
+		return Catalog{diagnostics: diagnostics}
+	}
+	return buildJavaStructured(
+		program,
+		resolution,
+		providers,
+		&configuration,
+		workspaceRoot,
+	)
 }
 
 func buildJavaStructured(
 	program *load.Program,
 	resolution resolve.Result,
 	providers provider.Catalog,
-	rules *Rules,
+	configuration *Configuration,
+	workspaceRoot string,
 ) Catalog {
-	files := handwrittenFiles(program.PrimaryPackages())
+	files := handwrittenFiles(
+		program.PrimaryPackages(),
+		configuration,
+		workspaceRoot,
+	)
 	typesByFile, typeFiles := declaredTypes(program.PrimarySymbols(), files)
 	annotatedFunctions := functionAnnotationKinds(resolution)
 	packageNames := primaryPackageNames(program.PrimaryPackages())
 	catalog := Catalog{}
-	catalog.diagnostics = append(
-		catalog.diagnostics,
-		fileStructureDiagnostics(files)...,
-	)
+	structureDiagnostics := fileStructureDiagnostics(files, configuration)
+	if configuration != nil {
+		structureDiagnostics = applyPackageVariableExceptions(
+			structureDiagnostics,
+			program.PrimarySymbols(),
+			files,
+			configuration.PackageVariableExceptions,
+		)
+		structureDiagnostics = append(
+			structureDiagnostics,
+			configuredStructuralDiagnostics(program, files, *configuration)...,
+		)
+	}
+	catalog.diagnostics = append(catalog.diagnostics, structureDiagnostics...)
 	catalog.diagnostics = append(
 		catalog.diagnostics,
 		receiverLocationDiagnostics(
@@ -167,16 +222,30 @@ func buildJavaStructured(
 			typeFiles,
 		)...,
 	)
-	catalog.diagnostics = append(
-		catalog.diagnostics,
-		freeFunctionDiagnostics(
-			program.PrimarySymbols(),
-			files,
-			typesByFile,
-			annotatedFunctions,
-			packageNames,
-		)...,
-	)
+	if configuration == nil {
+		catalog.diagnostics = append(
+			catalog.diagnostics,
+			freeFunctionDiagnostics(
+				program.PrimarySymbols(),
+				files,
+				typesByFile,
+				annotatedFunctions,
+				packageNames,
+			)...,
+		)
+	} else {
+		catalog.diagnostics = append(
+			catalog.diagnostics,
+			configuredFreeFunctionDiagnostics(
+				program.PrimarySymbols(),
+				files,
+				typesByFile,
+				resolution,
+				packageNames,
+				*configuration,
+			)...,
+		)
+	}
 	catalog.diagnostics = append(
 		catalog.diagnostics,
 		constructorDiagnostics(providers.Providers())...,
@@ -192,8 +261,18 @@ func buildJavaStructured(
 		catalog.diagnostics,
 		loggingDiagnostics(files)...,
 	)
-	if rules != nil {
-		catalog.diagnostics = filterConfiguredDiagnostics(catalog.diagnostics, *rules)
+	if configuration != nil {
+		catalog.diagnostics = append(
+			catalog.diagnostics,
+			configuredTypedDiagnostics(
+				program,
+				resolution,
+				providers,
+				files,
+				*configuration,
+			)...,
+		)
+		catalog.diagnostics = filterConfiguredDiagnostics(catalog.diagnostics, configuration.Rules)
 	}
 	sortDiagnostics(catalog.diagnostics)
 	return catalog
@@ -340,11 +419,16 @@ type sourceFile struct {
 	packagePath string
 	packageName string
 	physical    string
+	relative    string
 	fileSet     *token.FileSet
 	syntax      *ast.File
 }
 
-func handwrittenFiles(packages []load.Package) map[string]sourceFile {
+func handwrittenFiles(
+	packages []load.Package,
+	configuration *Configuration,
+	workspaceRoot string,
+) map[string]sourceFile {
 	result := make(map[string]sourceFile)
 	for _, pkg := range packages {
 		if pkg.Raw == nil || pkg.Raw.Fset == nil {
@@ -357,10 +441,19 @@ func handwrittenFiles(packages []load.Package) map[string]sourceFile {
 				ast.IsGenerated(file.Syntax) {
 				continue
 			}
+			relative := physical
+			if configuration != nil {
+				var found bool
+				relative, found = workspaceRelativeFile(workspaceRoot, physical)
+				if !found || pathUnderConfigurationRoot(relative, configuration.GeneratedRoots) {
+					continue
+				}
+			}
 			result[physical] = sourceFile{
 				packagePath: pkg.Path,
 				packageName: pkg.Name,
 				physical:    physical,
+				relative:    relative,
 				fileSet:     pkg.Raw.Fset,
 				syntax:      file.Syntax,
 			}
@@ -392,7 +485,10 @@ func declaredTypes(
 	return byFile, byType
 }
 
-func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
+func fileStructureDiagnostics(
+	files map[string]sourceFile,
+	configuration *Configuration,
+) []Diagnostic {
 	paths := sortedFilePaths(files)
 	var diagnostics []Diagnostic
 	for _, path := range paths {
@@ -410,6 +506,9 @@ func fileStructureDiagnostics(files map[string]sourceFile) []Diagnostic {
 			}
 		}
 		boundary := approvedBoundaryFile(path)
+		if configuration != nil {
+			boundary = configuredBoundaryFile(file.relative, configuration.AllowedBoundaryFiles)
+		}
 		if len(typeSpecs) == 0 && !boundary {
 			position, physical := positions(file, file.syntax.Name.Pos())
 			diagnostics = append(diagnostics, Diagnostic{

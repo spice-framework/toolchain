@@ -191,31 +191,35 @@ func helper() {}
 }
 
 func TestVerifyUsesSharedSchemaTwoConfiguration(t *testing.T) {
-	root := writeGoSource(t, `package sample
+	root := writeModule(t, map[string]string{"app/sample.go": `package sample
 
 type First struct{}
 type Second struct{}
 
 func helper() {}
-`)
+`})
 	configurationPath, err := filepath.Abs(filepath.Join("..", "style", "testdata", "style.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runModule(root, "verify", "--style="+configurationPath, ".")
+	content, err := os.ReadFile(configurationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := styleConfigurationForApp(string(content))
+	localPath := filepath.Join(root, "style.json")
+	if err = os.WriteFile(localPath, []byte(configured), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runModule(root, "verify", "--style=style.json", ".")
 	if code != 1 || stdout != "" ||
 		!strings.Contains(stderr, "[spice.style.file.one-primary-type]") ||
 		!strings.Contains(stderr, "[spice.style.function.package-level]") {
 		t.Fatalf("configured: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
-	content, err := os.ReadFile(configurationPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	configuredOff := strings.ReplaceAll(string(content), `"onePrimaryTypePerFile": "error"`, `"onePrimaryTypePerFile": "off"`)
+	configuredOff := strings.ReplaceAll(configured, `"onePrimaryTypePerFile": "error"`, `"onePrimaryTypePerFile": "off"`)
 	configuredOff = strings.ReplaceAll(configuredOff, `"packageFunctions": "error"`, `"packageFunctions": "off"`)
-	localPath := filepath.Join(root, "style.json")
 	if err = os.WriteFile(localPath, []byte(configuredOff), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +229,7 @@ func helper() {}
 	}
 }
 
-func TestVerifyReportsSchemaMigrationAndUnsupportedRuleCodes(t *testing.T) {
+func TestVerifyReportsSchemaMigrationAndClosedPolicyCodes(t *testing.T) {
 	t.Parallel()
 	configurationPath, err := filepath.Abs(filepath.Join("..", "style", "testdata", "style.json"))
 	if err != nil {
@@ -250,12 +254,12 @@ func TestVerifyReportsSchemaMigrationAndUnsupportedRuleCodes(t *testing.T) {
 			text: "migrate",
 		},
 		{
-			name: "unsupported rule",
+			name: "unknown contribution exception",
 			mutate: func(value string) string {
-				return strings.Replace(value, `"explicitManagedScopes": "off"`, `"explicitManagedScopes": "error"`, 1)
+				return strings.Replace(value, `"contributionKind": "provider"`, `"contributionKind": "magic"`, 1)
 			},
-			code: "spice.style.configuration.unsupported-rule",
-			text: "explicitManagedScopes",
+			code: "spice.style.configuration.schema",
+			text: "contributionKind",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -272,6 +276,15 @@ func TestVerifyReportsSchemaMigrationAndUnsupportedRuleCodes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func styleConfigurationForApp(content string) string {
+	content = strings.ReplaceAll(
+		content,
+		`testdata/src/example.com/valid/internal/spicegen`,
+		`app/internal/spicegen`,
+	)
+	return strings.ReplaceAll(content, `testdata/src`, `app`)
 }
 
 func TestVerifyRejectsInvalidFormattingOptions(t *testing.T) {

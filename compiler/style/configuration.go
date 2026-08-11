@@ -216,6 +216,7 @@ func validateConfigurationRoots(field string, roots []string) error {
 		return configurationSourceError(field + " must be sorted")
 	}
 	previous := ""
+	seen := make([]string, 0, len(roots))
 	for _, root := range roots {
 		if root == previous {
 			return configurationSourceError(field + " contains duplicate " + strconv.Quote(root))
@@ -223,6 +224,14 @@ func validateConfigurationRoots(field string, roots []string) error {
 		if !validConfigurationRoot(root) {
 			return configurationSourceError(field + " contains invalid root " + strconv.Quote(root))
 		}
+		for _, owner := range seen {
+			if strings.HasPrefix(root, owner+"/") {
+				return configurationSourceError(
+					field + " contains overlapping roots " + strconv.Quote(owner) + " and " + strconv.Quote(root),
+				)
+			}
+		}
+		seen = append(seen, root)
 		previous = root
 	}
 	return nil
@@ -316,12 +325,12 @@ func validateRuleCapabilities(rules Rules) error {
 		{name: "fileNameMatchesType", requiredPhase: "structural", implemented: true},
 		{name: "packageFunctions", requiredPhase: "structural + typed", implemented: true},
 		{name: "explicitConstructors", requiredPhase: "typed", implemented: true},
-		{name: "explicitManagedScopes", requiredPhase: "typed"},
+		{name: "explicitManagedScopes", requiredPhase: "typed", implemented: true},
 		{name: "banInit", requiredPhase: "structural", implemented: true},
 		{name: "banMutablePackageState", requiredPhase: "structural", implemented: true},
-		{name: "privateManagedFields", requiredPhase: "typed"},
-		{name: "moduleOwnership", requiredPhase: "typed"},
-		{name: "routeClassification", requiredPhase: "typed"},
+		{name: "privateManagedFields", requiredPhase: "typed", implemented: true},
+		{name: "moduleOwnership", requiredPhase: "typed", implemented: true},
+		{name: "routeClassification", requiredPhase: "typed", implemented: true},
 		{name: "contextFirst", requiredPhase: "structural", implemented: true},
 		{name: "errorLast", requiredPhase: "structural", implemented: true},
 		{name: "maxTypeFileLines", requiredPhase: "structural", implemented: true},
@@ -528,12 +537,23 @@ func (exception PackageFunctionException) validate() error {
 	}
 	if exception.ContributionKind != "" {
 		selectors++
+		switch exception.ContributionKind {
+		case "application", "event-topic", "provider":
+		default:
+			return errors.New("contributionKind must be application, event-topic, or provider")
+		}
 	}
 	if selectors != 1 {
 		return errors.New("exactly one symbol, symbolPattern, or contributionKind is required")
 	}
 	if exception.Maximum < 0 {
 		return errors.New("maximum must not be negative")
+	}
+	if exception.ContributionKind != "" && exception.Maximum == 0 {
+		return errors.New("contributionKind requires a positive maximum")
+	}
+	if exception.ContributionKind == "" && exception.Maximum != 0 {
+		return errors.New("maximum is valid only with contributionKind")
 	}
 	return nil
 }

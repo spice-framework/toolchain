@@ -70,6 +70,7 @@ type Server struct {
 	target           string
 	patterns         []string
 	profile          compilerstyle.Profile
+	style            string
 	workspaces       map[string]*workspace
 	documents        map[string]*document
 	requests         map[string]context.CancelFunc
@@ -112,6 +113,7 @@ type workspace struct {
 	target    string
 	patterns  []string
 	profile   compilerstyle.Profile
+	style     string
 	published map[string]struct{}
 	documents map[string]struct{}
 }
@@ -360,6 +362,7 @@ type analysisSettings struct {
 	Target   string                `json:"target"`
 	Patterns []string              `json:"patterns"`
 	Profile  compilerstyle.Profile `json:"profile"`
+	Style    string                `json:"style"`
 }
 
 func (server *Server) initialize(message rpcMessage) error {
@@ -397,6 +400,7 @@ func (server *Server) initialize(message rpcMessage) error {
 	server.target = settings.Target
 	server.patterns = settings.Patterns
 	server.profile = settings.Profile
+	server.style = settings.Style
 	server.mu.Unlock()
 
 	folders := slices.Clone(params.WorkspaceFolders)
@@ -616,6 +620,7 @@ func (server *Server) addWorkspace(uri string) error {
 		target:    server.target,
 		patterns:  slices.Clone(server.patterns),
 		profile:   server.profile,
+		style:     server.style,
 		published: make(map[string]struct{}),
 		documents: make(map[string]struct{}),
 	}
@@ -632,10 +637,21 @@ func normalizeAnalysisSettings(
 		Target:   strings.TrimSpace(settings.Target),
 		Patterns: slices.Clone(settings.Patterns),
 		Profile:  settings.Profile,
+		Style:    strings.TrimSpace(settings.Style),
 	}
 	if result.Target != settings.Target {
 		return analysisSettings{}, errors.New(
 			"LSP application target must be trimmed",
+		)
+	}
+	if result.Style != settings.Style {
+		return analysisSettings{}, errors.New(
+			"LSP style configuration path must be trimmed",
+		)
+	}
+	if result.Style != "" && result.Profile != compilerstyle.ProfileNone {
+		return analysisSettings{}, errors.New(
+			"LSP profile and style configuration are mutually exclusive",
 		)
 	}
 	if err := compilerstyle.ValidateProfile(result.Profile); err != nil {
