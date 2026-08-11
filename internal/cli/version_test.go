@@ -12,7 +12,7 @@ func TestWriteVersionIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name, version, commit, want string
 	}{
-		{name: "development", version: developmentVersion, commit: developmentCommit, want: "spice v0.1.0-preview.2 (development)\n"},
+		{name: "development", version: developmentVersion, commit: developmentCommit, want: "spice v0.1.0-preview.3 (development)\n"},
 		{name: "release", version: "0.1.0-preview.3", commit: commit, want: "spice 0.1.0-preview.3 (" + commit + ")\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

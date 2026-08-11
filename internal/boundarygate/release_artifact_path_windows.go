@@ -8,6 +8,13 @@ import (
 	"strings"
 )
 
+func validateReleaseExecutionBoundary(acknowledgement string) error {
+	if acknowledgement != "1" {
+		return errors.New("windows installed-byte verification requires the explicit ephemeral-runner acknowledgement")
+	}
+	return nil
+}
+
 func normalizeReleaseArtifactDirectory(directory string) (string, error) {
 	if directory == "" || strings.HasPrefix(directory, `\\`) || strings.HasPrefix(directory, "//") ||
 		!filepath.IsAbs(directory) || filepath.Clean(directory) != directory {

@@ -171,7 +171,7 @@ is deliberately untracked and recreated by verification.
 
 ## Generator compatibility
 
-The next immutable generator candidate is `v0.1.0-preview.2`. Its canonical
+The next immutable generator candidate is `v0.1.0-preview.3`. Its canonical
 contract is [`compatibility/generator.json`](compatibility/generator.json): it
 writes ownership schema 6, accepts guarded migrations from schemas 1 through
 6, uses Go formatting line 1.26, and fails closed on manual edits, stale owned
@@ -179,28 +179,32 @@ files whose hashes changed, unsafe paths, or non-canonical contract drift.
 Source-built `go tool` binaries report the same exact generator identity; the
 release command rejects any tag that differs from it.
 
-The existing `v0.1.0-preview.1` tag remains immutable but is not the frozen
-generator contract: it records schema 5 and `0.1.0-dev`, and its release run
-`31120527225` is still waiting at the protected signing boundary. Do not
-approve, move, or reuse that tag as a generator-freeze shortcut. Preview.2
-must first pass the complete local and hosted candidate gates, then be tagged
-and released only under separate authorization.
+The existing `v0.1.0-preview.1` and `v0.1.0-preview.2` releases remain
+immutable history. Preview.1 records schema 5 and `0.1.0-dev`; release run
+`31120527225` was cancelled. Preview.2 was published by successful release run
+`31403311626` from commit `bab8bcaf`. Preview.3 must pass the complete local
+and hosted candidate gates before its immutable tag is separately authorized.
 
 ## Release
 
-[`RELEASING.md`](RELEASING.md) defines the release contract. Production builds
-require a clean checkout at the exact canonical SemVer tag, the tag's commit epoch,
-Go 1.26.5, and an external Ed25519 signing key. Rehearsals are deliberately
-unsigned. Every build uses the committed Git snapshot, the vendor graph, a
-scrubbed offline Go environment, and emits deterministic platform archives, a
-source archive, an exact SPDX SBOM, checksums, and (for production) a detached
-checksum signature. The tag workflow independently authenticates the signed
-artifacts against the committed trust anchor, compares a clean Windows rebuild
-byte-for-byte, and grants repository write authority only after a separate
-protected publication approval. That final job creates a private draft,
-downloads and reverifies every byte, and only then publishes it. The trust
-anchor and protected environments in
-[`RELEASING.md`](RELEASING.md) are mandatory before creating a release tag.
+[`RELEASING.md`](RELEASING.md) defines the current release contract. The
+preview.3 candidate first bootstraps only its five committed Go graphs through
+the public proxy and checksum database, then runs the complete release gate
+offline. A separately pinned Development renderer produces six deterministic
+platform archives, canonical release metadata, an SPDX 2.3 SBOM, and
+checksums. This repository's independently pinned verifier authenticates the
+tagged source and graph, reconstructs every byte, and copies exactly those nine
+subjects into a verifier-owned directory. Linux and Windows then execute only
+the installed verified archive. Protected `release-attestation` approval mints
+keyless Sigstore provenance, its source and workflow identity are authenticated,
+and distinct `release-publish` approval is the only path to a ten-asset public
+prerelease. The caller passes no secrets and no earlier job has repository
+write authority.
+
+The retained Ed25519 builder and its eleven-asset workflow describe the
+historical preview.2 release boundary. They remain available for verification
+and compatibility evidence, but they are not the preview.3 production
+authority.
 
 Signed source-only starter releases use a separate trust boundary. The
 `cmd/spice-library-release-verify` Go tool authenticates the exact five-file
@@ -304,8 +308,10 @@ successful verification copies the exact validated artifact allowlist into a
 required absent verifier-owned directory.
 
 The Toolchain candidate also owns an installed-byte gate for that verified
-allowlist. Set `SPICE_TOOLCHAIN_VERIFIED_ARTIFACT_DIR` to the canonical
-absolute verifier-owned output directory and run:
+allowlist. Set `SPICE_DISTRIBUTION_VERIFIED_ARTIFACT_DIR` to the canonical
+absolute verifier-owned output directory. Windows ephemeral runners must also
+set `SPICE_DISTRIBUTION_EPHEMERAL_RUNNER=1`; non-Windows runners must leave it
+unset. Then run:
 
 ```text
 make verify-release-artifacts
@@ -318,7 +324,7 @@ committed LICENSE and README with canonical paths, bytes, and permissions. The
 host archive is extracted into private scratch space and its binary is executed
 offline; it must report exactly `spice 0.1.0-preview.3 (<40-character-commit>)`.
 Source builds report the honest development identity
-`spice v0.1.0-preview.2 (development)`. Release builds set the exported
+`spice v0.1.0-preview.3 (development)`. Release builds set the exported
 `internal/cli.Version` and `internal/cli.Commit` data symbols directly; mixed,
 empty, noncanonical, or malformed linker identities fail closed. This
 candidate check consumes independently verified bytes and does not replace

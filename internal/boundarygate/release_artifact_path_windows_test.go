@@ -20,3 +20,15 @@ func TestReleaseArtifactDirectoryRejectsWindowsNetworkAndDevicePaths(t *testing.
 		}
 	}
 }
+
+func TestWindowsReleaseExecutionRequiresEphemeralRunnerAcknowledgement(t *testing.T) {
+	t.Parallel()
+	if err := validateReleaseExecutionBoundary("1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"", "0", "true", " 1"} {
+		if err := validateReleaseExecutionBoundary(value); err == nil {
+			t.Fatalf("Windows acknowledgement %q was accepted", value)
+		}
+	}
+}

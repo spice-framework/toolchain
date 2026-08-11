@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	releaseArtifactTarget = "verify-release-artifacts"
-	releaseArtifactInput  = "SPICE_TOOLCHAIN_VERIFIED_ARTIFACT_DIR"
+	releaseArtifactTarget    = "verify-release-artifacts"
+	releaseArtifactInput     = "SPICE_DISTRIBUTION_VERIFIED_ARTIFACT_DIR"
+	releaseArtifactRunnerAck = "SPICE_DISTRIBUTION_EPHEMERAL_RUNNER"
 )
 
 func (gate verifier) releaseArtifactEntrypoint() error {

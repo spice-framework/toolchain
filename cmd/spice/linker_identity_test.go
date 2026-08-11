@@ -28,7 +28,7 @@ func TestExecutableLinkerIdentity(t *testing.T) {
 	}{
 		{
 			name: "development defaults", wantCode: 0,
-			wantStdout: "spice v0.1.0-preview.2 (development)\n",
+			wantStdout: "spice v0.1.0-preview.3 (development)\n",
 		},
 		{
 			name: "release assignments",

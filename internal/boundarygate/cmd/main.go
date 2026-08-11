@@ -16,7 +16,7 @@ func main() {
 }
 
 func run() int {
-	mode := flag.String("mode", "verify", "verification mode: fast, check, benchmark, release-artifacts, or verify")
+	mode := flag.String("mode", "verify", "verification mode: fast, check, benchmark, tools-bootstrap, release-artifacts, verify-release, or verify")
 	artifacts := flag.String("artifacts", "", "absolute directory containing verified Toolchain release subjects")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)

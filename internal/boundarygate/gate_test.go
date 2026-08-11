@@ -19,9 +19,13 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 	root := t.TempDir()
 	writeGateFile(t, root, "main.go", "package toolchain\n")
 	writeGateFile(t, root, "vendor/example.txt", "vendored\n")
-	writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
+	writeGateFile(t, root, "vendor/modules.txt", "# "+identity.CoreModule+" "+identity.CoreVersion+"\n")
+	writeCoreDependencyModule(t, root, ".", identity.CoreVersion)
+	writeCoreDependencyModule(t, root, "testdata/annotationfixture", identity.CoreVersion)
+	writeCoreDependencyModule(t, root, "testdata/annotationapp", identity.CoreVersion)
 	writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
 	writeValidGeneratorContract(t, root)
+	writeValidReleaseIntent(t, root)
 	writeValidReleaseArtifactEntrypoint(t, root)
 	writeGateFile(t, root, "benchmarks/budgets.json", testBenchmarkBudgetDocument(
 		`{"name":"BenchmarkGate","package":"./compiler/gate","reference_ns_per_op":10,"maximum_ns_per_op":100,"maximum_bytes_per_op":100,"maximum_allocs_per_op":10,"rationale":"gate path"}`,
@@ -48,6 +52,7 @@ func TestVerifyExercisesTheStandaloneRepositoryContract(t *testing.T) {
 			return nil, nil
 		case executable == "go" && len(arguments) >= 4 && slices.Equal(arguments[:3], []string{"mod", "vendor", "-o"}):
 			writeGateFile(t, arguments[3], "example.txt", "vendored\n")
+			writeGateFile(t, arguments[3], "modules.txt", "# "+identity.CoreModule+" "+identity.CoreVersion+"\n")
 			return nil, nil
 		case executable == "go" && len(arguments) >= 2 && arguments[0] == "tool" && arguments[1] == "cover":
 			return []byte("total:\t(statements)\t85.2%\n"), nil
@@ -184,9 +189,13 @@ func TestFastAndCheckStopAtCommandFailures(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			writeGateFile(t, root, "main.go", "package toolchain\n")
-			writeGateFile(t, root, "testdata/annotationapp/go.mod", "module example.com/app\n")
+			writeCoreDependencyModule(t, root, ".", identity.CoreVersion)
+			writeCoreDependencyModule(t, root, "testdata/annotationfixture", identity.CoreVersion)
+			writeCoreDependencyModule(t, root, "testdata/annotationapp", identity.CoreVersion)
 			writeGateFile(t, root, "testdata/annotationapp/go.sum", "")
+			writeGateFile(t, root, "vendor/modules.txt", "# "+identity.CoreModule+" "+identity.CoreVersion+"\n")
 			writeValidGeneratorContract(t, root)
+			writeValidReleaseIntent(t, root)
 			writeValidReleaseArtifactEntrypoint(t, root)
 			failure := errors.New("command failed")
 			testCalls := 0

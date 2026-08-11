@@ -233,7 +233,8 @@ func validReleaseArtifactMakefile() string {
 
 func writeValidReleaseArtifactEntrypoint(t *testing.T, root string) {
 	t.Helper()
-	writeGateFile(t, root, "Makefile", validReleaseArtifactMakefile())
+	writeGateFile(t, root, "Makefile", validCandidateMakefile())
+	writeGateFile(t, root, ".github/workflows/ci.yml", validCandidateCIWorkflow())
 }
 
 func canonicalTestDirectory(t *testing.T) string {

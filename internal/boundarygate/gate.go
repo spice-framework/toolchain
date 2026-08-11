@@ -73,6 +73,17 @@ func RunConfigured(ctx context.Context, root, mode, artifacts string, output io.
 	}
 	gate := verifier{root: filepath.Clean(absoluteRoot), output: output}
 	switch mode {
+	case "tools-bootstrap":
+		if err := gate.goVersion(ctx); err != nil {
+			return err
+		}
+		if err := gate.releaseIntent(); err != nil {
+			return err
+		}
+		if err := gate.bootstrapEntrypoints(); err != nil {
+			return err
+		}
+		return gate.toolsBootstrap(ctx)
 	case "fast":
 		return gate.fast(ctx)
 	case "check":
@@ -81,11 +92,16 @@ func RunConfigured(ctx context.Context, root, mode, artifacts string, output io.
 		return gate.performance(ctx)
 	case "verify":
 		return gate.verify(ctx)
+	case "verify-release":
+		return gate.verify(ctx)
 	case "release-artifacts":
 		if err := gate.goVersion(ctx); err != nil {
 			return err
 		}
 		if err := gate.releaseArtifactEntrypoint(); err != nil {
+			return err
+		}
+		if err := validateReleaseExecutionBoundary(os.Getenv(releaseArtifactRunnerAck)); err != nil {
 			return err
 		}
 		return gate.releaseArtifacts(ctx, artifacts)
@@ -140,6 +156,15 @@ func (gate verifier) fast(ctx context.Context) error {
 	if err := gate.generatorCompatibility(); err != nil {
 		return err
 	}
+	if err := gate.coreDependencyIdentity(); err != nil {
+		return err
+	}
+	if err := gate.releaseIntent(); err != nil {
+		return err
+	}
+	if err := gate.bootstrapEntrypoints(); err != nil {
+		return err
+	}
 	if err := gate.releaseArtifactEntrypoint(); err != nil {
 		return err
 	}
@@ -182,6 +207,15 @@ func (gate verifier) verify(ctx context.Context) error {
 		}},
 		{name: "generator compatibility", run: func(context.Context) error {
 			return gate.generatorCompatibility()
+		}},
+		{name: "core dependency identity", run: func(context.Context) error {
+			return gate.coreDependencyIdentity()
+		}},
+		{name: "release intent", run: func(context.Context) error {
+			return gate.releaseIntent()
+		}},
+		{name: "release entrypoints", run: func(context.Context) error {
+			return gate.bootstrapEntrypoints()
 		}},
 		{name: "release artifact entrypoint", run: func(context.Context) error {
 			return gate.releaseArtifactEntrypoint()
@@ -863,7 +897,11 @@ func (gate verifier) command(
 	arguments ...string,
 ) ([]byte, error) {
 	environment = standaloneEnvironment(environment)
-	if _, err := fmt.Fprintf(gate.output, "    %s %s\n", executable, strings.Join(arguments, " ")); err != nil {
+	output := gate.output
+	if output == nil {
+		output = io.Discard
+	}
+	if _, err := fmt.Fprintf(output, "    %s %s\n", executable, strings.Join(arguments, " ")); err != nil {
 		return nil, err
 	}
 	if gate.executeStreams != nil {
@@ -882,6 +920,9 @@ func (gate verifier) command(
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	err := command.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	return commandResult(executable, arguments, stdout.Bytes(), stderr.Bytes(), err)
 }
 

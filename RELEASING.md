@@ -1,135 +1,114 @@
 # Releasing the Spice toolchain
 
-The release builder consumes one immutable Git `HEAD` snapshot. It does not
-package mutable working-tree files and it never downloads modules.
+The current Toolchain release uses the organization-owned, keyless
+`go-distribution-v1` workflow. Candidate bootstrap is the only network-capable
+phase: it seeds private copies of the root, tools, actionlint,
+annotationfixture, and annotationapp module graphs through only the public Go
+proxy and checksum database. Candidate validation, rendering, independent
+verification, installed-byte execution, attestation authentication, and
+publication then operate on immutable or verifier-owned bytes.
 
 ## Rehearsal
 
-Use a rehearsal to inspect deterministic artifacts before creating a tag:
+Before creating a tag, use the same boundaries as production:
 
 ```text
-go run ./cmd/spice-release -rehearsal -version v0.1.0-preview.2 -output dist-rehearsal
+make tools-bootstrap
+GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off make verify-release
 ```
 
-A rehearsal must not receive a signing key. Its checksum file is intentionally
-unsigned so it cannot be confused with a production release.
+In disposable clean checkouts, use Development commit
+`678a8d7ce5b20d9f2509f089b918154894064fc1` to render the exact Toolchain
+preview.3 nine-subject set and Toolchain verifier commit
+`93547dc3053b3da2dd4a2791bbc881217a9a50d7` to authenticate and reconstruct it.
+Run this candidate's `verify-release-artifacts` against only the verifier-owned
+output on Linux and Windows. A rehearsal uses a local annotated tag only and
+must never push that tag or create a release.
 
 ## Production release prerequisites
 
-The tag-triggered workflow is fail-closed. It is not authorized for a first
-production release until all of these repository controls exist:
+The tag-triggered workflow is authorized only when all of these controls are
+present and independently checked:
 
-- `security/release/ed25519-public.pem` contains the reviewed Ed25519 trust
-  anchor. Its DER SHA-256 fingerprint is
-  `9be4a0a3d312e48ccc1c17136510e7658c5d1fcda8f95ab2e938b6ffb0d97272`.
-  A generated `checksums.txt.pem` is not a trust anchor by itself.
-- The protected `release-signing` environment permits only release tags,
-  requires the repository owner to approve, and contains the
-  `SPICE_RELEASE_SIGNING_KEY_FILE_B64` secret. The
-  secret is the base64 encoding of the complete PKCS#8 PEM or supported raw-key
-  file, not a path.
-- The protected `release-publish` environment has the same reviewer and tag
-  restrictions. It contains no signing material and provides a distinct
-  approval before the only job with repository write authority creates and
-  publishes the verified draft.
-- An enforced tag ruleset restricts creation of `v*` tags to release managers
-  and forbids tag updates and deletion.
-- The default branch rejects deletion, non-fast-forward updates, and nonlinear
-  history. The repository's direct-main contract requires the exact local
-  `make verify`, a fetch guard, and a clean push; hosted verification is the
-  post-push durability mirror.
-- Every third-party workflow action is pinned to a full commit SHA. Actionlint
-  and the repository workflow-invariant tests reject authority drift.
-
-The organization currently has one maintainer, so GitHub cannot require a
-different human reviewer without making releases impossible. Environment
-self-review is therefore enabled deliberately. The two sequential approvals,
-credential separation, immutable tag, credential-free rebuild, and repeated
-artifact verification remain mandatory. Add a distinct required reviewer and
-prevent self-review as soon as a second release maintainer is available.
-
-The signing key is generated outside the repository and transferred directly
-to the protected GitHub environment. This solo-maintainer setup deliberately
-retains no plaintext local copy; loss of the hosted secret requires a reviewed
-trust-anchor rotation before another release tag is created. Never store the
-private key or its decoded bytes in the repository, workflow artifacts, logs,
-or release assets.
+- `spice-release.json`, `compatibility/generator.json`, the source generator
+  identity, CLI identity, root module, both annotation fixture modules, and
+  vendor metadata all name the exact preview.3/Spice preview.4 candidate.
+- `make tools-bootstrap` leaves every repository byte and mode unchanged, and
+  `make verify-release` succeeds with proxy, checksum lookup, workspace mode,
+  and toolchain download disabled.
+- `.github/workflows/release.yml` is the no-secrets caller pinned in both
+  locations to organization authority
+  `d8892284957b53310eeb2080d4e363dcb57e64f8`.
+- The exact commit is clean, on `origin/main`, and its hosted Verify,
+  Documentation, and cross-producer workflows are terminal green.
+- Protected `release-attestation` and `release-publish` environments accept
+  only release tags and require explicit approval. Neither stores a signing
+  key. The enforced tag and release rules forbid tag movement, tag deletion,
+  and mutable release assets.
+- The reusable workflow authorities remain independently pinned to Development
+  `678a8d7ce5b20d9f2509f089b918154894064fc1` and Toolchain
+  `93547dc3053b3da2dd4a2791bbc881217a9a50d7`. No caller edit may expand their
+  separately reviewed policy intersection.
 
 ## Automated production release
 
-1. Run `make verify` on exactly Go 1.26.5 and commit the green tree. This gate
-   includes the reviewed toolchain performance budgets in
-   `benchmarks/budgets.json`; do not raise a ceiling without measured evidence
-   and a recorded rationale.
-2. Confirm the commit is on `origin/main`, CI is green, the working tree is
-   clean, and the intended version exactly matches the frozen generator
-   identity in `compatibility/generator.json` and
-   `compiler/generate.GeneratorVersion`. The current candidate is
-   `v0.1.0-preview.2`; build metadata is not accepted.
-3. Have an authorized release manager create and push the immutable `v*` tag.
-   Do not manually create a GitHub Release.
-4. Approve `release-signing` only after checking the tag, commit, workflow, and
-   trust-anchor history.
-5. Inspect the retained signature, reproducibility, and verification evidence.
-6. Approve `release-publish` only after the signed build and independent
-   Windows rebuild have passed byte-for-byte verification.
+1. Run the fresh-cache bootstrap, offline release gate, `make fast`,
+   `make check`, and exact-tree `make verify` on Go 1.26.5. Commit, fetch-guard,
+   push, and require the exact hosted workflows to succeed.
+2. Complete the disposable clean-clone renderer, independent-verifier, and
+   Linux/Windows installed-byte rehearsal without modifying the candidate.
+3. After an independent pre-tag audit, create the annotated
+   `v0.1.0-preview.3` tag with message `Toolchain v0.1.0-preview.3`, verify its
+   object and peeled commit locally, and push only that tag. Never create the
+   GitHub Release manually and never rerun a failed immutable-tag workflow.
+4. Confirm candidate validation, deterministic rendering, independent
+   reconstruction, and both installed-byte execution jobs succeed. Linux uses
+   an unset `SPICE_DISTRIBUTION_EPHEMERAL_RUNNER`; Windows uses exact value `1`.
+   Both consume `SPICE_DISTRIBUTION_VERIFIED_ARTIFACT_DIR`.
+5. Approve only the waiting `release-attestation` deployment for the exact run,
+   tag, commit, jobs, and verified artifact set. Require keyless provenance and
+   its source/workflow authentication to succeed.
+6. Approve only the subsequent `release-publish` deployment for that same run.
+   Require the publish job and complete workflow to finish successfully, then
+   independently download and authenticate all release assets.
 
 The workflow then performs this chain:
 
-1. Resolve the tag to the checkout's exact commit, require that commit to be an
-   ancestor of `origin/main`, derive its source epoch, run `make verify`, and
-   prove the gate did not modify the checkout.
-2. Build all six signed archives on a protected Ubuntu runner without module or
-   workspace resolution. The signing secret is scoped to this step and its
-   decoded temporary file is removed before artifact upload.
-3. Independently rebuild the same tree without signing material on Windows.
-4. Verify the signed release with `cmd/spice-release-verify` and the committed
-   trust anchor, require the exact artifact set, and compare every unsigned
-   artifact byte-for-byte between the two hosts.
-5. Wait at the protected publication environment. No earlier job has repository
-   write permission.
-6. After approval, create or resume only a matching private draft, reject
-   unknown assets, upload exactly the verified eleven files, download them,
-   independently verify the signature, source, archives, binaries, module
-   graph, SBOM, and checksums again, and compare every downloaded byte with the
-   originally verified workflow artifact.
-7. Retain pre-publication evidence for 90 days and make the matching draft
-   public only after every in-job recheck succeeds.
+1. Validate the exact tag, commit, release intent, candidate-owned bootstrap,
+   and offline release target without modifying the checkout.
+2. Render the six Linux/macOS/Windows amd64/arm64 archives plus canonical
+   release JSON, SPDX 2.3 SBOM, and checksums from the separately pinned
+   Development authority.
+3. Use the separately pinned Toolchain authority to authenticate the public
+   module graph, regenerate vendor privately, rebuild and reconstruct every
+   subject, and copy exactly nine verified bytes into a new verifier-owned
+   directory.
+4. On Linux and Windows, download only that verified directory, revalidate its
+   exact membership, and execute the native installed binary offline.
+5. Wait at `release-attestation`; after approval, attest all nine subjects with
+   GitHub OIDC and Sigstore, then authenticate the bundle against the exact
+   tag, source repository, caller workflow, and reusable workflow.
+6. Wait at `release-publish`; after approval, publish the nine verified subjects
+   plus `provenance.sigstore.json` as an immutable non-draft prerelease and
+   recheck every downloaded byte and identity.
 
-Signed and unsigned workflow intermediates are retained for 14 days. A failed
-job never publishes a release. A failure after draft creation deliberately
-leaves the release private for inspection; a rerun may replace only expected
-assets on a matching draft and still repeats every verification gate.
+No failure before publication creates a public release. A failed immutable tag
+is historical evidence and is never moved, deleted, reused, or rerun.
 
-For local production diagnosis, the guarded builder remains available:
+## Historical Ed25519 release boundary
 
-```text
-go run ./cmd/spice-release -version v0.1.0 -signing-key ../private/spice-release.key -output dist-v0.1.0
-```
+Preview.2 was published by successful release run `31403311626` at commit
+`bab8bcaf`. Its retained local `cmd/spice-release` builder, committed Ed25519
+trust anchor, independent Windows rebuild, detached signature, public key,
+source archive, and eleven-asset verification path describe that immutable
+historical release. The preview.1 run `31120527225` was cancelled. Neither the
+legacy `release-signing` environment nor its private-key secret is an authority
+for preview.3, and they must not be substituted into the keyless caller.
 
-Production validation rejects build metadata, a tag that does not resolve to
-`HEAD`, a source epoch that differs from the `HEAD` commit timestamp,
-an unsigned build, a version that differs from the frozen generator identity,
-a dirty checkout, a non-Go-1.26.5 toolchain, module
-replacements, and any difference between `go.mod` and `vendor/modules.txt`.
-
-The immutable `v0.1.0-preview.1` tag records ownership schema 5 with generator
-identity `0.1.0-dev`; release run `31120527225` remains waiting at the protected
-signing environment and must not be approved as the generator freeze. The
-preview.2 candidate writes schema 6 and contains the explicit guarded schema5
-migration required by Agent and extension repositories. Preparing or verifying
-that candidate does not authorize its tag, signing environment, publication
-environment, or GitHub Release.
-
-The output contains reproducible archives for every supported target, a source
-archive, an SPDX 2.3 SBOM, `checksums.txt`, its raw Ed25519 signature, and the
-corresponding public key. The Go build runs with `-mod=vendor`, `-trimpath`, CGO
-disabled, workspace and network resolution disabled, and ambient Go build
-configuration removed.
-
-The committed trust anchor and protected GitHub environments remain hard
-blockers even when a local signed build succeeds. Never create a tag merely to
-test the production workflow; use the unsigned rehearsal instead.
+The historical builder remains useful for diagnosing and authenticating those
+releases, but a local signed build never authorizes a new tag or current
+publication. The current candidate writes ownership schema 6 and retains the
+guarded schema-5 migration required by downstream repositories.
 
 ## Starter-library verification
 
@@ -367,7 +346,7 @@ After independent verification has copied the exact Toolchain preview.3
 allowlist, the candidate repository verifies its own installed-byte behavior:
 
 ```text
-SPICE_TOOLCHAIN_VERIFIED_ARTIFACT_DIR=<canonical-absolute-verified-output> \
+SPICE_DISTRIBUTION_VERIFIED_ARTIFACT_DIR=<canonical-absolute-verified-output> \
   make verify-release-artifacts
 ```
 
@@ -381,7 +360,9 @@ identity comes from the directly linker-settable `internal/cli.Version` and
 development defaults; empty, mixed-development/release, or malformed linker
 values are errors. The target neither authenticates source nor creates an
 attestation, and it must consume the independently verified directory rather
-than renderer output.
+than renderer output. Windows ephemeral runners must additionally set
+`SPICE_DISTRIBUTION_EPHEMERAL_RUNNER=1`; non-Windows runners must leave that
+acknowledgement unset.
 
 ## Cross-producer acceptance
 

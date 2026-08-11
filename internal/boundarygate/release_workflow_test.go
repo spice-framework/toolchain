@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 
 const releaseTrustAnchorFingerprint = "9be4a0a3d312e48ccc1c17136510e7658c5d1fcda8f95ab2e938b6ffb0d97272"
 
-func TestReleaseTrustAnchorIsCanonicalEd25519(t *testing.T) {
+func TestHistoricalReleaseTrustAnchorIsCanonicalEd25519(t *testing.T) {
 	t.Parallel()
 	content, err := os.ReadFile(filepath.Join("..", "..", "security", "release", "ed25519-public.pem"))
 	if err != nil {
@@ -49,49 +50,100 @@ func TestProductionReleaseWorkflowKeepsAuthorityBehindProtectedBoundaries(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	workflow := string(content)
-	for _, required := range []string{
-		"permissions:\n  contents: read",
-		"cancel-in-progress: false",
-		"name: release-signing",
-		"name: release-publish",
-		"SIGNING_KEY_FILE_B64: ${{ secrets.SPICE_RELEASE_SIGNING_KEY_FILE_B64 }}",
-		"go run -mod=vendor ./cmd/spice-release-verify",
-		"gh release create",
-		"gh release download",
-		"gh release edit",
+	if err = validateProductionReleaseWorkflow(string(content)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProductionReleaseWorkflowRejectsAuthorityDrift(t *testing.T) {
+	t.Parallel()
+	valid := expectedProductionReleaseWorkflow()
+	for _, test := range []struct {
+		name   string
+		mutate func(string) string
+	}{
+		{name: "stale reusable pin", mutate: func(value string) string {
+			return strings.Replace(value, productionWorkflowCommit, strings.Repeat("a", 40), 2)
+		}},
+		{name: "mismatched repeated pin", mutate: func(value string) string {
+			index := strings.LastIndex(value, productionWorkflowCommit)
+			return value[:index] + strings.Repeat("b", 40) + value[index+len(productionWorkflowCommit):]
+		}},
+		{name: "workflow default permission", mutate: func(value string) string {
+			return strings.Replace(value, "permissions: {}", "permissions:\n  contents: read", 1)
+		}},
+		{name: "permission drift", mutate: func(value string) string {
+			return strings.Replace(value, "      id-token: write\n", "", 1)
+		}},
+		{name: "secret inheritance", mutate: func(value string) string {
+			return strings.Replace(value, "    with:\n", "    secrets: inherit\n    with:\n", 1)
+		}},
+		{name: "local runner", mutate: func(value string) string {
+			return strings.Replace(value, "    name: Keylessly attest and publish\n", "    name: Keylessly attest and publish\n    runs-on: ubuntu-latest\n", 1)
+		}},
+		{name: "local steps", mutate: func(value string) string {
+			return strings.Replace(value, "    uses: spice-framework/", "    steps:\n      - run: echo bypass\n    uses: spice-framework/", 1)
+		}},
+		{name: "legacy signing", mutate: func(value string) string {
+			return value + "\n# release-signing SPICE_RELEASE_SIGNING_KEY_FILE_B64\n"
+		}},
+		{name: "broad tag trigger", mutate: func(value string) string {
+			return strings.Replace(value, `"v[0-9]*.[0-9]*.[0-9]*"`, `"v*"`, 1)
+		}},
+		{name: "wrong module", mutate: func(value string) string {
+			return strings.Replace(value, "module: github.com/spice-framework/toolchain", "module: example.com/toolchain", 1)
+		}},
 	} {
-		if !strings.Contains(workflow, required) {
-			t.Errorf("release workflow is missing %q", required)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := validateProductionReleaseWorkflow(test.mutate(valid)); err == nil {
+				t.Fatal("mutated release workflow succeeded")
+			}
+		})
 	}
-	if count := strings.Count(workflow, "contents: write"); count != 1 {
-		t.Errorf("release workflow grants contents:write %d times, require exactly one protected publisher", count)
+}
+
+const productionWorkflowCommit = "d8892284957b53310eeb2080d4e363dcb57e64f8"
+
+func validateProductionReleaseWorkflow(workflow string) error {
+	if workflow != expectedProductionReleaseWorkflow() {
+		return errors.New("production release workflow differs from the reviewed reusable caller")
 	}
-	if count := strings.Count(workflow, "SPICE_RELEASE_SIGNING_KEY_FILE_B64"); count != 1 {
-		t.Errorf("release workflow references the signing secret %d times, require exactly one protected use", count)
-	}
-	if count := strings.Count(workflow, "go run -mod=vendor ./cmd/spice-release-verify"); count != 3 {
-		t.Errorf("release workflow runs the independent verifier %d times, require pre-approval and two publish checks", count)
+	if strings.Count(workflow, productionWorkflowCommit) != 2 {
+		return errors.New("production release workflow must pin the reviewed authority twice")
 	}
 	for _, forbidden := range []string{
-		"secrets: inherit",
-		"create-draft:",
-		"verify-draft:",
+		"runs-on:", "steps:", "secrets:", "secrets: inherit", "release-signing",
+		"SPICE_RELEASE_SIGNING_KEY_FILE_B64", "cmd/spice-release", "cmd/spice-release-verify",
 	} {
 		if strings.Contains(workflow, forbidden) {
-			t.Errorf("release workflow contains forbidden authority path %q", forbidden)
+			return errors.New("production release workflow contains forbidden local or legacy authority")
 		}
 	}
-	publish := strings.Index(workflow, "\n  publish:\n")
-	write := strings.Index(workflow, "contents: write")
-	if publish < 0 || write < publish {
-		t.Error("contents:write is not scoped to the protected publish job")
-	}
-	signing := strings.Index(workflow, "\n  signed-build:\n")
-	unsigned := strings.Index(workflow, "\n  unsigned-rebuild:\n")
-	secret := strings.Index(workflow, "SIGNING_KEY_FILE_B64: ${{ secrets.")
-	if signing < 0 || unsigned < 0 || secret < signing || secret > unsigned {
-		t.Error("signing secret escaped the protected signed-build job")
-	}
+	return nil
+}
+
+func expectedProductionReleaseWorkflow() string {
+	return `name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions: {}
+
+jobs:
+  release:
+    name: Keylessly attest and publish
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    uses: spice-framework/.github/.github/workflows/go-distribution-release.yml@d8892284957b53310eeb2080d4e363dcb57e64f8
+    with:
+      module: github.com/spice-framework/toolchain
+      workflow_commit: d8892284957b53310eeb2080d4e363dcb57e64f8
+`
 }
