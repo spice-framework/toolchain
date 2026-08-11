@@ -16,7 +16,12 @@ func validateReleaseExecutionBoundary(acknowledgement string) error {
 }
 
 func normalizeReleaseArtifactDirectory(directory string) (string, error) {
-	if directory == "" || strings.HasPrefix(directory, `\\`) || strings.HasPrefix(directory, "//") ||
+	// GitHub's Windows runner.temp value uses native separators, while a fixed
+	// workflow suffix may arrive with forward slashes. Normalize only separator
+	// direction here; filepath.Clean must not make any further change, so dot
+	// segments and doubled separators remain rejected.
+	directory = strings.ReplaceAll(directory, "/", `\`)
+	if directory == "" || strings.HasPrefix(directory, `\\`) ||
 		!filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return "", errors.New("verified artifact directory must be canonical and absolute on a local volume")
 	}

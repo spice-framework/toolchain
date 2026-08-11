@@ -57,10 +57,12 @@ present and independently checked:
    push, and require the exact hosted workflows to succeed.
 2. Complete the disposable clean-clone renderer, independent-verifier, and
    Linux/Windows installed-byte rehearsal without modifying the candidate.
-3. After an independent pre-tag audit, create the annotated
-   `v0.1.0-preview.3` tag with message `Toolchain v0.1.0-preview.3`, verify its
-   object and peeled commit locally, and push only that tag. Never create the
-   GitHub Release manually and never rerun a failed immutable-tag workflow.
+3. After distinct Development and Toolchain authorities authorize preview.4
+   and an independent pre-tag audit passes, create the annotated
+   `v0.1.0-preview.4` tag with message `Spice Toolchain v0.1.0-preview.4`,
+   verify its object and peeled commit locally, and push only that tag. Never
+   create the GitHub Release manually and never rerun a failed immutable-tag
+   workflow.
 4. Confirm candidate validation, deterministic rendering, independent
    reconstruction, and both installed-byte execution jobs succeed. Linux uses
    an unset `SPICE_DISTRIBUTION_EPHEMERAL_RUNNER`; Windows uses exact value `1`.
@@ -247,19 +249,18 @@ Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
 
-The immutable distribution preview.1 attempt failed in release run
-`31333877865` while validating the tagged candidate: `make -C candidate
-verify-release` found no `verify-release` target. Rendering never ran, and the
-independent verification, attestation, provenance-authorization, and publish
-jobs were skipped. Preview.2 was the immutable corrected release. Preview.3
-release run `31345003119` passed candidate validation, rendering, and
-independent verification, then stopped before attestation: Linux still
-expected preview.2 artifact names and Windows rejected the runner's valid
-mixed-separator artifact path. Preview.4 is the new closed-policy authorization
-for the corrected installed-archive execution boundary. Release run
-`31349650978` then completed that execution boundary and published the exact
-ten-asset non-draft prerelease. Prior tags remain rejected and must never be
-moved or reused.
+The immutable distribution preview.1 release run `31120527225` was cancelled.
+Preview.2 was published from commit `bab8bcaf` by successful release run
+`31403311626`. Preview.3 release run `31501018109` passed candidate validation,
+deterministic rendering and its reproducibility recheck, independent
+nine-subject verification, and Ubuntu installed-byte execution. Windows then
+rejected `D:\a\_temp/go-distribution-release-verified` as noncanonical before
+installed-byte execution. Attestation, provenance authentication, and publish
+were skipped, no protected deployment or GitHub Release was created, and the
+preview.3 tag remains an immutable tag-only attempt at commit `38ddce15`.
+Preview.4 is the next distinct candidate and requires separate closed-policy
+authorization; it has not been tagged or published. Prior tags must never be
+moved, reused, or rerun.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is

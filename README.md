@@ -171,8 +171,8 @@ is deliberately untracked and recreated by verification.
 
 ## Generator compatibility
 
-The next immutable generator candidate is `v0.1.0-preview.3`. Its canonical
-contract is [`compatibility/generator.json`](compatibility/generator.json): it
+The immutable `v0.1.0-preview.3` generator contract is recorded in
+[`compatibility/generator.json`](compatibility/generator.json): it
 writes ownership schema 6, accepts guarded migrations from schemas 1 through
 6, uses Go formatting line 1.26, and fails closed on manual edits, stale owned
 files whose hashes changed, unsafe paths, or non-canonical contract drift.
@@ -182,8 +182,10 @@ release command rejects any tag that differs from it.
 The existing `v0.1.0-preview.1` and `v0.1.0-preview.2` releases remain
 immutable history. Preview.1 records schema 5 and `0.1.0-dev`; release run
 `31120527225` was cancelled. Preview.2 was published by successful release run
-`31403311626` from commit `bab8bcaf`. Preview.3 must pass the complete local
-and hosted candidate gates before its immutable tag is separately authorized.
+`31403311626` from commit `bab8bcaf`. Preview.3 is an immutable tag-only
+attempt at commit `38ddce15`; release run `31501018109` stopped before
+attestation and created no release. Preview.4 is the next distinct candidate
+and must receive separate policy authorization and complete verification.
 
 ## Release
 
@@ -253,17 +255,18 @@ attempt that produced no authenticated release; it is rejected as a current
 foundation selection. This recovery authority independently matches
 Development commit `678a8d7ce5b20d9f2509f089b918154894064fc1`; neither
 repository can expand it alone. The Coding distribution's authorized version
-remains `v0.1.0-preview.4`;
-preview.1 is rejected after release run `31333877865`
-stopped at the missing candidate `verify-release` target before rendering or
-artifact production. Published preview.2 remains immutable. Preview.3 release
-run `31345003119` passed validation, rendering, and independent verification,
-then failed before attestation because Linux retained a stale preview.2
-installed-artifact expectation and Windows rejected a valid mixed-separator
-runner path. Preview.4 authorizes only the corrected candidate boundary.
-Release run `31349650978` subsequently completed installed-byte execution on
-Linux and Windows, keyless attestation, provenance authentication, and
-protected publication of the immutable preview.4 prerelease.
+remains `v0.1.0-preview.4`.
+
+In the separate Toolchain distribution history, preview.1 release run
+`31120527225` was cancelled. Published preview.2 remains
+immutable at commit `bab8bcaf` through successful release run `31403311626`.
+Preview.3 release run `31501018109` passed candidate validation, deterministic
+rendering, independent nine-subject verification, and Ubuntu installed-byte
+execution. Windows then rejected the runner's mixed-separator verified
+artifact directory before installed-byte execution, so attestation,
+provenance authentication, and publication were skipped. Preview.3 remains an
+immutable tag-only attempt with no GitHub Release or deployment. Preview.4 is
+the next distinct candidate; it has not been tagged or published.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
