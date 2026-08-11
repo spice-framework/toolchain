@@ -25,16 +25,23 @@ const (
 	maxVendorFiles          = 100_000
 	maxVendorBytes          = 512 << 20
 
-	rendererIdentity             = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
-	agentFoundationVersion       = "v0.1.0-preview.2"
-	toolchainVersion             = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
-	spiceFoundationVersion       = "v0.1.0-preview.4"
-	toolchainDistributionVersion = "v0.1.0-preview.3"
-	agentTUIReleaseVersion       = "v0.1.0-preview.2"
-	agentCoreReleaseVersion      = "v0.1.0-preview.6"
-	agentCoreDependencyVersion   = "v0.1.0-preview.4"
-	agentExtensionVersion        = "v0.1.0-preview.1"
-	agentDistributionVersion     = "v0.1.0-preview.4"
+	rendererIdentity                 = "github.com/spice-framework/development/cmd/spice-dev go-release renderer/v1"
+	historicalSpiceFoundationVersion = "v0.1.0-preview.2"
+	historicalModuleToolchainVersion = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
+	historicalCodingToolchainVersion = "v0.1.0-preview.1.0.20260807044408-6598abca8196"
+	spiceFoundationVersion           = "v0.1.0-preview.4"
+	toolchainDistributionVersion     = "v0.1.0-preview.4"
+	agentCoreReleaseVersion          = "v0.1.0-preview.7"
+	agentCoreSpiceVersion            = "v0.1.0-preview.4"
+	agentCoreToolchainVersion        = "v0.1.0-preview.2"
+	agentCoreDependencyVersion       = "v0.1.0-preview.4"
+	agentProviderReleaseVersion      = "v0.1.0-preview.1"
+	agentCodingToolsReleaseVersion   = "v0.1.0-preview.1"
+	historicalCodingProviderVersion  = "v0.1.0-preview.1"
+	historicalCodingToolsVersion     = "v0.1.0-preview.1"
+	historicalCodingTUIVersion       = "v0.1.0-preview.1"
+	agentTUIReleaseVersion           = "v0.1.0-preview.2"
+	agentDistributionVersion         = "v0.1.0-preview.4"
 )
 
 // Config contains separately trusted release identity and untrusted artifact
@@ -148,12 +155,12 @@ var distributionPolicies = map[string]distributionPolicy{
 		version:      agentDistributionVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
+			{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: historicalCodingToolchainVersion},
 			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
-			{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentExtensionVersion},
-			{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentExtensionVersion},
-			{path: "github.com/spice-framework/spice-agent-tui", version: agentExtensionVersion},
+			{path: "github.com/spice-framework/spice-agent-provider-openai", version: historicalCodingProviderVersion},
+			{path: "github.com/spice-framework/spice-agent-tools-coding", version: historicalCodingToolsVersion},
+			{path: "github.com/spice-framework/spice-agent-tui", version: historicalCodingTUIVersion},
 		},
 		binaries: []distributionBinary{
 			{name: "spice-agent", packagePath: "./cmd/spice-agent"},
@@ -190,27 +197,27 @@ var releasePolicies = map[string]releasePolicy{
 		source: "https://github.com/spice-framework/spice-agent", version: agentCoreReleaseVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: agentCoreSpiceVersion},
+			{path: "github.com/spice-framework/toolchain", version: agentCoreToolchainVersion},
 		},
 	},
 	"spice-agent-provider-openai": {
 		repository: "spice-agent-provider-openai", module: "github.com/spice-framework/spice-agent-provider-openai",
-		source: "https://github.com/spice-framework/spice-agent-provider-openai", version: "v0.1.0-preview.1",
+		source: "https://github.com/spice-framework/spice-agent-provider-openai", version: agentProviderReleaseVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: historicalModuleToolchainVersion},
 			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
 		},
 	},
 	"spice-agent-tools-coding": {
 		repository: "spice-agent-tools-coding", module: "github.com/spice-framework/spice-agent-tools-coding",
-		source: "https://github.com/spice-framework/spice-agent-tools-coding", version: "v0.1.0-preview.1",
+		source: "https://github.com/spice-framework/spice-agent-tools-coding", version: agentCodingToolsReleaseVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: historicalModuleToolchainVersion},
 			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
 		},
 	},

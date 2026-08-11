@@ -209,8 +209,9 @@ organization workflow uploads, attests, and publishes only that verifier-owned
 directory.
 
 The verifier carries its own reviewed allowlist for dependency-free
-`spice@v0.1.0-preview.4`, `spice-agent@v0.1.0-preview.6`,
-`spice-agent-provider-openai`, `spice-agent-tools-coding`, and
+`spice@v0.1.0-preview.4`, `spice-agent@v0.1.0-preview.7`,
+`spice-agent-provider-openai@v0.1.0-preview.1`,
+`spice-agent-tools-coding@v0.1.0-preview.1`, and
 `spice-agent-tui@v0.1.0-preview.2`, including their required module identities.
 A required
 tool-only module may retain Go's `// indirect` marker; its canonical `require`
@@ -218,17 +219,19 @@ entry remains inspectable beside the `tool` directive. This deliberately
 duplicates development catalog policy so one repository cannot
 expand release authority by itself. Any repository, version, dependency, or
 profile change requires separately reviewed development and toolchain commits.
-The Agent core, provider, coding-tools, and `spice-agent-coding` distribution
-policies retain `github.com/spice-framework/spice@v0.1.0-preview.2` and their
-historical Toolchain and sibling selections. TUI preview.2 instead requires
-Spice preview.4 and Toolchain preview.3. The Toolchain distribution preview.3
-policy likewise requires Spice preview.4 and authorizes exactly one `spice`
-command, six targets, LICENSE, README, and the Version and Commit identity
-symbols. Spice preview.3 is an immutable tag-only attempt whose release run
-failed candidate bootstrap before rendering, verification, attestation, or
+The Agent core preview.7 policy requires authenticated Spice preview.4 and the
+published Toolchain preview.2. Provider preview.1, coding-tools preview.1, and
+the `spice-agent-coding` preview.4 distribution retain
+`github.com/spice-framework/spice@v0.1.0-preview.2` and their exact historical
+Toolchain, Agent, and sibling selections. TUI preview.2 instead requires Spice
+preview.4 and Toolchain preview.4. The Toolchain distribution preview.4 policy
+likewise requires Spice preview.4 and authorizes exactly one `spice` command,
+six targets, LICENSE, README, and the Version and Commit identity symbols.
+Spice preview.3 is an immutable tag-only attempt whose release run failed
+candidate bootstrap before rendering, verification, attestation, or
 deployment; no authenticated preview.3 foundation release exists for either
-downstream policy. The complete recovery authority independently matches
-Development commit `678a8d7ce5b20d9f2509f089b918154894064fc1`; neither side
+downstream policy. The complete closed authority independently matches
+Development commit `73ec26480db3247cd93c8325080058e118b845c9`; neither side
 can expand release authority by itself.
 Provider, coding-tools, and Coding distribution policies require the recovered
 `github.com/spice-framework/spice-agent@v0.1.0-preview.4`; preview.1,
@@ -239,12 +242,11 @@ authorized version is
 `v0.1.0-preview.4`; release run `31349650978` completed the Linux and Windows
 installed-byte gates, keyless attestation, provenance authentication, and
 protected publication. Published preview.2 remains immutable. The Agent
-module's own preview.6 release does not silently repin provider,
-coding-tools, or distribution dependencies, which remain on the exact released
-preview.4 graph. Agent preview.6 was published by successful release run
-`31428824060` with its authenticated five-asset module set. Its separate
-immutable identity ensures later Agent source cannot move or reuse preview.5
-or preview.6.
+module's own preview.7 policy does not silently repin provider, coding-tools,
+or distribution dependencies, which remain on the exact released preview.4
+graph. Agent preview.6 was published by successful release run `31428824060`
+with its authenticated five-asset module set. Preview.7 is a separate
+authorized identity and cannot move or reuse preview.5 or preview.6.
 Every toolchain,
 metadata, binary, payload, and target selection remains separately reviewed
 and unchanged.
@@ -323,7 +325,7 @@ spice-go-distribution-release-verify \
 
 The Coding policy retains its exact module selections, two command packages,
 six Linux/macOS/Windows amd64/arm64 targets, seven committed payloads, and two
-typed identity symbols. The separate Toolchain preview.3 policy authorizes one
+typed identity symbols. The separate Toolchain preview.4 policy authorizes one
 `spice` command, the same six targets, LICENSE and README, Spice preview.4 as
 its only dependency, and the CLI Version and Commit symbols. It authenticates
 the source and module graph exactly as the Go-module verifier does, regenerates

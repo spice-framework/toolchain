@@ -39,22 +39,42 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 			},
 		},
 		{
-			name: "Agent TUI",
-			request: PolicyRequest{
-				Repository: "spice-agent-tui",
-				Source:     "https://github.com/spice-framework/spice-agent-tui",
-				Module:     "github.com/spice-framework/spice-agent-tui",
-				Version:    agentTUIReleaseVersion,
-				Profile:    ProfileGoModule,
-			},
-		},
-		{
 			name: "Agent core",
 			request: PolicyRequest{
 				Repository: "spice-agent",
 				Source:     "https://github.com/spice-framework/spice-agent",
 				Module:     "github.com/spice-framework/spice-agent",
 				Version:    agentCoreReleaseVersion,
+				Profile:    ProfileGoModule,
+			},
+		},
+		{
+			name: "Agent provider",
+			request: PolicyRequest{
+				Repository: "spice-agent-provider-openai",
+				Source:     "https://github.com/spice-framework/spice-agent-provider-openai",
+				Module:     "github.com/spice-framework/spice-agent-provider-openai",
+				Version:    agentProviderReleaseVersion,
+				Profile:    ProfileGoModule,
+			},
+		},
+		{
+			name: "Agent coding tools",
+			request: PolicyRequest{
+				Repository: "spice-agent-tools-coding",
+				Source:     "https://github.com/spice-framework/spice-agent-tools-coding",
+				Module:     "github.com/spice-framework/spice-agent-tools-coding",
+				Version:    agentCodingToolsReleaseVersion,
+				Profile:    ProfileGoModule,
+			},
+		},
+		{
+			name: "Agent TUI",
+			request: PolicyRequest{
+				Repository: "spice-agent-tui",
+				Source:     "https://github.com/spice-framework/spice-agent-tui",
+				Module:     "github.com/spice-framework/spice-agent-tui",
+				Version:    agentTUIReleaseVersion,
 				Profile:    ProfileGoModule,
 			},
 		},
@@ -96,7 +116,7 @@ func TestCheckPolicyRejectsStaleFoundationRecoveryIdentities(t *testing.T) {
 				Repository: "spice", Source: "https://github.com/spice-framework/spice",
 				Module: "github.com/spice-framework/spice", Profile: ProfileGoModule,
 			},
-			versions: []string{"v0.1.0-preview.1", agentFoundationVersion, "v0.1.0-preview.3"},
+			versions: []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"},
 		},
 		{
 			name: "Toolchain distribution",
@@ -104,7 +124,7 @@ func TestCheckPolicyRejectsStaleFoundationRecoveryIdentities(t *testing.T) {
 				Repository: "toolchain", Source: "https://github.com/spice-framework/toolchain",
 				Module: "github.com/spice-framework/toolchain", Profile: ProfileDistribution,
 			},
-			versions: []string{"v0.1.0-preview.1", "v0.1.0-preview.2"},
+			versions: []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"},
 		},
 		{
 			name: "Agent TUI",
@@ -132,7 +152,7 @@ func TestCheckPolicyRejectsStaleFoundationRecoveryIdentities(t *testing.T) {
 
 func TestCheckPolicyRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{agentExtensionVersion, "v0.1.0-preview.2", "v0.1.0-preview.3"} {
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"} {
 		request := PolicyRequest{
 			Repository: "spice-agent-coding",
 			Source:     "https://github.com/spice-framework/spice-agent-coding",
@@ -174,6 +194,7 @@ func TestCheckPolicyRejectsUntrustedAndStaleIdentities(t *testing.T) {
 		{name: "stale preview.3", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.3" }, want: "do not match"},
 		{name: "stale preview.4", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.4" }, want: "do not match"},
 		{name: "stale preview.5", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.5" }, want: "do not match"},
+		{name: "stale preview.6", mutate: func(value *PolicyRequest) { value.Version = "v0.1.0-preview.6" }, want: "do not match"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

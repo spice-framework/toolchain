@@ -58,9 +58,11 @@ func TestRunPolicyCheckAuthorizesExactComparablePolicies(t *testing.T) {
 		profile    string
 	}{
 		{name: "Spice foundation", repository: "spice", version: "v0.1.0-preview.4", profile: "go-module-v1"},
-		{name: "Toolchain distribution", repository: "toolchain", version: "v0.1.0-preview.3", profile: "go-distribution-v1"},
+		{name: "Toolchain distribution", repository: "toolchain", version: "v0.1.0-preview.4", profile: "go-distribution-v1"},
+		{name: "Agent core", repository: "spice-agent", version: "v0.1.0-preview.7", profile: "go-module-v1"},
+		{name: "Agent provider", repository: "spice-agent-provider-openai", version: "v0.1.0-preview.1", profile: "go-module-v1"},
+		{name: "Agent coding tools", repository: "spice-agent-tools-coding", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 		{name: "Agent TUI", repository: "spice-agent-tui", version: "v0.1.0-preview.2", profile: "go-module-v1"},
-		{name: "Agent core", repository: "spice-agent", version: "v0.1.0-preview.6", profile: "go-module-v1"},
 		{name: "Agent coding distribution", repository: "spice-agent-coding", version: "v0.1.0-preview.4", profile: "go-distribution-v1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -111,6 +113,7 @@ func TestRunPolicyCheckRejectsStaleFoundationRecoveryPreviews(t *testing.T) {
 		{repository: "spice", version: "v0.1.0-preview.3", profile: "go-module-v1"},
 		{repository: "toolchain", version: "v0.1.0-preview.1", profile: "go-distribution-v1"},
 		{repository: "toolchain", version: "v0.1.0-preview.2", profile: "go-distribution-v1"},
+		{repository: "toolchain", version: "v0.1.0-preview.3", profile: "go-distribution-v1"},
 		{repository: "spice-agent-tui", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 	} {
 		module := "github.com/spice-framework/" + test.repository
@@ -154,7 +157,7 @@ func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 		"-repository", "spice-agent",
 		"-source", "https://github.com/spice-framework/spice-agent",
 		"-module", "github.com/spice-framework/spice-agent",
-		"-version", "v0.1.0-preview.6",
+		"-version", "v0.1.0-preview.7",
 		"-profile", "go-module-v1",
 	}
 	for _, test := range []struct {
@@ -170,6 +173,7 @@ func TestRunPolicyCheckFailsClosedWithBoundedOutput(t *testing.T) {
 		{name: "stale preview.3", arguments: replaceArgument(base, "-version", "v0.1.0-preview.3"), wantCode: 1, want: "do not match"},
 		{name: "stale preview.4", arguments: replaceArgument(base, "-version", "v0.1.0-preview.4"), wantCode: 1, want: "do not match"},
 		{name: "stale preview.5", arguments: replaceArgument(base, "-version", "v0.1.0-preview.5"), wantCode: 1, want: "do not match"},
+		{name: "stale preview.6", arguments: replaceArgument(base, "-version", "v0.1.0-preview.6"), wantCode: 1, want: "do not match"},
 		{name: "bounded unknown", arguments: replaceArgument(base, "-repository", strings.Repeat("x", 512)), wantCode: 1, want: "not independently authorized"},
 		{name: "oversized", arguments: replaceArgument(base, "-repository", strings.Repeat("x", 2048)), wantCode: 1, want: "missing or invalid"},
 	} {

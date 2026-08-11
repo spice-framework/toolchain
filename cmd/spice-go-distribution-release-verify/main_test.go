@@ -50,7 +50,7 @@ func TestRunSelectsExactToolchainPolicyBeforeSourceInspection(t *testing.T) {
 		"-repository", "toolchain",
 		"-source", "https://github.com/spice-framework/toolchain",
 		"-module", "github.com/spice-framework/toolchain",
-		"-version", "v0.1.0-preview.3", "-commit", strings.Repeat("a", 40),
+		"-version", "v0.1.0-preview.4", "-commit", strings.Repeat("a", 40),
 		"-profile", "go-distribution-v1",
 	}
 	for _, test := range []struct {
@@ -61,6 +61,7 @@ func TestRunSelectsExactToolchainPolicyBeforeSourceInspection(t *testing.T) {
 		{name: "exact policy", arguments: valid, want: "trusted repository"},
 		{name: "stale preview.1", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.1"), want: "do not match"},
 		{name: "stale preview.2", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.2"), want: "do not match"},
+		{name: "stale preview.3", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.3"), want: "do not match"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

@@ -19,7 +19,7 @@ import (
 
 const (
 	moduleFixtureVersion       = agentCoreReleaseVersion
-	distributionFixtureVersion = agentExtensionVersion
+	distributionFixtureVersion = "v0.1.0-preview.1"
 	historicalSpiceVersion     = "v0.1.0-preview.1.0.20260806200749-524424a04df0"
 )
 
@@ -145,22 +145,22 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	wantPolicies := map[string][]selectedModule{
 		"spice": nil,
 		"spice-agent": {
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: agentCoreSpiceVersion},
+			{path: "github.com/spice-framework/toolchain", version: agentCoreToolchainVersion},
 		},
 		"spice-agent-provider-openai": {
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: historicalModuleToolchainVersion},
 			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
 		},
 		"spice-agent-tools-coding": {
-			{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+			{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: historicalModuleToolchainVersion},
 			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
 		},
 		"spice-agent-tui": {
-			{path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4"},
-			{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.3"},
+			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
 		},
 	}
 	if len(releasePolicies) != len(wantPolicies) {
@@ -187,8 +187,8 @@ func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testin
 		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4",
 	}}
 	toolchain := distributionPolicies["toolchain"]
-	if toolchain.version != "v0.1.0-preview.3" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
-		t.Errorf("Toolchain recovery policy = %#v, want preview.3 with modules %#v", toolchain, wantToolchainModules)
+	if toolchain.version != "v0.1.0-preview.4" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
+		t.Errorf("Toolchain recovery policy = %#v, want preview.4 with modules %#v", toolchain, wantToolchainModules)
 	}
 	failedFoundation := selectedModule{
 		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.3",
@@ -198,7 +198,7 @@ func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testin
 	}
 	wantTUIModules := []selectedModule{
 		{path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4"},
-		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.3"},
+		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.4"},
 	}
 	tui := releasePolicies["spice-agent-tui"]
 	if tui.version != "v0.1.0-preview.2" || !slices.Equal(tui.requiredModules, wantTUIModules) {
@@ -208,19 +208,19 @@ func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testin
 		t.Errorf("TUI recovery policy retains failed foundation = %#v", tui.requiredModules)
 	}
 	wantAgentModules := []selectedModule{
-		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-		{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+		{path: "github.com/spice-framework/spice", version: agentCoreSpiceVersion},
+		{path: "github.com/spice-framework/toolchain", version: agentCoreToolchainVersion},
 	}
 	if got := releasePolicies["spice-agent"].requiredModules; !slices.Equal(got, wantAgentModules) {
 		t.Errorf("Agent required modules = %#v, want %#v", got, wantAgentModules)
 	}
 	wantCodingModules := []selectedModule{
-		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
+		{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: historicalCodingToolchainVersion},
 		{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
-		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentExtensionVersion},
-		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentExtensionVersion},
-		{path: "github.com/spice-framework/spice-agent-tui", version: agentExtensionVersion},
+		{path: "github.com/spice-framework/spice-agent-provider-openai", version: historicalCodingProviderVersion},
+		{path: "github.com/spice-framework/spice-agent-tools-coding", version: historicalCodingToolsVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: historicalCodingTUIVersion},
 	}
 	if got := distributionPolicies["spice-agent-coding"].requiredModules; !slices.Equal(got, wantCodingModules) {
 		t.Errorf("Coding required modules = %#v, want %#v", got, wantCodingModules)
@@ -236,7 +236,7 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 	for _, repository := range []string{"spice-agent-provider-openai", "spice-agent-tools-coding"} {
 		modules := releasePolicies[repository].requiredModules
 		for _, staleVersion := range []string{
-			agentExtensionVersion,
+			"v0.1.0-preview.1",
 			"v0.1.0-preview.2",
 			"v0.1.0-preview.3",
 		} {
@@ -251,7 +251,7 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 	}
 	modules := distributionPolicies["spice-agent-coding"].requiredModules
 	for _, staleVersion := range []string{
-		agentExtensionVersion,
+		"v0.1.0-preview.1",
 		"v0.1.0-preview.2",
 		"v0.1.0-preview.3",
 	} {
@@ -270,8 +270,8 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	want := map[string]string{
 		"spice":                       "v0.1.0-preview.4",
 		"spice-agent":                 agentCoreReleaseVersion,
-		"spice-agent-provider-openai": agentExtensionVersion,
-		"spice-agent-tools-coding":    agentExtensionVersion,
+		"spice-agent-provider-openai": agentProviderReleaseVersion,
+		"spice-agent-tools-coding":    agentCodingToolsReleaseVersion,
 		"spice-agent-tui":             "v0.1.0-preview.2",
 	}
 	for repository, version := range want {
@@ -280,7 +280,7 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 		}
 	}
 	wantDistributions := map[string]string{
-		"toolchain":          "v0.1.0-preview.3",
+		"toolchain":          "v0.1.0-preview.4",
 		"spice-agent-coding": agentDistributionVersion,
 	}
 	if len(distributionPolicies) != len(wantDistributions) {
@@ -293,23 +293,37 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 	}
 }
 
-func TestAgentPreviewSixAndDistributionPreviewFourPreserveEveryDependencyPin(t *testing.T) {
+func TestAgentPreviewSevenAndHistoricalPoliciesPreserveEveryDependencyPin(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"Agent foundation":   "v0.1.0-preview.2",
-		"Agent core release": "v0.1.0-preview.6",
-		"Agent dependency":   "v0.1.0-preview.4",
-		"Agent extensions":   "v0.1.0-preview.1",
-		"Agent distribution": "v0.1.0-preview.4",
-		"module toolchain":   "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
+		"Agent core Spice":            "v0.1.0-preview.4",
+		"Agent core Toolchain":        "v0.1.0-preview.2",
+		"Agent core release":          "v0.1.0-preview.7",
+		"historical Spice":            "v0.1.0-preview.2",
+		"historical module Toolchain": "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6",
+		"historical Coding Toolchain": "v0.1.0-preview.1.0.20260807044408-6598abca8196",
+		"Provider release":            "v0.1.0-preview.1",
+		"coding-tools release":        "v0.1.0-preview.1",
+		"historical Coding Provider":  "v0.1.0-preview.1",
+		"historical Coding Tools":     "v0.1.0-preview.1",
+		"historical Coding TUI":       "v0.1.0-preview.1",
+		"Agent dependency":            "v0.1.0-preview.4",
+		"Agent distribution":          "v0.1.0-preview.4",
 	}
 	actual := map[string]string{
-		"Agent foundation":   agentFoundationVersion,
-		"Agent core release": agentCoreReleaseVersion,
-		"Agent dependency":   agentCoreDependencyVersion,
-		"Agent extensions":   agentExtensionVersion,
-		"Agent distribution": agentDistributionVersion,
-		"module toolchain":   toolchainVersion,
+		"Agent core Spice":            agentCoreSpiceVersion,
+		"Agent core Toolchain":        agentCoreToolchainVersion,
+		"Agent core release":          agentCoreReleaseVersion,
+		"historical Spice":            historicalSpiceFoundationVersion,
+		"historical module Toolchain": historicalModuleToolchainVersion,
+		"historical Coding Toolchain": historicalCodingToolchainVersion,
+		"Provider release":            agentProviderReleaseVersion,
+		"coding-tools release":        agentCodingToolsReleaseVersion,
+		"historical Coding Provider":  historicalCodingProviderVersion,
+		"historical Coding Tools":     historicalCodingToolsVersion,
+		"historical Coding TUI":       historicalCodingTUIVersion,
+		"Agent dependency":            agentCoreDependencyVersion,
+		"Agent distribution":          agentDistributionVersion,
 	}
 	for name, version := range want {
 		if actual[name] != version {
@@ -438,11 +452,12 @@ func TestVerifyRejectsPolicyAndModuleViolations(t *testing.T) {
 		{name: "unknown", mutate: func(value *Config) { value.RepositoryName = "spice-agent-unknown" }, want: "not independently authorized"},
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "-fork" }, want: "do not match"},
 		{name: "module", mutate: func(value *Config) { value.Module += "/fork" }, want: "do not match"},
-		{name: "stale Agent preview.1 release", mutate: func(value *Config) { value.Version = agentExtensionVersion }, want: "do not match"},
+		{name: "stale Agent preview.1 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.1" }, want: "do not match"},
 		{name: "stale Agent preview.2 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }, want: "do not match"},
 		{name: "stale Agent preview.3 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }, want: "do not match"},
 		{name: "stale Agent preview.4 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.4" }, want: "do not match"},
 		{name: "stale Agent preview.5 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.5" }, want: "do not match"},
+		{name: "stale Agent preview.6 release", mutate: func(value *Config) { value.Version = "v0.1.0-preview.6" }, want: "do not match"},
 		{name: "version", mutate: func(value *Config) { value.Version = "v0.1.0" }, want: "do not match"},
 		{name: "commit", mutate: func(value *Config) { value.Commit = strings.ToUpper(value.Commit) }, want: "lowercase"},
 	}
@@ -579,7 +594,7 @@ func newReleaseFixture(t *testing.T, variant string) *releaseFixture {
 	}
 	requirementSuffix := ""
 	replacement := ""
-	toolchainRequirement := "github.com/spice-framework/toolchain " + toolchainVersion
+	toolchainRequirement := "github.com/spice-framework/toolchain " + agentCoreToolchainVersion
 	if variant == "indirect" {
 		toolchainRequirement += " // indirect"
 	}
@@ -606,7 +621,7 @@ require (
 	sum := "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	canonicalGoSum := []byte(
 		"github.com/spice-framework/spice " + fixtureSpiceVersion + "/go.mod " + sum + "\n" +
-			"github.com/spice-framework/toolchain " + toolchainVersion + "/go.mod " + sum + "\n",
+			"github.com/spice-framework/toolchain " + agentCoreToolchainVersion + "/go.mod " + sum + "\n",
 	)
 	committedGoSum := slices.Clone(canonicalGoSum)
 	if variant == "fake-sum" {
@@ -615,7 +630,7 @@ require (
 	writeFile(t, filepath.Join(root, "go.sum"), committedGoSum)
 	canonicalVendor := []byte(
 		"# github.com/spice-framework/spice " + fixtureSpiceVersion + "\n## explicit; go 1.26.0\n" +
-			"# github.com/spice-framework/toolchain " + toolchainVersion + "\n## explicit; go 1.26.0\n",
+			"# github.com/spice-framework/toolchain " + agentCoreToolchainVersion + "\n## explicit; go 1.26.0\n",
 	)
 	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), canonicalVendor)
 	canonicalVendorFiles := map[string][]byte{"modules.txt": canonicalVendor}
@@ -687,7 +702,7 @@ require (
 	}
 	modules := []selectedModule{
 		{path: "github.com/spice-framework/spice", version: fixtureSpiceVersion},
-		{path: "github.com/spice-framework/toolchain", version: toolchainVersion},
+		{path: "github.com/spice-framework/toolchain", version: agentCoreToolchainVersion},
 	}
 	sbom, err := marshalCanonical(expectedSBOM(policy, commit, epoch, modules))
 	if err != nil {

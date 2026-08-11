@@ -221,8 +221,9 @@ workflows authorize an exact verifier version with an ordinary root `go.mod`
 
 Generic `go-module-v1` releases use the separate
 `cmd/spice-go-release-verify` boundary. It accepts only dependency-free
-`spice@v0.1.0-preview.4`, `spice-agent@v0.1.0-preview.6`, the independently
-authorized provider and coding-tools previews, and
+`spice@v0.1.0-preview.4`, `spice-agent@v0.1.0-preview.7`,
+`spice-agent-provider-openai@v0.1.0-preview.1`,
+`spice-agent-tools-coding@v0.1.0-preview.1`, and
 `spice-agent-tui@v0.1.0-preview.2`. It rejects starters and distribution
 profiles, and independently binds repository, source, module, version, commit,
 committed release intent, required module selections, vendor selection,
@@ -244,18 +245,19 @@ first attempts ordinary private-workspace removal, repairs only owner access
 inside that private tree when required, and retries removal without following
 symlinks. A persistent cleanup failure remains a verification error, so an
 apparently successful verification cannot silently leak temporary state.
-The Agent core, provider, coding-tools, and `spice-agent-coding` distribution
-policies retain the immutable Spice foundation `v0.1.0-preview.2` and their
-historical Toolchain and sibling selections. The separately authorized TUI
-preview.2 policy instead requires authenticated Spice preview.4 and Toolchain
-preview.3. Toolchain distribution preview.3 likewise requires Spice preview.4
-and authorizes only one `spice` command, six targets, LICENSE, README, and the
-two typed CLI identity symbols. Spice preview.3 is an immutable tag-only failed
-attempt that produced no authenticated release; it is rejected as a current
-foundation selection. This recovery authority independently matches
-Development commit `678a8d7ce5b20d9f2509f089b918154894064fc1`; neither
-repository can expand it alone. The Coding distribution's authorized version
-remains `v0.1.0-preview.4`.
+The Agent core preview.7 policy requires authenticated Spice preview.4 and the
+published Toolchain preview.2. Provider preview.1, coding-tools preview.1, and
+the `spice-agent-coding` preview.4 distribution retain the immutable Spice
+foundation `v0.1.0-preview.2` and their exact historical Toolchain, Agent, and
+sibling selections. The separately authorized TUI preview.2 policy requires
+Spice preview.4 and Toolchain preview.4. Toolchain distribution preview.4
+likewise requires Spice preview.4 and authorizes only one `spice` command, six
+targets, LICENSE, README, and the two typed CLI identity symbols. Spice
+preview.3 is an immutable tag-only failed attempt that produced no
+authenticated release; it is rejected as a current foundation selection. This
+closed authority independently matches Development commit
+`73ec26480db3247cd93c8325080058e118b845c9`; neither repository can expand it
+alone.
 
 In the separate Toolchain distribution history, preview.1 release run
 `31120527225` was cancelled. Published preview.2 remains
@@ -271,11 +273,11 @@ Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
 `spice-agent@v0.1.0-preview.4` and reject preview.1, preview.2, and preview.3;
-that dependency graph remains unchanged while the Agent module's own release
-advanced independently to preview.6. Successful release run `31428824060`
-published preview.6 as a non-draft prerelease with its authenticated five-asset
-module set. Its distinct immutable identity ensures subsequent Agent source
-never moves, replaces, or reuses preview.5 or preview.6.
+that dependency graph remains unchanged while the Agent module's own closed
+policy advances independently to preview.7. Successful release run
+`31428824060` published preview.6 as a non-draft prerelease with its
+authenticated five-asset module set. Preview.7 is a distinct authorized
+identity and does not move, replace, or reuse preview.5 or preview.6.
 Before creating an immutable tag, release operators can run
 `spice-go-release-verify policy-check` with the proposed repository, canonical
 source, module, version, and profile. This bounded, deterministic check reads
@@ -299,7 +301,7 @@ renderer directory directly.
 Binary distributions use the sibling
 `cmd/spice-go-distribution-release-verify` boundary. Its closed
 `go-distribution-v1` policies authorize the unchanged `spice-agent-coding`
-surface and the separate Toolchain preview.3 surface. Each fixes its commands,
+surface and the separate Toolchain preview.4 surface. Each fixes its commands,
 six operating-system/architecture targets, committed payloads, required
 modules, and typed build-identity symbols. The verifier materializes
 the exact tagged Git tree, publicly authenticates and byte-compares regenerated

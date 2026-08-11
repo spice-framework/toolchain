@@ -38,7 +38,7 @@ func TestToolchainDistributionPolicyIsClosed(t *testing.T) {
 	}
 	if policy.repository != "toolchain" || policy.module != "github.com/spice-framework/toolchain" ||
 		policy.source != "https://github.com/spice-framework/toolchain" ||
-		policy.version != "v0.1.0-preview.3" || policy.metadataFile != "spice-release.json" ||
+		policy.version != "v0.1.0-preview.4" || policy.metadataFile != "spice-release.json" ||
 		!slices.Equal(policy.requiredModules, wantModules) || !slices.Equal(policy.binaries, wantBinaries) ||
 		!slices.Equal(policy.targets, wantTargets) || !slices.Equal(policy.payloadFiles, []string{"LICENSE", "README.md"}) ||
 		policy.versionSymbol != "github.com/spice-framework/toolchain/internal/cli.Version" ||
@@ -48,7 +48,7 @@ func TestToolchainDistributionPolicyIsClosed(t *testing.T) {
 	if got := len(expectedDistributionAssetNames(policy)); got != 9 {
 		t.Fatalf("Toolchain distribution artifact subjects = %d, want 9", got)
 	}
-	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2"} {
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"} {
 		stale := valid
 		stale.Version = version
 		if _, err := selectDistributionPolicy(stale); err == nil {
@@ -75,7 +75,7 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		{name: "repository", mutate: func(value *Config) { value.RepositoryName = "spice-agent" }},
 		{name: "module", mutate: func(value *Config) { value.Module = "example.com/other" }},
 		{name: "source", mutate: func(value *Config) { value.CanonicalSource += "/fork" }},
-		{name: "stale preview.1 version", mutate: func(value *Config) { value.Version = agentExtensionVersion }},
+		{name: "stale preview.1 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.1" }},
 		{name: "stale preview.2 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }},
 		{name: "stale preview.3 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }},
 	} {
@@ -92,12 +92,12 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		t.Fatal("distribution asset allowlist does not bind every target")
 	}
 	wantModules := []selectedModule{
-		{path: "github.com/spice-framework/spice", version: agentFoundationVersion},
-		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.1.0.20260807044408-6598abca8196"},
+		{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: historicalCodingToolchainVersion},
 		{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
-		{path: "github.com/spice-framework/spice-agent-provider-openai", version: agentExtensionVersion},
-		{path: "github.com/spice-framework/spice-agent-tools-coding", version: agentExtensionVersion},
-		{path: "github.com/spice-framework/spice-agent-tui", version: agentExtensionVersion},
+		{path: "github.com/spice-framework/spice-agent-provider-openai", version: historicalCodingProviderVersion},
+		{path: "github.com/spice-framework/spice-agent-tools-coding", version: historicalCodingToolsVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: historicalCodingTUIVersion},
 	}
 	if !slices.Equal(policy.requiredModules, wantModules) {
 		t.Fatalf("distribution required modules = %#v, want %#v", policy.requiredModules, wantModules)
