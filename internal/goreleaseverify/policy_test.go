@@ -103,7 +103,7 @@ func TestCheckPolicyAuthorizesExactClosedIdentities(t *testing.T) {
 	}
 }
 
-func TestCheckPolicyRejectsStaleFoundationRecoveryIdentities(t *testing.T) {
+func TestCheckPolicyRejectsStaleFoundationAndToolchainIdentities(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name     string
@@ -124,7 +124,12 @@ func TestCheckPolicyRejectsStaleFoundationRecoveryIdentities(t *testing.T) {
 				Repository: "toolchain", Source: "https://github.com/spice-framework/toolchain",
 				Module: "github.com/spice-framework/toolchain", Profile: ProfileDistribution,
 			},
-			versions: []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"},
+			versions: []string{
+				"v0.1.0-preview.1",
+				"v0.1.0-preview.2",
+				"v0.1.0-preview.3",
+				"v0.1.0-preview.4",
+			},
 		},
 		{
 			name: "Agent TUI",

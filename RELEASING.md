@@ -181,6 +181,15 @@ before the comparable tuple is emitted:
 go-module-v1	spice	github.com/spice-framework/spice	v0.1.0-preview.4
 ```
 
+The separately authorized Toolchain preview.5 distribution identity is:
+
+```text
+go-distribution-v1	toolchain	github.com/spice-framework/toolchain	v0.1.0-preview.5
+```
+
+Including its terminal LF, this is exactly 83 bytes with SHA-256
+`1b42e25354d6dc12499e96340b32d4a54b9396479cb440a32eb5f57c0d7b9f32`.
+
 It performs no Git,
 filesystem, artifact, module, or network operation. Invalid, missing,
 oversized, non-UTF-8, control-bearing, unknown, or stale inputs fail closed
@@ -225,14 +234,16 @@ published Toolchain preview.2. Provider preview.1, coding-tools preview.1, and
 the `spice-agent-coding` preview.4 distribution retain
 `github.com/spice-framework/spice@v0.1.0-preview.2` and their exact historical
 Toolchain, Agent, and sibling selections. TUI preview.2 instead requires Spice
-preview.4 and Toolchain preview.4. The Toolchain distribution preview.4 policy
-likewise requires Spice preview.4 and authorizes exactly one `spice` command,
-six targets, LICENSE, README, and the Version and Commit identity symbols.
+preview.4 and published Toolchain preview.4. The independent Toolchain
+distribution preview.5 policy likewise requires Spice preview.4 and authorizes
+exactly one `spice` command, six targets, LICENSE, README, and the Version and
+Commit identity symbols. TUI remains pinned to Toolchain preview.4, and every
+other release version and dependency selection remains unchanged.
 Spice preview.3 is an immutable tag-only attempt whose release run failed
 candidate bootstrap before rendering, verification, attestation, or
 deployment; no authenticated preview.3 foundation release exists for either
 downstream policy. The complete closed authority independently matches
-Development commit `73ec26480db3247cd93c8325080058e118b845c9`; neither side
+Development commit `87b5d8c3d34ea61c4f293614f364c54d097db469`; neither side
 can expand release authority by itself.
 Provider, coding-tools, and Coding distribution policies require the recovered
 `github.com/spice-framework/spice-agent@v0.1.0-preview.4`; preview.1,
@@ -283,6 +294,12 @@ has module sum `h1:mpHAsOdPSUQTSa2GE891VJg5bXmzML0T2N9c5QU4yJg=` and
 go.mod sum `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=` from fresh
 public proxy and SumDB resolution. Prior tags must never be moved, reused, or
 rerun.
+
+Preview.5 is a distinct pre-tag policy identity. This independent authorization
+changes only Toolchain's own distribution version from preview.4 to preview.5;
+it does not edit candidate-owned version or compatibility files, repin TUI,
+change the no-secrets caller or reusable workflow pins, create a tag, approve
+an environment, attest bytes, or publish assets.
 
 The Spice foundation policy is the sole zero-required-module policy. It may
 omit both `go.sum` and `vendor/modules.txt`, but never only one. Omission is
@@ -345,7 +362,7 @@ spice-go-distribution-release-verify \
 
 The Coding policy retains its exact module selections, two command packages,
 six Linux/macOS/Windows amd64/arm64 targets, seven committed payloads, and two
-typed identity symbols. The separate Toolchain preview.4 policy authorizes one
+typed identity symbols. The separate Toolchain preview.5 policy authorizes one
 `spice` command, the same six targets, LICENSE and README, Spice preview.4 as
 its only dependency, and the CLI Version and Commit symbols. It authenticates
 the source and module graph exactly as the Go-module verifier does, regenerates
@@ -386,6 +403,11 @@ attestation, and it must consume the independently verified directory rather
 than renderer output. Windows ephemeral runners must additionally set
 `SPICE_DISTRIBUTION_EPHEMERAL_RUNNER=1`; non-Windows runners must leave that
 acknowledgement unset.
+
+This installed-byte target remains bound to the published preview.4 candidate
+identity until a separate bounded candidate-version change advances those
+repository-owned files. Preview.5 policy authorization alone does not alter
+that executable contract.
 
 ## Cross-producer acceptance
 

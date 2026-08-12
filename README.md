@@ -288,13 +288,15 @@ published Toolchain preview.2. Provider preview.1, coding-tools preview.1, and
 the `spice-agent-coding` preview.4 distribution retain the immutable Spice
 foundation `v0.1.0-preview.2` and their exact historical Toolchain, Agent, and
 sibling selections. The separately authorized TUI preview.2 policy requires
-Spice preview.4 and Toolchain preview.4. Toolchain distribution preview.4
-likewise requires Spice preview.4 and authorizes only one `spice` command, six
-targets, LICENSE, README, and the two typed CLI identity symbols. Spice
-preview.3 is an immutable tag-only failed attempt that produced no
-authenticated release; it is rejected as a current foundation selection. This
-closed authority independently matches Development commit
-`73ec26480db3247cd93c8325080058e118b845c9`; neither repository can expand it
+Spice preview.4 and the published Toolchain preview.4. The independent
+Toolchain distribution authority now permits preview.5 with the same Spice
+preview.4 requirement, one `spice` command, six targets, LICENSE, README, and
+two typed CLI identity symbols. TUI remains pinned to Toolchain preview.4; no
+Agent, provider, coding-tools, Coding, or historical selection moves with this
+authorization. Spice preview.3 is an immutable tag-only failed attempt that
+produced no authenticated release; it is rejected as a current foundation
+selection. This closed authority independently matches Development commit
+`87b5d8c3d34ea61c4f293614f364c54d097db469`; neither repository can expand it
 alone.
 
 In the separate Toolchain distribution history, preview.1 release run
@@ -319,6 +321,12 @@ deployment `5856422883` both succeeded. The resulting
 has module sum `h1:mpHAsOdPSUQTSa2GE891VJg5bXmzML0T2N9c5QU4yJg=` and
 go.mod sum `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=` from fresh
 public proxy and SumDB resolution.
+Preview.5 is a separate pre-tag policy identity for the reviewed Toolchain
+product line. This authorization changes only Toolchain's distribution version
+from preview.4 to preview.5. It does not change candidate-owned version files,
+generator compatibility, the release caller, a tag, an approval, an
+attestation, or published assets, and it does not repin TUI preview.2 from the
+published preview.4 dependency.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
@@ -345,6 +353,10 @@ the separately reviewed development plan through one tab-separated
 `profile`, `repository`, `module`, and `version` line. Toolchain validates the
 canonical `source` input before emitting that directly comparable tuple. Full
 post-tag verification remains mandatory.
+For Toolchain preview.5 the exact LF-terminated 83-byte tuple is
+`go-distribution-v1\ttoolchain\tgithub.com/spice-framework/toolchain\tv0.1.0-preview.5\n`;
+its SHA-256 is
+`1b42e25354d6dc12499e96340b32d4a54b9396479cb440a32eb5f57c0d7b9f32`.
 The dependency-free Spice policy omits both `go.sum` and vendor. It rejects
 requirements, tools, replacements, excludes, ignores, partial graph metadata,
 and every `vendor/` path, then independently proves the selected module and
@@ -359,7 +371,7 @@ renderer directory directly.
 Binary distributions use the sibling
 `cmd/spice-go-distribution-release-verify` boundary. Its closed
 `go-distribution-v1` policies authorize the unchanged `spice-agent-coding`
-surface and the separate Toolchain preview.4 surface. Each fixes its commands,
+surface and the separate Toolchain preview.5 surface. Each fixes its commands,
 six operating-system/architecture targets, committed payloads, required
 modules, and typed build-identity symbols. The verifier materializes
 the exact tagged Git tree, publicly authenticates and byte-compares regenerated
@@ -393,6 +405,9 @@ empty, noncanonical, or malformed linker identities fail closed. This
 candidate check consumes independently verified bytes and does not replace
 source authentication, independent reconstruction, provenance, or publication
 approval.
+It remains the published preview.4 candidate gate until a separate bounded
+candidate-version change advances those repository-owned identities; the
+preview.5 policy authorization does not rewrite them.
 
 The separately explicit `make release-acceptance` proof is network-capable by
 design and is not part of `make verify`. It clones the central development

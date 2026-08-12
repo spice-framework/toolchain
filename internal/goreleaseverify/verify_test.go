@@ -160,7 +160,7 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 		},
 		"spice-agent-tui": {
 			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
+			{path: "github.com/spice-framework/toolchain", version: agentTUIToolchainVersion},
 		},
 	}
 	if len(releasePolicies) != len(wantPolicies) {
@@ -178,7 +178,7 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	}
 }
 
-func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testing.T) {
+func TestToolchainPreviewFivePreservesEveryOtherReleaseAndHistoricalSelection(t *testing.T) {
 	t.Parallel()
 	if got := releasePolicies["spice"].version; got != "v0.1.0-preview.4" {
 		t.Errorf("Spice recovery version = %q, want v0.1.0-preview.4", got)
@@ -187,8 +187,8 @@ func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testin
 		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4",
 	}}
 	toolchain := distributionPolicies["toolchain"]
-	if toolchain.version != "v0.1.0-preview.4" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
-		t.Errorf("Toolchain recovery policy = %#v, want preview.4 with modules %#v", toolchain, wantToolchainModules)
+	if toolchain.version != "v0.1.0-preview.5" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
+		t.Errorf("Toolchain policy = %#v, want preview.5 with modules %#v", toolchain, wantToolchainModules)
 	}
 	failedFoundation := selectedModule{
 		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.3",
@@ -198,7 +198,7 @@ func TestFoundationRecoveryPreservesEveryReleaseAndHistoricalSelection(t *testin
 	}
 	wantTUIModules := []selectedModule{
 		{path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4"},
-		{path: "github.com/spice-framework/toolchain", version: "v0.1.0-preview.4"},
+		{path: "github.com/spice-framework/toolchain", version: agentTUIToolchainVersion},
 	}
 	tui := releasePolicies["spice-agent-tui"]
 	if tui.version != "v0.1.0-preview.2" || !slices.Equal(tui.requiredModules, wantTUIModules) {
@@ -280,7 +280,7 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 		}
 	}
 	wantDistributions := map[string]string{
-		"toolchain":          "v0.1.0-preview.4",
+		"toolchain":          "v0.1.0-preview.5",
 		"spice-agent-coding": agentDistributionVersion,
 	}
 	if len(distributionPolicies) != len(wantDistributions) {
@@ -309,6 +309,7 @@ func TestAgentPreviewSevenAndHistoricalPoliciesPreserveEveryDependencyPin(t *tes
 		"historical Coding TUI":       "v0.1.0-preview.1",
 		"Agent dependency":            "v0.1.0-preview.4",
 		"Agent distribution":          "v0.1.0-preview.4",
+		"Agent TUI Toolchain":         "v0.1.0-preview.4",
 	}
 	actual := map[string]string{
 		"Agent core Spice":            agentCoreSpiceVersion,
@@ -324,6 +325,7 @@ func TestAgentPreviewSevenAndHistoricalPoliciesPreserveEveryDependencyPin(t *tes
 		"historical Coding TUI":       historicalCodingTUIVersion,
 		"Agent dependency":            agentCoreDependencyVersion,
 		"Agent distribution":          agentDistributionVersion,
+		"Agent TUI Toolchain":         agentTUIToolchainVersion,
 	}
 	for name, version := range want {
 		if actual[name] != version {

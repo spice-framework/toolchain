@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestToolchainDistributionPolicyIsClosed(t *testing.T) {
+func TestToolchainPreviewFiveDistributionPolicyIsClosed(t *testing.T) {
 	t.Parallel()
 	policy := distributionPolicies["toolchain"]
 	valid := Config{
@@ -38,7 +38,7 @@ func TestToolchainDistributionPolicyIsClosed(t *testing.T) {
 	}
 	if policy.repository != "toolchain" || policy.module != "github.com/spice-framework/toolchain" ||
 		policy.source != "https://github.com/spice-framework/toolchain" ||
-		policy.version != "v0.1.0-preview.4" || policy.metadataFile != "spice-release.json" ||
+		policy.version != "v0.1.0-preview.5" || policy.metadataFile != "spice-release.json" ||
 		!slices.Equal(policy.requiredModules, wantModules) || !slices.Equal(policy.binaries, wantBinaries) ||
 		!slices.Equal(policy.targets, wantTargets) || !slices.Equal(policy.payloadFiles, []string{"LICENSE", "README.md"}) ||
 		policy.versionSymbol != "github.com/spice-framework/toolchain/internal/cli.Version" ||
@@ -48,7 +48,12 @@ func TestToolchainDistributionPolicyIsClosed(t *testing.T) {
 	if got := len(expectedDistributionAssetNames(policy)); got != 9 {
 		t.Fatalf("Toolchain distribution artifact subjects = %d, want 9", got)
 	}
-	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"} {
+	for _, version := range []string{
+		"v0.1.0-preview.1",
+		"v0.1.0-preview.2",
+		"v0.1.0-preview.3",
+		"v0.1.0-preview.4",
+	} {
 		stale := valid
 		stale.Version = version
 		if _, err := selectDistributionPolicy(stale); err == nil {
