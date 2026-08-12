@@ -25,6 +25,20 @@ func (service *Service) analyzeGenerationScope(
 	request normalizedRequest,
 ) (Result, error) {
 	request.applicationScope = true
+	return service.analyzeModuleIdentityScope(ctx, request)
+}
+
+// analyzeModuleIdentityScope validates one exact selected package composition
+// against recursively inventoried same-Go-module module identities. Callers
+// choose whether the selected composition itself promotes application
+// dependencies; identity inventory requests always remain isolated.
+func (service *Service) analyzeModuleIdentityScope(
+	ctx context.Context,
+	request normalizedRequest,
+) (Result, error) {
+	if request.generationInventory {
+		return service.analyze(ctx, request)
+	}
 	initial, err := service.analyze(ctx, request)
 	if err != nil {
 		return Result{}, err

@@ -115,6 +115,94 @@ func TestImportedDefaultBacksOffWhenRequiredInputIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestBeansInventoriesAllowedModuleIdentitiesWithoutMergingDependencies(t *testing.T) {
+	root := writeModule(t, map[string]string{
+		"app/doc.go": `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// @Module(allowedDependencies=["example.com/fixture/identity", "example.com/fixture/support"])
+package app
+`,
+		"app/application.go": `package app
+
+import (
+	"example.com/fixture/identity"
+	"example.com/fixture/support"
+)
+
+type Selected struct{}
+
+var _ identity.Marker
+
+// @Bean
+// @Singleton
+func NewSelected() *Selected { return &Selected{} }
+
+// @Application
+func Application(*Selected, *support.SelectedSupport) {}
+`,
+		"support/doc.go": `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// @Module
+package support
+`,
+		"support/provider.go": `package support
+
+type SelectedSupport struct{}
+
+// @Bean
+// @Singleton
+func NewSelectedSupport() *SelectedSupport { return &SelectedSupport{} }
+`,
+		"identity/doc.go": `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// @Module
+package identity
+`,
+		"identity/poison.go": `// @import { Application, Bean, ConfigurationProperties, Singleton } from "github.com/spice-framework/spice/annotation/core"
+
+package identity
+
+type Marker struct{}
+
+// @ConfigurationProperties(prefix="poison")
+type PoisonSettings struct {
+	Enabled bool ` + "`spice:\"enabled,default=false\"`" + `
+}
+
+type Poison struct{}
+
+// @Bean
+// @Singleton
+func NewPoison(PoisonSettings) *Poison {
+	panic("bean explanation must not execute or merge dependency providers")
+}
+
+// @Application
+func PoisonApplication(*Poison) {}
+`,
+	})
+	code, stdout, stderr := runModule(
+		root,
+		"beans", "--explain", "--format=json", "./app", "./support",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("beans: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	for _, expected := range []string{
+		`"name": "newSelected"`,
+		`"name": "newSelectedSupport"`,
+	} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("beans output lacks %q: %s", expected, stdout)
+		}
+	}
+	for _, forbidden := range []string{"poison", "PoisonApplication", "PoisonSettings"} {
+		if strings.Contains(stdout, forbidden) {
+			t.Fatalf("beans output merged dependency %q: %s", forbidden, stdout)
+		}
+	}
+}
+
 func TestRetiredStarterSelectionFailsWithImportMigration(t *testing.T) {
 	root := generationCLIModule(t, generationApplicationSource)
 	path := filepath.Join(root, ".spice", "starters.json")

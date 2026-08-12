@@ -45,6 +45,11 @@ compiler-validated module and named-interface identity registry. Those
 identity-only loads cannot contribute applications, providers, configuration,
 or generated targets. Missing, external, malformed, or repository-escaping
 module identities remain errors, and all package loading stays offline.
+Plain validation commands, including `spice verify`, `spice modules`, and
+`spice beans --explain`, use the same identity registry without promoting
+application dependencies: their exact package patterns remain the complete
+selected composition, while recursively allowed same-module declarations are
+admitted only as module and named-interface identities.
 
 Applications that want class-oriented source organization can enable the
 schema-two profile. `spicestyle` and `spice verify --style` both use the same

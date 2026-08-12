@@ -112,6 +112,232 @@ func TestOrdinaryGenerationPromotesLocalModulesAndBuildsExactUniverse(t *testing
 	}
 }
 
+func TestValidationInventoriesModuleIdentitiesWithoutMergingComposition(t *testing.T) {
+	root := writeGenerationModuleScopeFixture(t, false)
+	writeServiceFixtureFile(t, root, "internal/processplatform/poison.go", `package processplatform
+
+// @import { Application, Bean, ConfigurationProperties } from "github.com/spice-framework/spice/annotation/core"
+
+// @ConfigurationProperties(prefix="poison")
+type PoisonSettings struct {
+	Enabled bool `+"`spice:\"enabled,default=false\"`"+`
+}
+
+type Poison struct{}
+
+// @Bean
+func NewPoison(PoisonSettings) *Poison {
+	panic("identity inventory must not execute or merge provider bodies")
+}
+
+// @Application
+func ForeignApplication(*Poison) {}
+`)
+	selectedPatterns := []string{"./internal/architectureproof"}
+	selectedLoads := 0
+	service, err := New(Config{Loader: func(
+		ctx context.Context,
+		options load.Options,
+		patterns ...string,
+	) (*load.Program, error) {
+		if options.PromoteApplicationDependencies {
+			t.Fatal("validation identity inventory promoted application dependencies")
+		}
+		if slices.Equal(patterns, selectedPatterns) {
+			selectedLoads++
+		}
+		return load.Load(ctx, options, patterns...)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	request := Request{
+		WorkspaceRoot: root,
+		Patterns:      selectedPatterns,
+		Mode:          AnalysisValidate,
+		ContentHash:   "target-local-validation",
+	}
+	result, err := service.Analyze(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		t.Fatalf("validation diagnostics = %#v", diagnostics)
+	}
+	if targets := result.ApplicationModel().Targets(); len(targets) != 1 ||
+		targets[0].Name != "ArchitectureProof" {
+		t.Fatalf("target-local validation targets = %#v", targets)
+	}
+	for _, provider := range result.ProviderGraph().Providers {
+		if provider.PackagePath == "example.com/servicefixture/internal/processplatform" {
+			t.Fatalf("identity inventory merged provider = %#v", provider)
+		}
+	}
+	for _, configuration := range result.Configurations() {
+		if configuration.PackagePath == "example.com/servicefixture/internal/processplatform" {
+			t.Fatalf("identity inventory merged configuration = %#v", configuration)
+		}
+	}
+	if modules := moduleIDs(result.ModuleGraph().Modules); !slices.Equal(modules, []string{
+		"example.com/servicefixture/internal/architectureproof",
+	}) {
+		t.Fatalf("target-local validation modules = %v", modules)
+	}
+	if owner, found := result.ModuleModel().Owner(
+		"example.com/servicefixture/internal/processplatform",
+	); found || owner.ID != "" {
+		t.Fatalf("identity inventory merged module ownership = %#v, %t", owner, found)
+	}
+	if selectedLoads != 2 {
+		t.Fatalf("selected validation loads = %d, want 2", selectedLoads)
+	}
+	if _, err := service.Analyze(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if selectedLoads != 2 {
+		t.Fatalf("cached selected validation loads = %d, want 2", selectedLoads)
+	}
+}
+
+func TestValidationInventoriesNamedInterfaceIdentity(t *testing.T) {
+	root := writeGenerationModuleScopeFixture(t, false)
+	path := filepath.Join(root, "internal", "architectureproof", "doc.go")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = []byte(strings.Replace(
+		string(content),
+		`"example.com/servicefixture/internal/workspace"`,
+		`"example.com/servicefixture/internal/workspace", "example.com/servicefixture/internal/processcontainment::spi"`,
+		1,
+	))
+	if writeErr := os.WriteFile(path, content, 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	writeServiceFixtureFile(t, root, "internal/processcontainment/spi/doc.go", `// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
+
+// @NamedInterface("spi")
+package spi
+`)
+	service, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	result, err := service.Analyze(t.Context(), Request{
+		WorkspaceRoot: root,
+		Patterns:      []string{"./internal/architectureproof"},
+		Mode:          AnalysisValidate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+		t.Fatalf("named-interface validation diagnostics = %#v", diagnostics)
+	}
+	if owner, found := result.ModuleModel().Owner(
+		"example.com/servicefixture/internal/processcontainment/spi",
+	); found || owner.ID != "" {
+		t.Fatalf("named-interface inventory merged package ownership = %#v, %t", owner, found)
+	}
+}
+
+func TestModuleIdentityAnalysisKeepsOversizedNamedInterfaceUnknown(t *testing.T) {
+	for _, mode := range []AnalysisMode{AnalysisGenerate, AnalysisValidate} {
+		root := writeGenerationModuleScopeFixture(t, false)
+		path := filepath.Join(root, "internal", "architectureproof", "doc.go")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content = []byte(strings.Replace(
+			string(content),
+			`"example.com/servicefixture/internal/workspace"`,
+			`"example.com/servicefixture/internal/workspace", "example.com/servicefixture/internal/workspace::oversized"`,
+			1,
+		))
+		if writeErr := os.WriteFile(path, content, 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		interfaceSource := []byte(`// @import { NamedInterface } from "github.com/spice-framework/spice/annotation/modulith"
+
+// @NamedInterface("oversized")
+package oversized
+// `)
+		interfaceSource = append(
+			interfaceSource,
+			make([]byte, generationInventoryMaximumFileBytes+1-int64(len(interfaceSource)))...,
+		)
+		writeServiceFixtureFile(
+			t,
+			root,
+			"internal/workspace/oversized/doc.go",
+			string(interfaceSource),
+		)
+		service, err := New(Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		registerServiceCleanup(t, service)
+		request := Request{
+			WorkspaceRoot: root,
+			Patterns:      []string{"./internal/architectureproof"},
+			Mode:          mode,
+		}
+		if mode == AnalysisGenerate {
+			request.Target = "ArchitectureProof"
+		}
+		result, err := service.Analyze(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diagnostics := result.Diagnostics().Items()
+		if len(diagnostics) != 1 || diagnostics[0].Code != "spice.module.unknown-interface" ||
+			!strings.Contains(diagnostics[0].Message, "oversized") {
+			t.Fatalf("mode %d oversized identity diagnostics = %#v", mode, diagnostics)
+		}
+	}
+}
+
+func TestGenerationInventoryRequestBypassesModuleIdentityRecursion(t *testing.T) {
+	root := writeGenerationModuleScopeFixture(t, false)
+	loads := 0
+	service, err := New(Config{Loader: func(
+		ctx context.Context,
+		options load.Options,
+		patterns ...string,
+	) (*load.Program, error) {
+		loads++
+		return load.Load(ctx, options, patterns...)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerServiceCleanup(t, service)
+	request, err := service.normalizeRequest(Request{
+		WorkspaceRoot: root,
+		Patterns:      []string{"./internal/architectureproof"},
+		Mode:          AnalysisValidate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.generationInventory = true
+	result, err := service.analyzeModuleIdentityScope(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loads != 1 {
+		t.Fatalf("private inventory loads = %d, want 1", loads)
+	}
+	if diagnostics := result.Diagnostics().Items(); len(diagnostics) == 0 ||
+		diagnostics[0].Code != "spice.module.unknown-module" {
+		t.Fatalf("plain private inventory diagnostics = %#v", diagnostics)
+	}
+}
+
 func assertGenerationEnvironmentIsOffline(t *testing.T, environment []string) {
 	t.Helper()
 	want := map[string]string{
@@ -202,57 +428,78 @@ func TestOrdinaryGenerationWithoutModuleDependenciesKeepsOneAnalysis(t *testing.
 	}
 }
 
-func TestOrdinaryGenerationModuleInventoryIsSortedAndCancellable(t *testing.T) {
-	root := writeGenerationModuleScopeFixture(t, false)
-	writeServiceFixtureFile(t, root, "internal/architectureproof/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+func TestModuleIdentityInventoryIsSortedAndCancellable(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		mode        AnalysisMode
+		target      string
+		inventories []string
+	}{
+		{
+			name: "generation", mode: AnalysisGenerate, target: "ArchitectureProof",
+			inventories: []string{
+				"example.com/servicefixture/internal/alpha",
+				"example.com/servicefixture/internal/processcontainment",
+				"example.com/servicefixture/internal/zeta",
+			},
+		},
+		{
+			name: "validation", mode: AnalysisValidate,
+			inventories: []string{
+				"example.com/servicefixture/internal/alpha",
+				"example.com/servicefixture/internal/zeta",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := writeGenerationModuleScopeFixture(t, false)
+			writeServiceFixtureFile(t, root, "internal/architectureproof/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // Package architectureproof owns the selected application.
 // @Module(allowedDependencies=["example.com/servicefixture/internal/zeta", "example.com/servicefixture/internal/alpha"])
 package architectureproof
 `)
-	for _, dependency := range []string{"alpha", "zeta"} {
-		writeServiceFixtureFile(t, root, "internal/"+dependency+"/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+			for _, dependency := range []string{"alpha", "zeta"} {
+				writeServiceFixtureFile(t, root, "internal/"+dependency+"/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
 
 // @Module
 package `+dependency+`
 `)
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	var inventories []string
-	service, err := New(Config{Loader: func(
-		loadContext context.Context,
-		options load.Options,
-		patterns ...string,
-	) (*load.Program, error) {
-		if len(patterns) == 1 && strings.HasPrefix(patterns[0], "example.com/servicefixture/internal/") {
-			inventories = append(inventories, patterns[0])
-			if strings.HasSuffix(patterns[0], "/zeta") {
-				cancel()
-				return nil, loadContext.Err()
 			}
-		}
-		return load.Load(loadContext, options, patterns...)
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	registerServiceCleanup(t, service)
-	_, err = service.Analyze(ctx, Request{
-		WorkspaceRoot: root,
-		Patterns:      []string{"./internal/architectureproof"},
-		Target:        "ArchitectureProof",
-		Mode:          AnalysisGenerate,
-	})
-	if err == nil || !strings.Contains(err.Error(), "canceled") {
-		t.Fatalf("generation cancellation error = %v", err)
-	}
-	if !slices.Equal(inventories, []string{
-		"example.com/servicefixture/internal/alpha",
-		"example.com/servicefixture/internal/processcontainment",
-		"example.com/servicefixture/internal/zeta",
-	}) {
-		t.Fatalf("module inventory order = %v", inventories)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			var inventories []string
+			service, err := New(Config{Loader: func(
+				loadContext context.Context,
+				options load.Options,
+				patterns ...string,
+			) (*load.Program, error) {
+				if len(patterns) == 1 && strings.HasPrefix(patterns[0], "example.com/servicefixture/internal/") {
+					inventories = append(inventories, patterns[0])
+					if strings.HasSuffix(patterns[0], "/zeta") {
+						cancel()
+						return nil, loadContext.Err()
+					}
+				}
+				return load.Load(loadContext, options, patterns...)
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			registerServiceCleanup(t, service)
+			_, err = service.Analyze(ctx, Request{
+				WorkspaceRoot: root,
+				Patterns:      []string{"./internal/architectureproof"},
+				Target:        test.target,
+				Mode:          test.mode,
+			})
+			if err == nil || !strings.Contains(err.Error(), "canceled") {
+				t.Fatalf("module identity cancellation error = %v", err)
+			}
+			if !slices.Equal(inventories, test.inventories) {
+				t.Fatalf("module inventory order = %v, want %v", inventories, test.inventories)
+			}
+		})
 	}
 }
 
@@ -626,7 +873,7 @@ func TestGenerationNamedInterfaceOverlayErrorsAreSorted(t *testing.T) {
 	}
 }
 
-func TestOrdinaryGenerationRejectsUntrustedModuleIdentities(t *testing.T) {
+func TestModuleIdentityAnalysisRejectsUntrustedModuleIdentities(t *testing.T) {
 	tests := []struct {
 		name    string
 		prepare func(*testing.T, string)
@@ -686,26 +933,31 @@ package escaped
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root := writeGenerationModuleScopeFixture(t, true)
-			test.prepare(t, root)
-			service, err := New(Config{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			registerServiceCleanup(t, service)
-			result, err := service.Analyze(t.Context(), Request{
-				WorkspaceRoot: root,
-				Patterns:      []string{"./internal/architectureproof"},
-				Target:        "ArchitectureProof",
-				Mode:          AnalysisGenerate,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			diagnostics := result.Diagnostics().Items()
-			if len(diagnostics) != 1 || diagnostics[0].Code != "spice.module.unknown-module" ||
-				!strings.Contains(diagnostics[0].Message, test.want) {
-				t.Fatalf("untrusted module diagnostics = %#v", diagnostics)
+			for _, mode := range []AnalysisMode{AnalysisGenerate, AnalysisValidate} {
+				root := writeGenerationModuleScopeFixture(t, true)
+				test.prepare(t, root)
+				service, err := New(Config{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				registerServiceCleanup(t, service)
+				request := Request{
+					WorkspaceRoot: root,
+					Patterns:      []string{"./internal/architectureproof"},
+					Mode:          mode,
+				}
+				if mode == AnalysisGenerate {
+					request.Target = "ArchitectureProof"
+				}
+				result, err := service.Analyze(t.Context(), request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				diagnostics := result.Diagnostics().Items()
+				if len(diagnostics) != 1 || diagnostics[0].Code != "spice.module.unknown-module" ||
+					!strings.Contains(diagnostics[0].Message, test.want) {
+					t.Fatalf("mode %d untrusted module diagnostics = %#v", mode, diagnostics)
+				}
 			}
 		})
 	}

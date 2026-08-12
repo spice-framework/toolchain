@@ -337,8 +337,10 @@ func (service *Service) Analyze(
 		result, err = service.analyzeConfiguredSelections(analysisCtx, normalized)
 	case normalized.mode == AnalysisGenerate:
 		result, err = service.analyzeGenerationScope(analysisCtx, normalized)
-	default:
+	case normalized.generationInventory:
 		result, err = service.analyze(analysisCtx, normalized)
+	default:
+		result, err = service.analyzeModuleIdentityScope(analysisCtx, normalized)
 	}
 	if err != nil {
 		if staleErr := service.rejectStale(normalized); staleErr != nil {
