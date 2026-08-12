@@ -202,7 +202,7 @@ is deliberately untracked and recreated by verification.
 
 ## Generator compatibility
 
-The frozen `v0.1.0-preview.4` generator contract is recorded in
+The frozen `v0.1.0-preview.5` generator contract is recorded in
 [`compatibility/generator.json`](compatibility/generator.json): it
 writes ownership schema 6, accepts guarded migrations from schemas 1 through
 6, uses Go formatting line 1.26, and fails closed on manual edits, stale owned
@@ -225,16 +225,16 @@ published its exact ten-asset prerelease.
 ## Release
 
 [`RELEASING.md`](RELEASING.md) defines the current release contract. The
-preview.4 candidate first bootstraps only its five committed Go graphs through
+preview.5 candidate first bootstraps only its five committed Go graphs through
 the public proxy and checksum database, then runs the complete release gate
 offline. Development authority
-`73ec26480db3247cd93c8325080058e118b845c9` produces six deterministic
+`87b5d8c3d34ea61c4f293614f364c54d097db469` produces six deterministic
 platform archives, canonical release metadata, an SPDX 2.3 SBOM, and
 checksums. Independent Toolchain authority
-`aeb2b789fedf5b7a45f0d0869043c8568161edad` authenticates the tagged source
+`a3df19e40b86686654ab86e521730686f392c50f` authenticates the tagged source
 and graph, reconstructs every byte, and copies exactly those nine subjects into
 a verifier-owned directory. Organization caller authority
-`a56c451168aae0f2b3075782156d204d75fb7f69` preserves that policy intersection.
+`d84b2cbce217e2d259ee81727fb98b0c2db1656e` preserves that policy intersection.
 Linux and Windows then execute only the installed verified archive. Protected
 `release-attestation` approval mints keyless Sigstore provenance, its source
 and workflow identity are authenticated, and distinct `release-publish`
@@ -243,7 +243,7 @@ no secrets and no earlier job has repository write authority.
 
 The retained Ed25519 builder and its eleven-asset workflow describe the
 historical preview.2 release boundary. They remain available for verification
-and compatibility evidence, but they are not the preview.4 production
+and compatibility evidence, but they are not the preview.5 production
 authority.
 
 Signed source-only starter releases use a separate trust boundary. The
@@ -321,12 +321,12 @@ deployment `5856422883` both succeeded. The resulting
 has module sum `h1:mpHAsOdPSUQTSa2GE891VJg5bXmzML0T2N9c5QU4yJg=` and
 go.mod sum `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=` from fresh
 public proxy and SumDB resolution.
-Preview.5 is a separate pre-tag policy identity for the reviewed Toolchain
-product line. This authorization changes only Toolchain's distribution version
-from preview.4 to preview.5. It does not change candidate-owned version files,
-generator compatibility, the release caller, a tag, an approval, an
-attestation, or published assets, and it does not repin TUI preview.2 from the
-published preview.4 dependency.
+Preview.5 is a distinct candidate for the reviewed Toolchain product line. Its
+candidate-owned generator, release intent, CLI, independent installed-byte
+gate, and release caller now agree on preview.5. TUI preview.2 remains pinned
+to the published preview.4 dependency; Spice/core dependencies and every other
+release policy remain unchanged. Candidate preparation creates no tag,
+approval, attestation, or published asset.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
@@ -392,22 +392,19 @@ unset. Then run:
 make verify-release-artifacts
 ```
 
-The gate accepts only the preview.4 Toolchain nine-subject set: checksums,
+The gate accepts only the preview.5 Toolchain nine-subject set: checksums,
 release metadata, SPDX SBOM, and all six Linux/macOS/Windows amd64/arm64
 archives. Every archive must contain exactly one `spice` binary plus the
 committed LICENSE and README with canonical paths, bytes, and permissions. The
 host archive is extracted into private scratch space and its binary is executed
-offline; it must report exactly `spice 0.1.0-preview.4 (<40-character-commit>)`.
+offline; it must report exactly `spice 0.1.0-preview.5 (<40-character-commit>)`.
 Source builds report the honest development identity
-`spice v0.1.0-preview.4 (development)`. Release builds set the exported
+`spice v0.1.0-preview.5 (development)`. Release builds set the exported
 `internal/cli.Version` and `internal/cli.Commit` data symbols directly; mixed,
 empty, noncanonical, or malformed linker identities fail closed. This
 candidate check consumes independently verified bytes and does not replace
 source authentication, independent reconstruction, provenance, or publication
 approval.
-It remains the published preview.4 candidate gate until a separate bounded
-candidate-version change advances those repository-owned identities; the
-preview.5 policy authorization does not rewrite them.
 
 The separately explicit `make release-acceptance` proof is network-capable by
 design and is not part of `make verify`. It clones the central development

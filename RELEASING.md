@@ -18,9 +18,9 @@ GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off make verify-release
 ```
 
 In disposable clean checkouts, use Development commit
-`73ec26480db3247cd93c8325080058e118b845c9` to render the exact Toolchain
-preview.4 nine-subject set and Toolchain verifier commit
-`aeb2b789fedf5b7a45f0d0869043c8568161edad` to authenticate and reconstruct it.
+`87b5d8c3d34ea61c4f293614f364c54d097db469` to render the exact Toolchain
+preview.5 nine-subject set and Toolchain verifier commit
+`a3df19e40b86686654ab86e521730686f392c50f` to authenticate and reconstruct it.
 Run this candidate's `verify-release-artifacts` against only the verifier-owned
 output on Linux and Windows. A rehearsal uses a local annotated tag only and
 must never push that tag or create a release.
@@ -32,13 +32,13 @@ present and independently checked:
 
 - `spice-release.json`, `compatibility/generator.json`, the source generator
   identity, CLI identity, root module, both annotation fixture modules, and
-  vendor metadata all name the exact preview.4/Spice preview.4 candidate.
+  vendor metadata all name the exact preview.5/Spice preview.4 candidate.
 - `make tools-bootstrap` leaves every repository byte and mode unchanged, and
   `make verify-release` succeeds with proxy, checksum lookup, workspace mode,
   and toolchain download disabled.
 - `.github/workflows/release.yml` is the no-secrets caller pinned in both
   locations to organization authority
-  `a56c451168aae0f2b3075782156d204d75fb7f69`.
+  `d84b2cbce217e2d259ee81727fb98b0c2db1656e`.
 - The exact commit is clean, on `origin/main`, and its hosted Verify,
   Documentation, and cross-producer workflows are terminal green.
 - Protected `release-attestation` and `release-publish` environments accept
@@ -46,8 +46,8 @@ present and independently checked:
   key. The enforced tag and release rules forbid tag movement, tag deletion,
   and mutable release assets.
 - The reusable workflow authorities remain independently pinned to Development
-  `73ec26480db3247cd93c8325080058e118b845c9` and Toolchain
-  `aeb2b789fedf5b7a45f0d0869043c8568161edad`. No caller edit may expand their
+  `87b5d8c3d34ea61c4f293614f364c54d097db469` and Toolchain
+  `a3df19e40b86686654ab86e521730686f392c50f`. No caller edit may expand their
   separately reviewed policy intersection.
 
 ## Automated production release
@@ -57,9 +57,9 @@ present and independently checked:
    push, and require the exact hosted workflows to succeed.
 2. Complete the disposable clean-clone renderer, independent-verifier, and
    Linux/Windows installed-byte rehearsal without modifying the candidate.
-3. After distinct Development and Toolchain authorities authorize preview.4
+3. After distinct Development and Toolchain authorities authorize preview.5
    and an independent pre-tag audit passes, create the annotated
-   `v0.1.0-preview.4` tag with message `Spice Toolchain v0.1.0-preview.4`,
+   `v0.1.0-preview.5` tag with message `Spice Toolchain v0.1.0-preview.5`,
    verify its object and peeled commit locally, and push only that tag. Never
    create the GitHub Release manually and never rerun a failed immutable-tag
    workflow.
@@ -105,7 +105,7 @@ trust anchor, independent Windows rebuild, detached signature, public key,
 source archive, and eleven-asset verification path describe that immutable
 historical release. The preview.1 run `31120527225` was cancelled. The retained
 legacy `release-signing` environment stores zero secrets. Its removed
-private-key secret is not an authority for preview.4 and must not be restored
+private-key secret is not an authority for preview.5 and must not be restored
 or substituted into the keyless caller.
 
 The historical builder remains useful for diagnosing and authenticating those
@@ -382,7 +382,7 @@ attestation and publication. The implementation imports neither the
 development catalog nor `internal/distributionrelease` and never executes the
 renderer.
 
-After independent verification has copied the exact Toolchain preview.4
+After independent verification has copied the exact Toolchain preview.5
 allowlist, the candidate repository verifies its own installed-byte behavior:
 
 ```text
@@ -394,7 +394,7 @@ This offline target revalidates exact nine-subject membership, checksums,
 canonical release metadata and SPDX identity, all six archive layouts, the
 single `spice` binary, LICENSE, README, safe paths, and permissions. It extracts
 only the native archive into private scratch space and requires the installed
-binary to emit exactly `spice 0.1.0-preview.4 (<exact-commit>)`. The public CLI
+binary to emit exactly `spice 0.1.0-preview.5 (<exact-commit>)`. The public CLI
 identity comes from the directly linker-settable `internal/cli.Version` and
 `internal/cli.Commit` variables. Unlinked source builds use the paired honest
 development defaults; empty, mixed-development/release, or malformed linker
@@ -404,10 +404,6 @@ than renderer output. Windows ephemeral runners must additionally set
 `SPICE_DISTRIBUTION_EPHEMERAL_RUNNER=1`; non-Windows runners must leave that
 acknowledgement unset.
 
-This installed-byte target remains bound to the published preview.4 candidate
-identity until a separate bounded candidate-version change advances those
-repository-owned files. Preview.5 policy authorization alone does not alter
-that executable contract.
 
 ## Cross-producer acceptance
 

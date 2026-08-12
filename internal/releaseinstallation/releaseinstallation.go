@@ -28,7 +28,7 @@ const (
 	releaseProfile    = "go-distribution-v1"
 	releaseRepository = "toolchain"
 	releaseModule     = "github.com/spice-framework/toolchain"
-	releaseVersion    = "v0.1.0-preview.4"
+	releaseVersion    = "v0.1.0-preview.5"
 
 	maximumControlFile = 1 << 20
 	maximumArchive     = 512 << 20

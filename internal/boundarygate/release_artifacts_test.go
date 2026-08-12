@@ -44,7 +44,7 @@ func TestReleaseArtifactsVerifyExtractExecuteAndCleanInOrder(t *testing.T) {
 	directory := canonicalTestDirectory(t)
 	var calls []string
 	set := &fakeReleaseSubjectSet{
-		version: "v0.1.0-preview.4",
+		version: "v0.1.0-preview.5",
 		commit:  strings.Repeat("a", 40),
 		calls:   &calls,
 	}
@@ -76,7 +76,7 @@ func TestReleaseArtifactsVerifyExtractExecuteAndCleanInOrder(t *testing.T) {
 					t.Fatalf("environment[%s] = %q", name, environment[name])
 				}
 			}
-			return []byte("spice 0.1.0-preview.4 (" + strings.Repeat("a", 40) + ")\n"), nil, nil
+			return []byte("spice 0.1.0-preview.5 (" + strings.Repeat("a", 40) + ")\n"), nil, nil
 		},
 	}
 	if err := gate.releaseArtifacts(context.Background(), directory); err != nil {
@@ -122,12 +122,12 @@ func TestReleaseArtifactsFailClosed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			var calls []string
-			set := &fakeReleaseSubjectSet{version: "v0.1.0-preview.4", commit: strings.Repeat("b", 40), calls: &calls}
+			set := &fakeReleaseSubjectSet{version: "v0.1.0-preview.5", commit: strings.Repeat("b", 40), calls: &calls}
 			gate := verifier{
 				output:         io.Discard,
 				verifySubjects: func(context.Context, string) (releaseSubjectSet, error) { return set, nil },
 				executeStreams: func(context.Context, string, map[string]string, string, ...string) ([]byte, []byte, error) {
-					return []byte("spice 0.1.0-preview.4 (" + strings.Repeat("b", 40) + ")\n"), nil, nil
+					return []byte("spice 0.1.0-preview.5 (" + strings.Repeat("b", 40) + ")\n"), nil, nil
 				},
 			}
 			test.configure(&gate, set)
