@@ -4,9 +4,60 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestCatalogEnvironmentIsNativeOfflineAndImmutable(t *testing.T) {
+	t.Parallel()
+	original := []string{
+		"PATH=fixture",
+		"CGO_ENABLED=1",
+		"GOAMD64=v4",
+		"GOARCH=wasm",
+		"GOAUTH=netrc",
+		"GOENV=hostile",
+		"GOEXPERIMENT=ambientexperiment",
+		"GOFLAGS=-tags=ambient",
+		"GOOS=js",
+		"GOPROXY=http://127.0.0.1:1",
+		"GOSUMDB=invalid.example",
+		"GOTOOLCHAIN=go1.99.0+auto",
+	}
+	got := catalogEnvironment(original)
+	values := make(map[string]string, len(got))
+	for _, entry := range got {
+		name, value, found := strings.Cut(entry, "=")
+		if found {
+			values[strings.ToUpper(name)] = value
+		}
+	}
+	wanted := map[string]string{
+		"CGO_ENABLED":  "0",
+		"GOARCH":       runtime.GOARCH,
+		"GOAUTH":       "off",
+		"GOENV":        "off",
+		"GOEXPERIMENT": "",
+		"GOFIPS140":    "off",
+		"GOFLAGS":      "",
+		"GOOS":         runtime.GOOS,
+		"GOPROXY":      "off",
+		"GOSUMDB":      "off",
+		"GOTOOLCHAIN":  "local",
+	}
+	for name, value := range wanted {
+		if values[name] != value {
+			t.Fatalf("catalog environment %s = %q, want %q", name, values[name], value)
+		}
+	}
+	if _, found := values["GOAMD64"]; found {
+		t.Fatalf("catalog environment retained GOAMD64: %v", got)
+	}
+	if original[1] != "CGO_ENABLED=1" {
+		t.Fatalf("catalogEnvironment() mutated input: %v", original)
+	}
+}
 
 func TestDiscoverFindsModuleGraphDescriptorsOffline(t *testing.T) {
 	t.Parallel()

@@ -141,6 +141,7 @@ func catalogModuleRoots(
 	module annotationhost.TargetModule,
 	environment []string,
 ) ([]moduleRoot, error) {
+	environment = catalogEnvironment(environment)
 	if _, found := moduleenv.VendorRoot(module.Root, environment); found {
 		workspace, workspaceErr := moduleenv.WorkspaceModules(ctx, module.Root, environment)
 		if workspaceErr != nil {
@@ -181,7 +182,7 @@ func catalogModuleRoots(
 		"all",
 	)
 	command.Dir = module.Root
-	command.Env = catalogEnvironment(environment)
+	command.Env = environment
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
@@ -741,24 +742,40 @@ func catalogEnvironment(environment []string) []string {
 	if environment == nil {
 		environment = os.Environ()
 	}
-	result := replaceEnvironment(environment, "GOPROXY", "off")
-	flags := strings.Fields(environmentValue(result, "GOFLAGS"))
-	filtered := make([]string, 0, len(flags)+1)
-	for index := 0; index < len(flags); index++ {
-		if flags[index] == "-mod" {
-			index++
-			continue
+	result := append([]string(nil), environment...)
+	for _, name := range []string{
+		"GO386", "GOAMD64", "GOARM", "GOARM64", "GOMIPS",
+		"GOMIPS64", "GOPPC64", "GORISCV64", "GOWASM",
+	} {
+		filtered := result[:0]
+		for _, entry := range result {
+			key, _, found := strings.Cut(entry, "=")
+			if found && strings.EqualFold(key, name) {
+				continue
+			}
+			filtered = append(filtered, entry)
 		}
-		if !strings.HasPrefix(flags[index], "-mod=") {
-			filtered = append(filtered, flags[index])
-		}
+		result = filtered
 	}
-	filtered = append(filtered, "-mod=readonly")
-	return replaceEnvironment(
-		result,
-		"GOFLAGS",
-		strings.Join(filtered, " "),
-	)
+	for _, setting := range []struct {
+		name  string
+		value string
+	}{
+		{name: "CGO_ENABLED", value: "0"},
+		{name: "GOARCH", value: runtime.GOARCH},
+		{name: "GOAUTH", value: "off"},
+		{name: "GOENV", value: "off"},
+		{name: "GOEXPERIMENT", value: ""},
+		{name: "GOFIPS140", value: "off"},
+		{name: "GOFLAGS", value: ""},
+		{name: "GOOS", value: runtime.GOOS},
+		{name: "GOPROXY", value: "off"},
+		{name: "GOSUMDB", value: "off"},
+		{name: "GOTOOLCHAIN", value: "local"},
+	} {
+		result = replaceEnvironment(result, setting.name, setting.value)
+	}
+	return result
 }
 
 func replaceEnvironment(
@@ -775,16 +792,6 @@ func replaceEnvironment(
 		result = append(result, entry)
 	}
 	return append(result, name+"="+value)
-}
-
-func environmentValue(environment []string, name string) string {
-	for _, entry := range environment {
-		key, value, found := strings.Cut(entry, "=")
-		if found && strings.EqualFold(key, name) {
-			return value
-		}
-	}
-	return ""
 }
 
 func samePath(left, right string) bool {

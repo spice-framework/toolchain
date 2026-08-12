@@ -231,11 +231,6 @@ func helper() {}
 }
 
 func TestVerifyStartsAnnotationToolOnHostUnderHostileAmbientTarget(t *testing.T) {
-	t.Setenv("CGO_ENABLED", "1")
-	t.Setenv("GOARCH", "amd64")
-	t.Setenv("GOFLAGS", "-tags=ambient")
-	t.Setenv("GOOS", "plan9")
-
 	root := writeModule(t, map[string]string{"app/doc.go": `// Package sample owns the test module.
 // @Module
 package sample
@@ -255,6 +250,25 @@ package sample
 	); err != nil {
 		t.Fatal(err)
 	}
+	hostileGoEnv := filepath.Join(t.TempDir(), "hostile-goenv")
+	if err := os.WriteFile(hostileGoEnv, []byte(
+		"GOOS=js\nGOARCH=wasm\nGOFLAGS=-tags=goenvambient\n"+
+			"GOTOOLCHAIN=go1.99.0+auto\nGOPROXY=http://127.0.0.1:1\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CGO_ENABLED", "1")
+	t.Setenv("GOAMD64", "v4")
+	t.Setenv("GOARCH", "amd64")
+	t.Setenv("GOAUTH", "netrc")
+	t.Setenv("GOENV", hostileGoEnv)
+	t.Setenv("GOEXPERIMENT", "ambientexperiment")
+	t.Setenv("GOFIPS140", "latest")
+	t.Setenv("GOFLAGS", "-tags=ambient")
+	t.Setenv("GOOS", "plan9")
+	t.Setenv("GOPROXY", "http://127.0.0.1:1")
+	t.Setenv("GOSUMDB", "invalid.example")
+	t.Setenv("GOTOOLCHAIN", "go1.99.0+auto")
 	var stdout, stderr bytes.Buffer
 	code := run(
 		[]string{"verify", "--format=json", "--style=style.json", "."},

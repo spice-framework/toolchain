@@ -42,6 +42,7 @@ func TestOfflineEnvironmentReplacesEveryModuleModeSpelling(t *testing.T) {
 		"GOOS=plan9",
 		"GOARCH=amd64",
 		"CGO_ENABLED=1",
+		"GOFIPS140=latest",
 		"GOTOOLCHAIN=auto",
 	}
 	got := offlineEnvironment(original, "vendor")
@@ -50,6 +51,7 @@ func TestOfflineEnvironmentReplacesEveryModuleModeSpelling(t *testing.T) {
 		!slices.Contains(got, "GOOS="+runtime.GOOS) ||
 		!slices.Contains(got, "GOARCH="+runtime.GOARCH) ||
 		!slices.Contains(got, "CGO_ENABLED=0") ||
+		!slices.Contains(got, "GOFIPS140=off") ||
 		!slices.Contains(got, "GOTOOLCHAIN=local") {
 		t.Fatalf("offlineEnvironment() = %v", got)
 	}
@@ -58,6 +60,7 @@ func TestOfflineEnvironmentReplacesEveryModuleModeSpelling(t *testing.T) {
 			strings.Contains(value, "-mod=readonly") ||
 			strings.Contains(value, "-tags=integration") ||
 			value == "GOOS=plan9" || value == "CGO_ENABLED=1" ||
+			value == "GOFIPS140=latest" ||
 			value == "GOTOOLCHAIN=auto" {
 			t.Fatalf("stale online/module mode retained: %q", value)
 		}

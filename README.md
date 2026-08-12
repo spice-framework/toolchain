@@ -61,12 +61,15 @@ Toolchain does not maintain a second schema-two policy copy.
 
 Schema two is decoded once per verification request. Unknown fields, schema
 one, invalid or noncanonical roots, platforms, tags, and build-selection order
-fail closed. Every declared selection is loaded independently with ambient
-`GOFLAGS`, `GOOS`, `GOARCH`, and `CGO_ENABLED` removed; duplicate physical
-diagnostics retain the ordered selection names, and a handwritten file that no
-selection reaches is an error. For schema-two verification, configured source
-roots are authoritative; trailing CLI package patterns do not narrow away part
-of that reviewed universe. Authorized annotation-tool provenance, build, and
+fail closed. Every declared selection is loaded independently with only its
+exact `GOOS`, `GOARCH`, `CGO_ENABLED`, and declared tags. Ambient Go flags,
+architecture tuning, experiments, Go environment files, automatic toolchain
+selection, authentication, proxies, and checksum services are removed or
+forced offline; duplicate physical diagnostics retain the ordered selection
+names, and a handwritten file that no selection reaches is an error. For
+schema-two verification, configured source roots are authoritative; trailing
+CLI package patterns do not narrow away part of that reviewed universe.
+Authorized annotation-tool provenance, build, and
 startup remain a host operation: CLI, `spicestyle`, and LSP pin the running
 toolchain's native `GOOS`/`GOARCH`, disable CGO and ambient build flags, and
 stay offline without automatic toolchain downloads. Configured target values

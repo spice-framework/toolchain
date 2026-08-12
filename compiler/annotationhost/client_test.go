@@ -118,6 +118,7 @@ func hostileToolEnvironment(mode string) []string {
 		{name: "GOARCH", value: "amd64"},
 		{name: "GOENV", value: filepath.Join("missing", "goenv")},
 		{name: "GOEXPERIMENT", value: "definitely-invalid"},
+		{name: "GOFIPS140", value: "latest"},
 		{name: "GOFLAGS", value: "-tags=ambient"},
 		{name: "GOOS", value: "plan9"},
 		{name: "GOPROXY", value: "https://proxy.invalid"},
@@ -343,13 +344,14 @@ func main() {
 			runtime.GOARCH != os.Getenv("GOARCH") ||
 			os.Getenv("CGO_ENABLED") != "0" ||
 			os.Getenv("GOENV") != "off" ||
+			os.Getenv("GOFIPS140") != "off" ||
 			os.Getenv("GOTOOLCHAIN") != "local" ||
 			os.Getenv("GOPROXY") != "off" ||
 			os.Getenv("GOSUMDB") != "off" ||
 			strings.Contains(os.Getenv("GOFLAGS"), "ambient")) {
-		fmt.Fprintf(os.Stderr, "host environment mismatch: runtime=%s/%s env=%s/%s cgo=%s goenv=%s toolchain=%s proxy=%s sumdb=%s flags=%s",
+		fmt.Fprintf(os.Stderr, "host environment mismatch: runtime=%s/%s env=%s/%s cgo=%s goenv=%s fips=%s toolchain=%s proxy=%s sumdb=%s flags=%s",
 			runtime.GOOS, runtime.GOARCH, os.Getenv("GOOS"), os.Getenv("GOARCH"),
-			os.Getenv("CGO_ENABLED"), os.Getenv("GOENV"), os.Getenv("GOTOOLCHAIN"),
+			os.Getenv("CGO_ENABLED"), os.Getenv("GOENV"), os.Getenv("GOFIPS140"), os.Getenv("GOTOOLCHAIN"),
 			os.Getenv("GOPROXY"), os.Getenv("GOSUMDB"), os.Getenv("GOFLAGS"))
 		os.Exit(4)
 	}

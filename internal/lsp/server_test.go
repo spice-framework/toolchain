@@ -489,11 +489,12 @@ func TestServerNavigatesImportedDescriptorAndImplementationUnderHostileTargetEnv
 ) {
 	t.Parallel()
 	root, mainPath, source := writeImportedLSPModule(t)
+	hostileEnvironment := hostileAnnotationToolEnvironment(t)
 	server, err := New(Config{
 		NewService: func(string) (*compilerservice.Service, error) {
 			return compilerservice.New(compilerservice.Config{
 				LoadOptions: load.Options{
-					Env: hostileAnnotationToolEnvironment(),
+					Env: hostileEnvironment,
 				},
 			})
 		},
@@ -538,6 +539,13 @@ func TestServerNavigatesImportedDescriptorAndImplementationUnderHostileTargetEnv
 	if response := client.waitForID("1"); response.Error != nil {
 		t.Fatalf("initialize response = %+v", response)
 	}
+	client.notify("workspace/didChangeConfiguration", map[string]any{
+		"settings": map[string]any{
+			"spice": map[string]any{
+				"style": ".spice/style.json",
+			},
+		},
+	})
 	client.notify("textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{
 			"uri":        mainURI,
@@ -580,7 +588,7 @@ func TestServerNavigatesImportedDescriptorAndImplementationUnderHostileTargetEnv
 				position.Character ||
 			links[0].OriginSelectionRange.End.Character <
 				position.Character {
-			t.Fatalf("%s links = %+v", method, links)
+			t.Fatalf("%s links = %+v, response = %+v", method, links, response)
 		}
 	}
 	client.send(map[string]any{
@@ -621,16 +629,32 @@ func TestServerNavigatesImportedDescriptorAndImplementationUnderHostileTargetEnv
 	finished = true
 }
 
-func hostileAnnotationToolEnvironment() []string {
+func hostileAnnotationToolEnvironment(t *testing.T) []string {
+	t.Helper()
+	hostileGoEnv := filepath.Join(t.TempDir(), "hostile-goenv")
+	if err := os.WriteFile(hostileGoEnv, []byte(
+		"GOOS=js\nGOARCH=wasm\nGOFLAGS=-tags=goenvambient\n"+
+			"GOTOOLCHAIN=go1.99.0+auto\nGOPROXY=http://127.0.0.1:1\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	result := os.Environ()
 	for _, setting := range []struct {
 		name  string
 		value string
 	}{
 		{name: "CGO_ENABLED", value: "1"},
+		{name: "GOAMD64", value: "v4"},
 		{name: "GOARCH", value: "amd64"},
+		{name: "GOAUTH", value: "netrc"},
+		{name: "GOENV", value: hostileGoEnv},
+		{name: "GOEXPERIMENT", value: "ambientexperiment"},
+		{name: "GOFIPS140", value: "latest"},
 		{name: "GOFLAGS", value: "-tags=ambient"},
 		{name: "GOOS", value: "plan9"},
+		{name: "GOPROXY", value: "http://127.0.0.1:1"},
+		{name: "GOSUMDB", value: "invalid.example"},
+		{name: "GOTOOLCHAIN", value: "go1.99.0+auto"},
 	} {
 		filtered := make([]string, 0, len(result)+1)
 		for _, entry := range result {
@@ -1202,7 +1226,7 @@ func writeImportedLSPModule(t *testing.T) (string, string, string) {
 import (
 	"os"
 
-	spiceapp "example.com/importedlsp/internal/spicegen/importedlsp"
+	spiceapp "example.com/importedlsp/internal/spicegen/app"
 )
 
 // @import { Application as App } from "github.com/spice-framework/spice/annotation/core"
@@ -1221,10 +1245,43 @@ func main() {
 		filepath.ToSlash(coreDirectory) + "\n\n" +
 		"replace github.com/spice-framework/toolchain => " +
 		filepath.ToSlash(repository) + "\n"
+	style, err := os.ReadFile(filepath.Join(repository, "internal", "style", "testdata", "style.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(style configuration) error = %v", err)
+	}
+	style = []byte(strings.ReplaceAll(
+		strings.ReplaceAll(
+			string(style),
+			`testdata/src/example.com/valid/internal/spicegen`,
+			`internal/spicegen`,
+		),
+		`testdata/src`,
+		`app`,
+	))
+	var styleConfiguration map[string]any
+	if err = json.Unmarshal(style, &styleConfiguration); err != nil {
+		t.Fatalf("Unmarshal(style configuration) error = %v", err)
+	}
+	buildSelections, ok := styleConfiguration["buildSelections"].([]any)
+	if !ok || len(buildSelections) == 0 {
+		t.Fatalf("style build selections = %#v", styleConfiguration["buildSelections"])
+	}
+	styleConfiguration["sourceRoots"] = []any{"app", "internal"}
+	selection, ok := buildSelections[0].(map[string]any)
+	if !ok {
+		t.Fatalf("style build selection = %#v", buildSelections[0])
+	}
+	selection["sourceRoots"] = []any{"app", "internal"}
+	styleConfiguration["buildSelections"] = buildSelections[:1]
+	style, err = json.MarshalIndent(styleConfiguration, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(style configuration) error = %v", err)
+	}
 	for relative, content := range map[string]string{
-		"go.mod":  mod,
-		"main.go": source,
-		"internal/spicegen/importedlsp/spice_command_gen.go": `//go:build !spice_generate
+		"go.mod":            mod,
+		".spice/style.json": string(style),
+		"app/main.go":       source,
+		"internal/spicegen/app/spice_command_gen.go": `//go:build !spice_generate
 
 package spicegen
 
@@ -1243,7 +1300,7 @@ func Main([]string) int { return 0 }
 			t.Fatalf("WriteFile(%s) error = %v", relative, writeErr)
 		}
 	}
-	return root, filepath.Join(root, "main.go"), source
+	return root, filepath.Join(root, "app", "main.go"), source
 }
 
 func sourcePosition(content, search string) (int, int) {

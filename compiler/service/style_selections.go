@@ -502,7 +502,28 @@ func exactStyleSelectionOptions(
 	if result.Env == nil {
 		result.Env = os.Environ()
 	}
-	for _, name := range []string{"GOFLAGS", "GOOS", "GOARCH", "CGO_ENABLED"} {
+	for _, name := range []string{
+		"CGO_ENABLED",
+		"GO386",
+		"GOAMD64",
+		"GOARCH",
+		"GOARM",
+		"GOARM64",
+		"GOAUTH",
+		"GOENV",
+		"GOEXPERIMENT",
+		"GOFIPS140",
+		"GOFLAGS",
+		"GOMIPS",
+		"GOMIPS64",
+		"GOOS",
+		"GOPPC64",
+		"GOPROXY",
+		"GORISCV64",
+		"GOSUMDB",
+		"GOTOOLCHAIN",
+		"GOWASM",
+	} {
 		result.Env = removeEnvironment(result.Env, name)
 	}
 	cgoEnabled := "0"
@@ -511,10 +532,17 @@ func exactStyleSelectionOptions(
 	}
 	result.Env = append(
 		result.Env,
+		"CGO_ENABLED="+cgoEnabled,
+		"GOARCH="+selection.GOARCH,
+		"GOAUTH=off",
+		"GOENV=off",
+		"GOEXPERIMENT=",
+		"GOFIPS140=off",
 		"GOFLAGS=",
 		"GOOS="+selection.GOOS,
-		"GOARCH="+selection.GOARCH,
-		"CGO_ENABLED="+cgoEnabled,
+		"GOPROXY=off",
+		"GOSUMDB=off",
+		"GOTOOLCHAIN=local",
 	)
 	result.BuildFlags = withoutTagFlags(result.BuildFlags)
 	if len(selection.Tags) != 0 {

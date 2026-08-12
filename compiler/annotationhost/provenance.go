@@ -439,6 +439,7 @@ func offlineEnvironment(environment []string, mode string) []string {
 		{name: "GOAUTH", value: "off"},
 		{name: "GOENV", value: "off"},
 		{name: "GOEXPERIMENT", value: ""},
+		{name: "GOFIPS140", value: "off"},
 		{name: "GOFLAGS", value: "-mod=" + mode},
 		{name: "GOOS", value: runtime.GOOS},
 		{name: "GOPROXY", value: "off"},

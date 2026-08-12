@@ -49,10 +49,18 @@ func TestConfiguredStyleExecutesEveryExactBuildSelection(t *testing.T) {
 		LoadOptions: load.Options{
 			Env: append(
 				os.Environ(),
+				"CGO_ENABLED=1",
+				"GOAMD64=v4",
+				"GOARCH=386",
+				"GOAUTH=netrc",
+				"GOENV="+filepath.Join(t.TempDir(), "hostile-goenv"),
+				"GOEXPERIMENT=ambientexperiment",
+				"GOFIPS140=latest",
 				"GOFLAGS=-tags=ambient",
 				"GOOS=plan9",
-				"GOARCH=386",
-				"CGO_ENABLED=1",
+				"GOPROXY=http://127.0.0.1:1",
+				"GOSUMDB=invalid.example",
+				"GOTOOLCHAIN=go1.99.0+auto",
 			),
 			BuildFlags: []string{"-tags=ambient", "-gcflags=all=-N"},
 		},
@@ -79,17 +87,35 @@ func TestConfiguredStyleExecutesEveryExactBuildSelection(t *testing.T) {
 		if !slices.Equal(call.patterns, []string{"./app/..."}) {
 			t.Fatalf("selection %s patterns = %v", selection.Name, call.patterns)
 		}
-		if environmentValue(call.options.Env, "GOFLAGS") != "" {
-			t.Fatalf("selection %s GOFLAGS was not cleared", selection.Name)
-		}
 		wantedCGO := "0"
 		if *selection.CGOEnabled {
 			wantedCGO = "1"
 		}
-		if environmentValue(call.options.Env, "GOOS") != selection.GOOS ||
-			environmentValue(call.options.Env, "GOARCH") != selection.GOARCH ||
-			environmentValue(call.options.Env, "CGO_ENABLED") != wantedCGO {
-			t.Fatalf("selection %s did not receive its exact platform environment", selection.Name)
+		wantedEnvironment := map[string]string{
+			"CGO_ENABLED":  wantedCGO,
+			"GOARCH":       selection.GOARCH,
+			"GOAUTH":       "off",
+			"GOENV":        "off",
+			"GOEXPERIMENT": "",
+			"GOFIPS140":    "off",
+			"GOFLAGS":      "",
+			"GOOS":         selection.GOOS,
+			"GOPROXY":      "off",
+			"GOSUMDB":      "off",
+			"GOTOOLCHAIN":  "local",
+		}
+		for name, wanted := range wantedEnvironment {
+			if got := environmentValue(call.options.Env, name); got != wanted {
+				t.Fatalf("selection %s %s = %q, want %q", selection.Name, name, got, wanted)
+			}
+		}
+		for _, name := range []string{
+			"GO386", "GOAMD64", "GOARM", "GOARM64", "GOMIPS",
+			"GOMIPS64", "GOPPC64", "GORISCV64", "GOWASM",
+		} {
+			if value := environmentValue(call.options.Env, name); value != "" {
+				t.Fatalf("selection %s retained %s=%q", selection.Name, name, value)
+			}
 		}
 		if slices.Contains(call.options.BuildFlags, "-tags=ambient") ||
 			!slices.Contains(call.options.BuildFlags, "-gcflags=all=-N") {
