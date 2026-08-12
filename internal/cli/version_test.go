@@ -12,8 +12,8 @@ func TestWriteVersionIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name, version, commit, want string
 	}{
-		{name: "development", version: developmentVersion, commit: developmentCommit, want: "spice v0.1.0-preview.5 (development)\n"},
-		{name: "release", version: "0.1.0-preview.5", commit: commit, want: "spice 0.1.0-preview.5 (" + commit + ")\n"},
+		{name: "development", version: developmentVersion, commit: developmentCommit, want: "spice v0.1.0-preview.6 (development)\n"},
+		{name: "release", version: "0.1.0-preview.6", commit: commit, want: "spice 0.1.0-preview.6 (" + commit + ")\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -33,10 +33,10 @@ func TestWriteVersionIdentityRejectsInvalidLinkerBoundaries(t *testing.T) {
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	for _, test := range []struct{ name, version, commit string }{
 		{name: "unset version", commit: commit},
-		{name: "unset commit", version: "0.1.0-preview.5"},
-		{name: "release version with development commit", version: "0.1.0-preview.5", commit: developmentCommit},
+		{name: "unset commit", version: "0.1.0-preview.6"},
+		{name: "release version with development commit", version: "0.1.0-preview.6", commit: developmentCommit},
 		{name: "development version with release commit", version: developmentVersion, commit: commit},
-		{name: "version has v prefix", version: "v0.1.0-preview.5", commit: commit},
+		{name: "version has v prefix", version: "v0.1.0-preview.6", commit: commit},
 		{name: "shorthand major", version: "1", commit: commit},
 		{name: "shorthand minor", version: "1.2", commit: commit},
 		{name: "version has build metadata", version: "0.1.0+local", commit: commit},

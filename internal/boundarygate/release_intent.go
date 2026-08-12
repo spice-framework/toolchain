@@ -30,7 +30,7 @@ func expectedReleaseIntent() releaseIntent {
 		Profile:    "go-distribution-v1",
 		Repository: "toolchain",
 		Module:     identity.ToolchainModule,
-		Version:    "v0.1.0-preview.5",
+		Version:    "v0.1.0-preview.6",
 	}
 }
 

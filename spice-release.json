@@ -3,5 +3,5 @@
   "profile": "go-distribution-v1",
   "repository": "toolchain",
   "module": "github.com/spice-framework/toolchain",
-  "version": "v0.1.0-preview.5"
+  "version": "v0.1.0-preview.6"
 }

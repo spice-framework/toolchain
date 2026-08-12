@@ -193,7 +193,7 @@ func TestArchiveValidationRejectsZipDrift(t *testing.T) {
 		{Name: "README.md", SHA256: digestText("readme"), Size: int64(len("readme"))},
 	}
 	target := releaseTarget{
-		GOOS: "windows", GOARCH: "amd64", Archive: "toolchain_0.1.0-preview.5_windows_amd64.zip",
+		GOOS: "windows", GOARCH: "amd64", Archive: "toolchain_0.1.0-preview.6_windows_amd64.zip",
 		Binaries: []string{"spice.exe"},
 	}
 	valid := []archiveFixtureEntry{
@@ -250,7 +250,7 @@ func TestArchiveValidationRejectsPathModePayloadAndMembershipDrift(t *testing.T)
 		{Name: "README.md", SHA256: digestText("readme"), Size: int64(len("readme"))},
 	}
 	target := releaseTarget{
-		GOOS: "linux", GOARCH: "amd64", Archive: "toolchain_0.1.0-preview.5_linux_amd64.tar.gz",
+		GOOS: "linux", GOARCH: "amd64", Archive: "toolchain_0.1.0-preview.6_linux_amd64.tar.gz",
 		Binaries: []string{"spice"},
 	}
 	valid := []archiveFixtureEntry{
@@ -360,7 +360,7 @@ func fixtureMetadata(t *testing.T, directory string) releaseMetadata {
 		}
 		artifacts = append(artifacts, fileMetadata(t, file))
 	}
-	sbomContent := []byte(`{"spdxVersion":"SPDX-2.3","dataLicense":"CC0-1.0","SPDXID":"SPDXRef-DOCUMENT","name":"toolchain v0.1.0-preview.5","documentNamespace":"https://github.com/spice-framework/toolchain/releases/v0.1.0-preview.5/spdx/test","packages":[{"name":"github.com/spice-framework/toolchain","versionInfo":"v0.1.0-preview.5"}]}` + "\n")
+	sbomContent := []byte(`{"spdxVersion":"SPDX-2.3","dataLicense":"CC0-1.0","SPDXID":"SPDXRef-DOCUMENT","name":"toolchain v0.1.0-preview.6","documentNamespace":"https://github.com/spice-framework/toolchain/releases/v0.1.0-preview.6/spdx/test","packages":[{"name":"github.com/spice-framework/toolchain","versionInfo":"v0.1.0-preview.6"}]}` + "\n")
 	writeTestFile(t, filepath.Join(directory, sbomName()), sbomContent)
 	artifacts = append(artifacts, fileMetadata(t, filepath.Join(directory, sbomName())))
 	slices.SortFunc(artifacts, func(left, right releaseFile) int { return strings.Compare(left.Name, right.Name) })
