@@ -294,6 +294,7 @@ type normalizedRequest struct {
 	forceStyleInventory bool
 	generatedEntrypoint bool
 	applicationScope    bool
+	generationInventory bool
 	moduleUniverse      modulith.Universe
 }
 
@@ -331,9 +332,12 @@ func (service *Service) Analyze(
 	}
 
 	var result Result
-	if normalized.style != nil {
+	switch {
+	case normalized.style != nil:
 		result, err = service.analyzeConfiguredSelections(analysisCtx, normalized)
-	} else {
+	case normalized.mode == AnalysisGenerate:
+		result, err = service.analyzeGenerationScope(analysisCtx, normalized)
+	default:
 		result, err = service.analyze(analysisCtx, normalized)
 	}
 	if err != nil {
@@ -892,8 +896,33 @@ func (service *Service) analysisLoadOptions(
 		options.PrepareGeneratedApplicationEntrypoints = true
 		options = withAnalysisBuildTag(options)
 	}
+	if request.mode == AnalysisGenerate || request.generationInventory {
+		options = exactGenerationEnvironment(options)
+	}
 	options.PromoteApplicationDependencies = request.applicationScope
 	return withOfflineModuleResolution(options, request.root)
+}
+
+func exactGenerationEnvironment(options load.Options) load.Options {
+	result := cloneLoadOptions(options)
+	if result.Env == nil {
+		result.Env = os.Environ()
+	}
+	for _, setting := range []struct {
+		name  string
+		value string
+	}{
+		{name: "GOAUTH", value: "off"},
+		{name: "GOENV", value: "off"},
+		{name: "GOEXPERIMENT", value: ""},
+		{name: "GOFIPS140", value: "off"},
+		{name: "GOPROXY", value: "off"},
+		{name: "GOSUMDB", value: "off"},
+		{name: "GOTOOLCHAIN", value: "local"},
+	} {
+		result.Env = replaceEnvironment(result.Env, setting.name, setting.value)
+	}
+	return result
 }
 
 func withOfflineModuleResolution(

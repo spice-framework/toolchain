@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -128,6 +129,36 @@ func Application(Value) {}
 	}
 	if !strings.Contains(string(content), "app.RenamedProvider()") {
 		t.Fatalf("recovered generated source missing renamed provider:\n%s", content)
+	}
+}
+
+func TestRunGenerateUsesApplicationScopedLocalModuleUniverse(t *testing.T) {
+	root := generationModuleUniverseCLIModule(t, false)
+	code, stdout, stderr := runModule(
+		root,
+		"generate", "--target", "ArchitectureProof", "./app",
+	)
+	if code != 0 || !strings.Contains(stdout, "generated target ArchitectureProof") || stderr != "" {
+		t.Fatalf("generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	code, stdout, stderr = runModule(
+		root,
+		"generate", "--check", "--target", "ArchitectureProof", "./app",
+	)
+	if code != 0 || !strings.Contains(stdout, "generation is current") || stderr != "" {
+		t.Fatalf("generate --check: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	unknownRoot := generationModuleUniverseCLIModule(t, true)
+	code, stdout, stderr = runModule(
+		unknownRoot,
+		"generate", "--target", "ArchitectureProof", "./app",
+	)
+	if code != 1 || stdout != "" ||
+		!strings.Contains(stderr, "[spice.module.unknown-module]") ||
+		!strings.Contains(stderr, "example.com/fixture/internal/missing") ||
+		strings.Contains(stderr, "spice.load") {
+		t.Fatalf("unknown module: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
@@ -551,5 +582,66 @@ func generationCLIModule(t *testing.T, source string) string {
 			"require github.com/spice-framework/spice v0.0.0\n\n" +
 			"replace github.com/spice-framework/spice => " + filepath.ToSlash(repository) + "\n",
 		"app/application.go": source,
+	})
+}
+
+func generationModuleUniverseCLIModule(t *testing.T, unknown bool) string {
+	t.Helper()
+	dependencies := []string{
+		"example.com/fixture/internal/processplatform",
+		"example.com/fixture/internal/runidentity",
+		"example.com/fixture/internal/workspace",
+	}
+	if unknown {
+		dependencies = append(dependencies, "example.com/fixture/internal/missing")
+		slices.Sort(dependencies)
+	}
+	quoted := make([]string, len(dependencies))
+	for index, dependency := range dependencies {
+		quoted[index] = strconv.Quote(dependency)
+	}
+	return writeModule(t, map[string]string{
+		"app/application.go": `package app
+
+import (
+	_ "example.com/fixture/internal/processplatform"
+	_ "example.com/fixture/internal/runidentity"
+	_ "example.com/fixture/internal/workspace"
+)
+
+type Proof struct{}
+
+// @Bean
+// @Singleton
+func NewProof() *Proof { return &Proof{} }
+
+// @Application
+func ArchitectureProof(*Proof) {}
+`,
+		"app/doc.go": `// Package app owns the selected application.
+//
+// @Module(allowedDependencies=[` + strings.Join(quoted, ", ") + `])
+package app
+`,
+		"internal/processplatform/doc.go": `// Package processplatform owns platform behavior.
+//
+// @Module(allowedDependencies=["example.com/fixture/internal/processcontainment"])
+package processplatform
+`,
+		"internal/processcontainment/doc.go": `// Package processcontainment owns inactive platform behavior.
+//
+// @Module
+package processcontainment
+`,
+		"internal/runidentity/doc.go": `// Package runidentity owns run identity.
+//
+// @Module
+package runidentity
+`,
+		"internal/workspace/doc.go": `// Package workspace owns workspace identity.
+//
+// @Module
+package workspace
+`,
 	})
 }

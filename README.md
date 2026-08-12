@@ -37,6 +37,15 @@ go tool github.com/spice-framework/toolchain/cmd/spice generate ./...
 go tool github.com/spice-framework/toolchain/cmd/spice build ./...
 ```
 
+Ordinary generation remains package-oriented and does not read a style
+configuration. The selected application is loaded with syntax-complete
+same-Go-module dependencies. Exact local modules named by its `@Module`
+allowlist are then inventoried recursively, in stable order, solely to build a
+compiler-validated module and named-interface identity registry. Those
+identity-only loads cannot contribute applications, providers, configuration,
+or generated targets. Missing, external, malformed, or repository-escaping
+module identities remain errors, and all package loading stays offline.
+
 Applications that want class-oriented source organization can enable the
 schema-two profile. `spicestyle` and `spice verify --style` both use the same
 strict decoder, exact build-selection executor, structural checks, and typed
