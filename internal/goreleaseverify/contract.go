@@ -30,7 +30,7 @@ const (
 	historicalModuleToolchainVersion = "v0.1.0-preview.1.0.20260806203056-d0b9ac086bd6"
 	historicalCodingToolchainVersion = "v0.1.0-preview.1.0.20260807044408-6598abca8196"
 	spiceFoundationVersion           = "v0.1.0-preview.4"
-	toolchainDistributionVersion     = "v0.1.0-preview.5"
+	toolchainDistributionVersion     = "v0.1.0-preview.6"
 	agentCoreReleaseVersion          = "v0.1.0-preview.7"
 	agentCoreSpiceVersion            = "v0.1.0-preview.4"
 	agentCoreToolchainVersion        = "v0.1.0-preview.2"

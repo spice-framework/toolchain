@@ -178,7 +178,7 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	}
 }
 
-func TestToolchainPreviewFivePreservesEveryOtherReleaseAndHistoricalSelection(t *testing.T) {
+func TestToolchainPreviewSixPreservesEveryOtherReleaseAndHistoricalSelection(t *testing.T) {
 	t.Parallel()
 	if got := releasePolicies["spice"].version; got != "v0.1.0-preview.4" {
 		t.Errorf("Spice recovery version = %q, want v0.1.0-preview.4", got)
@@ -187,8 +187,8 @@ func TestToolchainPreviewFivePreservesEveryOtherReleaseAndHistoricalSelection(t 
 		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.4",
 	}}
 	toolchain := distributionPolicies["toolchain"]
-	if toolchain.version != "v0.1.0-preview.5" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
-		t.Errorf("Toolchain policy = %#v, want preview.5 with modules %#v", toolchain, wantToolchainModules)
+	if toolchain.version != "v0.1.0-preview.6" || !slices.Equal(toolchain.requiredModules, wantToolchainModules) {
+		t.Errorf("Toolchain policy = %#v, want preview.6 with modules %#v", toolchain, wantToolchainModules)
 	}
 	failedFoundation := selectedModule{
 		path: "github.com/spice-framework/spice", version: "v0.1.0-preview.3",
@@ -280,7 +280,7 @@ func TestCompiledPoliciesRetainExactReleaseVersions(t *testing.T) {
 		}
 	}
 	wantDistributions := map[string]string{
-		"toolchain":          "v0.1.0-preview.5",
+		"toolchain":          "v0.1.0-preview.6",
 		"spice-agent-coding": agentDistributionVersion,
 	}
 	if len(distributionPolicies) != len(wantDistributions) {
