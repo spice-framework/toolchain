@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	developmentVersion = "v0.1.0-preview.6"
+	developmentVersion = "v0.1.0-preview.7"
 	developmentCommit  = "development"
 )
 

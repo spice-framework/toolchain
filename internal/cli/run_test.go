@@ -19,7 +19,7 @@ import (
 
 func TestRunVersion(t *testing.T) {
 	t.Parallel()
-	if Version != "v0.1.0-preview.6" {
+	if Version != "v0.1.0-preview.7" {
 		t.Fatalf("CLI version = %q", Version)
 	}
 	if developmentVersion != generate.GeneratorVersion {

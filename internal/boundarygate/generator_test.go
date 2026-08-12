@@ -19,7 +19,7 @@ func TestGeneratorCompatibilityContractIsCanonicalAndCrossChecked(t *testing.T) 
 	if err := (verifier{root: root}).generatorCompatibility(); err != nil {
 		t.Fatal(err)
 	}
-	if generate.GeneratorVersion != "v0.1.0-preview.6" ||
+	if generate.GeneratorVersion != "v0.1.0-preview.7" ||
 		generate.SchemaVersion != 6 {
 		t.Fatalf(
 			"generator identity = %s schema %d",
@@ -39,7 +39,7 @@ func TestGeneratorCompatibilityContractFailsClosed(t *testing.T) {
 		{
 			name: "generator version",
 			mutate: func(value string) string {
-				return strings.Replace(value, "v0.1.0-preview.6", "v0.1.0-preview.5", 1)
+				return strings.Replace(value, "v0.1.0-preview.7", "v0.1.0-preview.6", 1)
 			},
 		},
 		{
