@@ -17,6 +17,13 @@ make tools-bootstrap
 GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off make verify-release
 ```
 
+The repository-owned command keeps one fail-closed outer context around every
+gate. The complete `verify` and `verify-release` modes have a 30-minute budget;
+focused, bootstrap, benchmark, and installed-artifact modes retain the
+20-minute budget. The full-mode bound provides 50 percent headroom over the
+observed 20-minute hosted Windows boundary without resetting the deadline
+between phases or omitting any verification work.
+
 In disposable clean checkouts, use Development commit
 `87b5d8c3d34ea61c4f293614f364c54d097db469` to render the exact Toolchain
 preview.5 nine-subject set and Toolchain verifier commit
