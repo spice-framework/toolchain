@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -32,37 +33,50 @@ func (service *Service) analyzeGenerationScope(
 	models := []modulith.Model{initial.moduleModel}
 	known := generationModuleIdentities(models)
 	pending := make(map[generationModuleCandidate]struct{})
+	inventoried := make(map[generationModuleCandidate]struct{})
 	enqueueGenerationModuleDependencies(initial.moduleModel, known, pending)
 	inventories := make([]normalizedRequest, 0, len(pending))
 
 	for len(pending) != 0 {
-		if err := ctx.Err(); err != nil {
-			return Result{}, err
+		if contextErr := ctx.Err(); contextErr != nil {
+			return Result{}, contextErr
 		}
 		candidate := nextGenerationModuleCandidate(pending)
 		delete(pending, candidate)
+		if _, found := inventoried[candidate]; found {
+			continue
+		}
+		inventoried[candidate] = struct{}{}
 		if modulePath, found := known[candidate.id]; found {
-			if modulePath == candidate.modulePath {
+			if modulePath != candidate.modulePath {
+				// One import path cannot be admitted under a different Go module.
 				continue
 			}
-			// One import path cannot be admitted under a different Go module.
-			continue
 		}
 
 		inventoryRequest := generationModuleInventoryRequest(request, candidate.id)
-		inventory, analyzeErr := service.analyze(ctx, inventoryRequest)
-		if analyzeErr != nil {
-			return Result{}, analyzeErr
-		}
-		module, found := exactGenerationModule(
-			inventory.moduleModel,
+		module, found := exactGenerationModuleInModels(
+			models,
 			candidate,
 			request.root,
 		)
+		var inventory Result
 		if !found {
-			// Missing, unannotated, and external packages remain unknown to the
-			// final application model; their declaration diagnostic is preserved.
-			continue
+			var analyzeErr error
+			inventory, analyzeErr = service.analyze(ctx, inventoryRequest)
+			if analyzeErr != nil {
+				return Result{}, analyzeErr
+			}
+			module, found = exactGenerationModule(
+				inventory.moduleModel,
+				candidate,
+				request.root,
+			)
+			if !found {
+				// Missing, unannotated, and external packages remain unknown to the
+				// final application model; their declaration diagnostic is preserved.
+				continue
+			}
 		}
 		interfacePatterns, discoverErr := generationNamedInterfacePatterns(
 			ctx,
@@ -78,6 +92,7 @@ func (service *Service) analyzeGenerationScope(
 				inventoryRequest.patterns,
 				interfacePatterns...,
 			)
+			var analyzeErr error
 			inventory, analyzeErr = service.analyze(ctx, inventoryRequest)
 			if analyzeErr != nil {
 				return Result{}, analyzeErr
@@ -90,6 +105,10 @@ func (service *Service) analyzeGenerationScope(
 			if !found || len(inventory.moduleModel.Modules()) != 1 {
 				continue
 			}
+		} else if len(inventory.moduleModel.Modules()) == 0 {
+			// A known module without additional named-interface packages already
+			// contributes its exact identity through the initial application model.
+			continue
 		}
 		models = append(models, inventory.moduleModel)
 		known[module.ID] = module.GoModulePath
@@ -99,8 +118,8 @@ func (service *Service) analyzeGenerationScope(
 
 	universe := modulith.NewUniverse(models...)
 	for _, inventoryRequest := range inventories {
-		if err := ctx.Err(); err != nil {
-			return Result{}, err
+		if contextErr := ctx.Err(); contextErr != nil {
+			return Result{}, contextErr
 		}
 		inventoryRequest.moduleUniverse = universe
 		validated, analyzeErr := service.analyze(ctx, inventoryRequest)
@@ -116,13 +135,94 @@ func (service *Service) analyzeGenerationScope(
 	}
 
 	request.moduleUniverse = universe
-	return service.analyze(ctx, request)
+	result, err := service.analyze(ctx, request)
+	if err != nil {
+		return Result{}, err
+	}
+	result.moduleGraph = mergeGenerationModuleGraphIdentities(
+		result.moduleGraph,
+		models,
+	)
+	return result, nil
+}
+
+func mergeGenerationModuleGraphIdentities(
+	graph ModuleGraph,
+	models []modulith.Model,
+) ModuleGraph {
+	result := cloneModuleGraph(graph)
+	moduleIndexes := make(map[string]int, len(result.Modules))
+	known := make(map[string]map[string]struct{}, len(result.Modules))
+	for index, module := range result.Modules {
+		moduleIndexes[module.ID] = index
+		interfaces := make(map[string]struct{}, len(module.NamedInterfaces))
+		for _, named := range module.NamedInterfaces {
+			interfaces[named.Name+"\x00"+named.PackagePath] = struct{}{}
+		}
+		known[module.ID] = interfaces
+	}
+	for _, model := range models {
+		for _, module := range model.Modules() {
+			index, found := moduleIndexes[module.ID]
+			if !found {
+				continue
+			}
+			interfaces, found := known[module.ID]
+			if !found {
+				continue
+			}
+			for _, named := range module.NamedInterfaces() {
+				key := named.Name + "\x00" + named.PackagePath
+				if _, duplicate := interfaces[key]; duplicate {
+					continue
+				}
+				interfaces[key] = struct{}{}
+				result.Modules[index].NamedInterfaces = append(
+					result.Modules[index].NamedInterfaces,
+					NamedInterface{
+						Name:        named.Name,
+						PackagePath: named.PackagePath,
+					},
+				)
+			}
+		}
+	}
+	for index := range result.Modules {
+		sort.SliceStable(result.Modules[index].NamedInterfaces, func(i, j int) bool {
+			left := result.Modules[index].NamedInterfaces[i]
+			right := result.Modules[index].NamedInterfaces[j]
+			if left.Name != right.Name {
+				return left.Name < right.Name
+			}
+			return left.PackagePath < right.PackagePath
+		})
+	}
+	return result
+}
+
+func exactGenerationModuleInModels(
+	models []modulith.Model,
+	candidate generationModuleCandidate,
+	root string,
+) (modulith.Module, bool) {
+	for _, model := range models {
+		if module, found := exactGenerationModule(model, candidate, root); found {
+			return module, true
+		}
+	}
+	return modulith.Module{}, false
 }
 
 type generationModuleCandidate struct {
 	id         string
 	modulePath string
 }
+
+const (
+	generationInventoryMaximumFiles     = 100_000
+	generationInventoryMaximumBytes     = 64 << 20
+	generationInventoryMaximumFileBytes = 1 << 20
+)
 
 func generationModuleIdentities(models []modulith.Model) map[string]string {
 	result := make(map[string]string)
@@ -148,6 +248,7 @@ func enqueueGenerationModuleDependencies(
 				continue
 			}
 			if knownPath, found := known[dependency.ModuleID]; found &&
+				dependency.Interface == "" &&
 				knownPath == module.GoModulePath {
 				continue
 			}
@@ -232,11 +333,6 @@ func generationNamedInterfacePatterns(
 	module modulith.Module,
 	overlay map[string]Document,
 ) ([]string, error) {
-	const (
-		maximumFiles     = 100_000
-		maximumBytes     = 64 << 20
-		maximumFileBytes = 1 << 20
-	)
 	document := module.PhysicalPosition.Filename
 	if !filepath.IsAbs(document) {
 		document = filepath.Join(root, document)
@@ -268,11 +364,12 @@ func generationNamedInterfacePatterns(
 		seenFiles[filename] = struct{}{}
 		files++
 		bytesRead += int64(len(content))
-		if files > maximumFiles || bytesRead > maximumBytes {
+		if files > generationInventoryMaximumFiles ||
+			bytesRead > generationInventoryMaximumBytes {
 			return fmt.Errorf(
 				"generation module identity inventory exceeds %d files or %d bytes",
-				maximumFiles,
-				maximumBytes,
+				generationInventoryMaximumFiles,
+				generationInventoryMaximumBytes,
 			)
 		}
 		file, parseErr := parser.ParseFile(
@@ -306,35 +403,43 @@ func generationNamedInterfacePatterns(
 			return contextErr
 		}
 		if entry.IsDir() {
-			if current == moduleRoot {
-				return nil
+			eligible, eligibilityErr := generationInventoryPathEligible(
+				moduleRoot,
+				resolvedModule,
+				current,
+				true,
+				0,
+			)
+			if eligibilityErr != nil {
+				return eligibilityErr
 			}
-			if entry.Type()&os.ModeSymlink != 0 ||
-				entry.Name() == "vendor" || entry.Name() == "testdata" ||
-				strings.HasPrefix(entry.Name(), ".") || strings.HasPrefix(entry.Name(), "_") {
+			if !eligible {
 				return filepath.SkipDir
 			}
-			if generationGeneratedDirectory(moduleRoot, current) {
-				return filepath.SkipDir
-			}
-			if _, statErr := os.Stat(filepath.Join(current, "go.mod")); statErr == nil {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 ||
-			filepath.Ext(entry.Name()) != ".go" ||
-			strings.HasSuffix(entry.Name(), "_test.go") {
 			return nil
 		}
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			return infoErr
 		}
-		if !info.Mode().IsRegular() || info.Size() > maximumFileBytes {
+		document, overlaid := overlay[filepath.Clean(current)]
+		effectiveBytes := info.Size()
+		if overlaid {
+			effectiveBytes = int64(len(document.Content))
+		}
+		eligible, eligibilityErr := generationInventoryPathEligible(
+			moduleRoot,
+			resolvedModule,
+			current,
+			false,
+			effectiveBytes,
+		)
+		if eligibilityErr != nil {
+			return eligibilityErr
+		}
+		if !eligible {
 			return nil
 		}
-		document, overlaid := overlay[filepath.Clean(current)]
 		content := document.Content
 		if !overlaid {
 			relativeFile, relErr := filepath.Rel(moduleRoot, current)
@@ -352,20 +457,27 @@ func generationNamedInterfacePatterns(
 	if err != nil {
 		return nil, err
 	}
-	for filename, document := range overlay {
+	overlayPaths := make([]string, 0, len(overlay))
+	for filename := range overlay {
+		overlayPaths = append(overlayPaths, filepath.Clean(filename))
+	}
+	sort.Strings(overlayPaths)
+	for _, filename := range overlayPaths {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		filename = filepath.Clean(filename)
-		relative, relErr := filepath.Rel(moduleRoot, filename)
-		if relErr != nil || relative == "." || !filepath.IsLocal(relative) ||
-			filepath.Ext(filename) != ".go" || strings.HasSuffix(filename, "_test.go") ||
-			len(document.Content) > maximumFileBytes ||
-			generationGeneratedDirectory(moduleRoot, filepath.Dir(filename)) {
-			continue
+		document := overlay[filename]
+		eligible, eligibilityErr := generationInventoryPathEligible(
+			moduleRoot,
+			resolvedModule,
+			filename,
+			false,
+			int64(len(document.Content)),
+		)
+		if eligibilityErr != nil {
+			return nil, eligibilityErr
 		}
-		resolvedDirectory, resolveErr := filepath.EvalSymlinks(filepath.Dir(filename))
-		if resolveErr != nil || !pathWithin(resolvedModule, resolvedDirectory) {
+		if !eligible {
 			continue
 		}
 		if err := inspect(filename, document.Content); err != nil {
@@ -380,18 +492,81 @@ func generationNamedInterfacePatterns(
 	return result, nil
 }
 
-func generationGeneratedDirectory(moduleRoot, directory string) bool {
-	relative, err := filepath.Rel(moduleRoot, directory)
-	if err != nil || relative == "." || !filepath.IsLocal(relative) {
-		return false
+func generationInventoryPathEligible(
+	moduleRoot string,
+	resolvedModule string,
+	filename string,
+	directory bool,
+	fileBytes int64,
+) (bool, error) {
+	filename = filepath.Clean(filename)
+	relative, err := filepath.Rel(moduleRoot, filename)
+	if err != nil {
+		return false, err
+	}
+	if relative != "." && !filepath.IsLocal(relative) {
+		return false, nil
+	}
+	if relative == "." {
+		return directory, nil
 	}
 	components := strings.Split(filepath.ToSlash(relative), "/")
-	for index := 0; index+1 < len(components); index++ {
-		if components[index] == "internal" && components[index+1] == "spicegen" {
-			return true
+	directoryComponents := components
+	if !directory {
+		directoryComponents = components[:len(components)-1]
+		base := components[len(components)-1]
+		if filepath.Ext(base) != ".go" || strings.HasSuffix(base, "_test.go") ||
+			fileBytes > generationInventoryMaximumFileBytes {
+			return false, nil
 		}
 	}
-	return false
+
+	current := moduleRoot
+	previous := ""
+	for _, component := range directoryComponents {
+		if component == "vendor" || component == "testdata" ||
+			strings.HasPrefix(component, ".") || strings.HasPrefix(component, "_") ||
+			(previous == "internal" && component == "spicegen") {
+			return false, nil
+		}
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if statErr != nil {
+			if errors.Is(statErr, fs.ErrNotExist) {
+				return false, nil
+			}
+			return false, statErr
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return false, nil
+		}
+		if _, statErr = os.Lstat(filepath.Join(current, "go.mod")); statErr == nil {
+			return false, nil
+		} else if !errors.Is(statErr, fs.ErrNotExist) {
+			return false, statErr
+		}
+		previous = component
+	}
+
+	physicalDirectory := current
+	resolvedDirectory, err := filepath.EvalSymlinks(physicalDirectory)
+	if err != nil {
+		return false, err
+	}
+	if !pathWithin(resolvedModule, resolvedDirectory) {
+		return false, nil
+	}
+	if directory {
+		return true, nil
+	}
+	if info, statErr := os.Lstat(filename); statErr == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return false, nil
+		}
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
+		return false, statErr
+	}
+	return true, nil
 }
 
 func hasNamedInterfaceComment(file *ast.File) bool {
