@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestToolchainPreviewSixDistributionPolicyIsClosed(t *testing.T) {
+func TestToolchainPreviewSevenDistributionPolicyIsClosed(t *testing.T) {
 	t.Parallel()
 	policy := distributionPolicies["toolchain"]
 	valid := Config{
@@ -38,7 +38,7 @@ func TestToolchainPreviewSixDistributionPolicyIsClosed(t *testing.T) {
 	}
 	if policy.repository != "toolchain" || policy.module != "github.com/spice-framework/toolchain" ||
 		policy.source != "https://github.com/spice-framework/toolchain" ||
-		policy.version != "v0.1.0-preview.6" || policy.metadataFile != "spice-release.json" ||
+		policy.version != "v0.1.0-preview.7" || policy.metadataFile != "spice-release.json" ||
 		!slices.Equal(policy.requiredModules, wantModules) || !slices.Equal(policy.binaries, wantBinaries) ||
 		!slices.Equal(policy.targets, wantTargets) || !slices.Equal(policy.payloadFiles, []string{"LICENSE", "README.md"}) ||
 		policy.versionSymbol != "github.com/spice-framework/toolchain/internal/cli.Version" ||
@@ -54,6 +54,7 @@ func TestToolchainPreviewSixDistributionPolicyIsClosed(t *testing.T) {
 		"v0.1.0-preview.3",
 		"v0.1.0-preview.4",
 		"v0.1.0-preview.5",
+		"v0.1.0-preview.6",
 	} {
 		stale := valid
 		stale.Version = version
