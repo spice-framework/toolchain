@@ -86,6 +86,7 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		{name: "stale preview.1 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.1" }},
 		{name: "stale preview.2 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.2" }},
 		{name: "stale preview.3 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.3" }},
+		{name: "stale preview.4 version", mutate: func(value *Config) { value.Version = "v0.1.0-preview.4" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -100,12 +101,12 @@ func TestDistributionPolicyIsClosed(t *testing.T) {
 		t.Fatal("distribution asset allowlist does not bind every target")
 	}
 	wantModules := []selectedModule{
-		{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
-		{path: "github.com/spice-framework/toolchain", version: historicalCodingToolchainVersion},
-		{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
+		{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
+		{path: "github.com/spice-framework/spice-agent", version: agentCoreReleaseVersion},
 		{path: "github.com/spice-framework/spice-agent-provider-openai", version: historicalCodingProviderVersion},
 		{path: "github.com/spice-framework/spice-agent-tools-coding", version: historicalCodingToolsVersion},
-		{path: "github.com/spice-framework/spice-agent-tui", version: historicalCodingTUIVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: agentTUIReleaseVersion},
 	}
 	if !slices.Equal(policy.requiredModules, wantModules) {
 		t.Fatalf("distribution required modules = %#v, want %#v", policy.requiredModules, wantModules)

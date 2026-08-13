@@ -65,7 +65,7 @@ func TestRunPolicyCheckAuthorizesExactComparablePolicies(t *testing.T) {
 		{name: "Agent provider", repository: "spice-agent-provider-openai", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 		{name: "Agent coding tools", repository: "spice-agent-tools-coding", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 		{name: "Agent TUI", repository: "spice-agent-tui", version: "v0.1.0-preview.2", profile: "go-module-v1"},
-		{name: "Agent coding distribution", repository: "spice-agent-coding", version: "v0.1.0-preview.4", profile: "go-distribution-v1"},
+		{name: "Agent coding distribution", repository: "spice-agent-coding", version: "v0.1.0-preview.5", profile: "go-distribution-v1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -107,6 +107,34 @@ func TestRunPolicyCheckEmitsCanonicalToolchainPreviewEightTuple(t *testing.T) {
 		hex.EncodeToString(digest[:]) != wantSHA256 || stderr.Len() != 0 {
 		t.Fatalf(
 			"run(Toolchain preview.8 policy-check) = %d, stdout %q, sha256 %s, stderr %q",
+			code,
+			stdout.String(),
+			hex.EncodeToString(digest[:]),
+			stderr.String(),
+		)
+	}
+}
+
+func TestRunPolicyCheckEmitsCanonicalCodingPreviewFiveTuple(t *testing.T) {
+	t.Parallel()
+	const (
+		want       = "go-distribution-v1\tspice-agent-coding\tgithub.com/spice-framework/spice-agent-coding\tv0.1.0-preview.5\n"
+		wantSHA256 = "24077c7297c7927d22be93ae8d2fd2c41deaa2d89b8873909a7cb0fdb665b7d9"
+	)
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"policy-check",
+		"--repository=spice-agent-coding",
+		"--source=https://github.com/spice-framework/spice-agent-coding",
+		"--module=github.com/spice-framework/spice-agent-coding",
+		"--version=v0.1.0-preview.5",
+		"--profile=go-distribution-v1",
+	}, &stdout, &stderr)
+	digest := sha256.Sum256(stdout.Bytes())
+	if code != 0 || stdout.String() != want ||
+		hex.EncodeToString(digest[:]) != wantSHA256 || stderr.Len() != 0 {
+		t.Fatalf(
+			"run(Coding preview.5 policy-check) = %d, stdout %q, sha256 %s, stderr %q",
 			code,
 			stdout.String(),
 			hex.EncodeToString(digest[:]),
@@ -168,7 +196,7 @@ func TestRunPolicyCheckRejectsStaleFoundationRecoveryPreviews(t *testing.T) {
 
 func TestRunPolicyCheckRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"} {
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3", "v0.1.0-preview.4"} {
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), []string{
 			"policy-check",
@@ -230,7 +258,7 @@ func TestRunPolicyCheckHandlesWriterFailure(t *testing.T) {
 		"-repository", "spice-agent-coding",
 		"-source", "https://github.com/spice-framework/spice-agent-coding",
 		"-module", "github.com/spice-framework/spice-agent-coding",
-		"-version", "v0.1.0-preview.4",
+		"-version", "v0.1.0-preview.5",
 		"-profile", "go-distribution-v1",
 	}, failingWriter{}, io.Discard)
 	if code != 1 {

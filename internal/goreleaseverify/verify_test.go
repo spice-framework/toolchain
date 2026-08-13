@@ -178,7 +178,7 @@ func TestCompiledPoliciesPinExactRequiredModuleVersions(t *testing.T) {
 	}
 }
 
-func TestToolchainPreviewEightPreservesEveryOtherReleaseAndHistoricalSelection(t *testing.T) {
+func TestCodingPreviewFivePreservesEveryOtherReleaseAndHistoricalSelection(t *testing.T) {
 	t.Parallel()
 	if got := releasePolicies["spice"].version; got != "v0.1.0-preview.4" {
 		t.Errorf("Spice recovery version = %q, want v0.1.0-preview.4", got)
@@ -215,12 +215,12 @@ func TestToolchainPreviewEightPreservesEveryOtherReleaseAndHistoricalSelection(t
 		t.Errorf("Agent required modules = %#v, want %#v", got, wantAgentModules)
 	}
 	wantCodingModules := []selectedModule{
-		{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
-		{path: "github.com/spice-framework/toolchain", version: historicalCodingToolchainVersion},
-		{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
+		{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+		{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
+		{path: "github.com/spice-framework/spice-agent", version: agentCoreReleaseVersion},
 		{path: "github.com/spice-framework/spice-agent-provider-openai", version: historicalCodingProviderVersion},
 		{path: "github.com/spice-framework/spice-agent-tools-coding", version: historicalCodingToolsVersion},
-		{path: "github.com/spice-framework/spice-agent-tui", version: historicalCodingTUIVersion},
+		{path: "github.com/spice-framework/spice-agent-tui", version: agentTUIReleaseVersion},
 	}
 	if got := distributionPolicies["spice-agent-coding"].requiredModules; !slices.Equal(got, wantCodingModules) {
 		t.Errorf("Coding required modules = %#v, want %#v", got, wantCodingModules)
@@ -250,18 +250,12 @@ func TestCompiledPoliciesRejectStaleAgentSelections(t *testing.T) {
 		}
 	}
 	modules := distributionPolicies["spice-agent-coding"].requiredModules
-	for _, staleVersion := range []string{
-		"v0.1.0-preview.1",
-		"v0.1.0-preview.2",
-		"v0.1.0-preview.3",
-	} {
-		stale := selectedModule{path: "github.com/spice-framework/spice-agent", version: staleVersion}
-		if slices.Contains(modules, stale) {
-			t.Errorf("distribution required modules = %#v, contains stale Agent %s", modules, staleVersion)
-		}
+	current := selectedModule{path: "github.com/spice-framework/spice-agent", version: agentCoreReleaseVersion}
+	if !slices.Contains(modules, current) {
+		t.Errorf("distribution required modules = %#v, missing current Agent", modules)
 	}
-	if !slices.Contains(modules, recovered) {
-		t.Errorf("distribution required modules = %#v, missing recovered Agent", modules)
+	if slices.Contains(modules, recovered) {
+		t.Errorf("distribution required modules = %#v, retains historical Agent", modules)
 	}
 }
 
@@ -308,7 +302,7 @@ func TestAgentPreviewSevenAndHistoricalPoliciesPreserveEveryDependencyPin(t *tes
 		"historical Coding Tools":     "v0.1.0-preview.1",
 		"historical Coding TUI":       "v0.1.0-preview.1",
 		"Agent dependency":            "v0.1.0-preview.4",
-		"Agent distribution":          "v0.1.0-preview.4",
+		"Agent distribution":          "v0.1.0-preview.5",
 		"Agent TUI Toolchain":         "v0.1.0-preview.4",
 	}
 	actual := map[string]string{

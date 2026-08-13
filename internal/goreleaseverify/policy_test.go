@@ -160,7 +160,7 @@ func TestCheckPolicyRejectsStaleFoundationAndToolchainIdentities(t *testing.T) {
 
 func TestCheckPolicyRejectsStaleDistributionPreviews(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3"} {
+	for _, version := range []string{"v0.1.0-preview.1", "v0.1.0-preview.2", "v0.1.0-preview.3", "v0.1.0-preview.4"} {
 		request := PolicyRequest{
 			Repository: "spice-agent-coding",
 			Source:     "https://github.com/spice-framework/spice-agent-coding",

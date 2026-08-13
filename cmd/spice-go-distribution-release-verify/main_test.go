@@ -15,7 +15,7 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 		"-repository", "spice-agent-coding",
 		"-source", "https://github.com/spice-framework/spice-agent-coding",
 		"-module", "github.com/spice-framework/spice-agent-coding",
-		"-version", "v0.1.0-preview.4", "-commit", strings.Repeat("a", 40),
+		"-version", "v0.1.0-preview.5", "-commit", strings.Repeat("a", 40),
 		"-profile", "go-distribution-v1",
 	}
 	for _, test := range []struct {
@@ -31,6 +31,7 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 		{name: "stale preview.1", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.1"), wantCode: 1, wantError: "do not match"},
 		{name: "stale preview.2", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.2"), wantCode: 1, wantError: "do not match"},
 		{name: "stale preview.3", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.3"), wantCode: 1, wantError: "do not match"},
+		{name: "stale preview.4", arguments: replaceDistributionArgument(valid, "-version", "v0.1.0-preview.4"), wantCode: 1, wantError: "do not match"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

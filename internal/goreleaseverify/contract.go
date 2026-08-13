@@ -42,7 +42,7 @@ const (
 	historicalCodingTUIVersion       = "v0.1.0-preview.1"
 	agentTUIReleaseVersion           = "v0.1.0-preview.2"
 	agentTUIToolchainVersion         = "v0.1.0-preview.4"
-	agentDistributionVersion         = "v0.1.0-preview.4"
+	agentDistributionVersion         = "v0.1.0-preview.5"
 )
 
 // Config contains separately trusted release identity and untrusted artifact
@@ -156,12 +156,12 @@ var distributionPolicies = map[string]distributionPolicy{
 		version:      agentDistributionVersion,
 		metadataFile: "spice-release.json",
 		requiredModules: []selectedModule{
-			{path: "github.com/spice-framework/spice", version: historicalSpiceFoundationVersion},
-			{path: "github.com/spice-framework/toolchain", version: historicalCodingToolchainVersion},
-			{path: "github.com/spice-framework/spice-agent", version: agentCoreDependencyVersion},
+			{path: "github.com/spice-framework/spice", version: spiceFoundationVersion},
+			{path: "github.com/spice-framework/toolchain", version: toolchainDistributionVersion},
+			{path: "github.com/spice-framework/spice-agent", version: agentCoreReleaseVersion},
 			{path: "github.com/spice-framework/spice-agent-provider-openai", version: historicalCodingProviderVersion},
 			{path: "github.com/spice-framework/spice-agent-tools-coding", version: historicalCodingToolsVersion},
-			{path: "github.com/spice-framework/spice-agent-tui", version: historicalCodingTUIVersion},
+			{path: "github.com/spice-framework/spice-agent-tui", version: agentTUIReleaseVersion},
 		},
 		binaries: []distributionBinary{
 			{name: "spice-agent", packagePath: "./cmd/spice-agent"},
