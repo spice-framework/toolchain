@@ -32,6 +32,7 @@ import (
 	"github.com/spice-framework/toolchain/compiler/configuration"
 	"github.com/spice-framework/toolchain/compiler/controller"
 	compilerevent "github.com/spice-framework/toolchain/compiler/event"
+	"github.com/spice-framework/toolchain/compiler/internal/generationscope"
 	compilerlifecycle "github.com/spice-framework/toolchain/compiler/lifecycle"
 	"github.com/spice-framework/toolchain/compiler/load"
 	compilerpolicy "github.com/spice-framework/toolchain/compiler/policy"
@@ -421,6 +422,26 @@ func Render(
 	applicationTarget application.Target,
 	target Target,
 ) (Plan, []Diagnostic) {
+	scope := generationscope.Scope{}
+	if program != nil {
+		scope = generationscope.FromCarrier(program)
+	}
+	return render(
+		program,
+		model,
+		applicationTarget,
+		target,
+		scope,
+	)
+}
+
+func render(
+	program *load.Program,
+	model application.Model,
+	applicationTarget application.Target,
+	target Target,
+	scope generationscope.Scope,
+) (Plan, []Diagnostic) {
 	if program == nil {
 		return Plan{}, []Diagnostic{{
 			Kind:    "invalid-program",
@@ -459,6 +480,7 @@ func Render(
 		applicationTarget,
 		target,
 		modelOrigins,
+		scope,
 	)
 	if renderErr != nil {
 		return Plan{}, []Diagnostic{targetDiagnostic(
@@ -554,6 +576,7 @@ func renderTargetFiles(
 	applicationTarget application.Target,
 	target Target,
 	modelOrigins []SourceOrigin,
+	scope generationscope.Scope,
 ) ([]File, error) {
 	providers := model.Providers()
 	configTypes := model.Configurations()
@@ -706,6 +729,7 @@ func renderTargetFiles(
 		applicationTarget,
 		providers,
 		providerModules,
+		scope.ModuleIdentities(),
 	)
 	selectedLoggerVariable := selectedApplicationLoggerVariable(
 		providers,

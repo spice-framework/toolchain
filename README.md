@@ -43,8 +43,11 @@ same-Go-module dependencies. Exact local modules named by its `@Module`
 allowlist are then inventoried recursively, in stable order, solely to build a
 compiler-validated module and named-interface identity registry. Those
 identity-only loads cannot contribute applications, providers, configuration,
-or generated targets. Missing, external, malformed, or repository-escaping
-module identities remain errors, and all package loading stays offline.
+or generated targets. Compiler-owned logging scope identities use that complete
+validated registry, so committed plans stay byte-identical when a local module
+is active only on selected operating systems. Missing, external, malformed, or
+repository-escaping module identities remain errors, and all package loading
+stays offline.
 Plain validation commands, including `spice verify`, `spice modules`, and
 `spice beans --explain`, use the same identity registry without promoting
 application dependencies: their exact package patterns remain the complete

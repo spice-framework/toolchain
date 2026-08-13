@@ -162,6 +162,182 @@ func TestRunGenerateUsesApplicationScopedLocalModuleUniverse(t *testing.T) {
 	}
 }
 
+func TestRunGenerateCheckIsPortableAcrossTargetPlatforms(t *testing.T) {
+	root := generationPlatformIdentityCLIModule(t)
+	const target = "ArchitectureProof"
+	code, stdout, stderr := runGenerationModuleWithEnvironment(
+		root,
+		generationTargetEnvironment("windows"),
+		"generate", "--target", target, "./app",
+	)
+	if code != 0 || !strings.Contains(stdout, "generated target "+target) || stderr != "" {
+		t.Fatalf("windows generate: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	assemblies, err := filepath.Glob(filepath.Join(
+		root,
+		"internal",
+		"spicegen",
+		"*",
+		"spice_assembly_gen.go",
+	))
+	if err != nil || len(assemblies) != 1 {
+		t.Fatalf("generated assemblies = %v, %v", assemblies, err)
+	}
+	assembly, err := os.ReadFile(assemblies[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, moduleID := range []string{
+		"example.com/fixture/internal/poisonidentity",
+		"example.com/fixture/internal/processcontainment",
+		"example.com/fixture/internal/processleaf",
+	} {
+		line := "{Module: \"" + moduleID + "\"}"
+		if count := strings.Count(string(assembly), line); count != 1 {
+			t.Fatalf("logging identity %q count = %d, want 1", moduleID, count)
+		}
+	}
+	for _, poison := range []string{
+		"ForeignApplication",
+		"NewForeignService",
+		"PoisonSettings",
+		"poison.enabled",
+	} {
+		if strings.Contains(string(assembly), poison) {
+			t.Fatalf("generated assembly merged poison %q", poison)
+		}
+	}
+
+	manifestPath := filepath.Join(root, ".spice", "architectureproof.manifest.json")
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		code, stdout, stderr = runGenerationModuleWithEnvironment(
+			root,
+			generationTargetEnvironment(goos),
+			"generate", "--check", "--diff", "--target", target, "./app",
+		)
+		if code != 0 || !strings.Contains(stdout, "generation is current") || stderr != "" {
+			t.Fatalf("%s check: code=%d stdout=%q stderr=%q", goos, code, stdout, stderr)
+		}
+		currentAssembly, readErr := os.ReadFile(assemblies[0])
+		if readErr != nil || !slices.Equal(currentAssembly, assembly) {
+			t.Fatalf("%s check changed assembly bytes: %v", goos, readErr)
+		}
+		currentManifest, readErr := os.ReadFile(manifestPath)
+		if readErr != nil || !slices.Equal(currentManifest, manifest) {
+			t.Fatalf("%s check changed manifest bytes: %v", goos, readErr)
+		}
+	}
+}
+
+func runGenerationModuleWithEnvironment(
+	root string,
+	environment []string,
+	arguments ...string,
+) (int, string, string) {
+	var stdout, stderr bytes.Buffer
+	code := run(
+		arguments,
+		&stdout,
+		&stderr,
+		load.Options{Dir: root, Env: environment},
+		load.Load,
+	)
+	return code, stdout.String(), stderr.String()
+}
+
+func generationTargetEnvironment(goos string) []string {
+	result := slices.Clone(os.Environ())
+	for _, setting := range []struct {
+		name  string
+		value string
+	}{
+		{name: "CGO_ENABLED", value: "0"},
+		{name: "GOARCH", value: "amd64"},
+		{name: "GOENV", value: "off"},
+		{name: "GOFLAGS", value: ""},
+		{name: "GOOS", value: goos},
+		{name: "GOPROXY", value: "off"},
+		{name: "GOSUMDB", value: "off"},
+		{name: "GOTOOLCHAIN", value: "local"},
+	} {
+		prefix := setting.name + "="
+		replaced := false
+		for index, entry := range result {
+			if strings.HasPrefix(strings.ToUpper(entry), prefix) {
+				result[index] = prefix + setting.value
+				replaced = true
+			}
+		}
+		if !replaced {
+			result = append(result, prefix+setting.value)
+		}
+	}
+	return result
+}
+
+func generationPlatformIdentityCLIModule(t *testing.T) string {
+	t.Helper()
+	return writeModule(t, map[string]string{
+		"app/application.go": `package app
+
+import _ "example.com/fixture/internal/processplatform"
+
+// @Application
+// @observability.Logging
+func ArchitectureProof() {}
+`,
+		"app/doc.go": `// @Module(allowedDependencies=["example.com/fixture/internal/poisonidentity", "example.com/fixture/internal/processplatform"])
+package app
+`,
+		"internal/processplatform/doc.go": `// @Module(allowedDependencies=["example.com/fixture/internal/processcontainment"])
+package processplatform
+`,
+		"internal/processplatform/process_unix.go": `//go:build linux || darwin
+
+package processplatform
+
+import _ "example.com/fixture/internal/processcontainment"
+`,
+		"internal/processplatform/process_windows.go": `//go:build windows
+
+package processplatform
+`,
+		"internal/processcontainment/doc.go": `// @Module(allowedDependencies=["example.com/fixture/internal/processleaf"])
+package processcontainment
+`,
+		"internal/processleaf/doc.go": `// @Module
+package processleaf
+`,
+		"internal/poisonidentity/doc.go": `// @Module
+package poisonidentity
+`,
+		"internal/poisonidentity/poison.go": `// @import { Application, Bean, ConfigurationProperties, Singleton } from "github.com/spice-framework/spice/annotation/core"
+
+package poisonidentity
+
+// @ConfigurationProperties(prefix="poison")
+type PoisonSettings struct {
+	Enabled bool ` + "`spice:\"enabled,default=false\"`" + `
+}
+
+type ForeignService struct{}
+
+// @Bean
+// @Singleton
+func NewForeignService(PoisonSettings) *ForeignService {
+	panic("identity inventory must not execute or join provider bodies")
+}
+
+// @Application
+func ForeignApplication(*ForeignService) {}
+`,
+	})
+}
+
 func TestRunBuildGeneratesAndExecutesTrimpathBuild(t *testing.T) {
 	root := generationCLIModule(t, generationApplicationWithProviderSource)
 	code, stdout, stderr := runModule(root, "build", "./...")

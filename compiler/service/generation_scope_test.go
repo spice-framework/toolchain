@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/spice-framework/toolchain/compiler/generate"
 	"github.com/spice-framework/toolchain/compiler/load"
 	"github.com/spice-framework/toolchain/compiler/modulith"
 	compilerstyle "github.com/spice-framework/toolchain/compiler/style"
@@ -110,6 +112,236 @@ func TestOrdinaryGenerationPromotesLocalModulesAndBuildsExactUniverse(t *testing
 		scopes[0].PackagePath != "example.com/servicefixture/internal/architectureproof" {
 		t.Fatalf("configured style scopes = %#v", scopes)
 	}
+}
+
+func TestGenerationLoggingIdentityScopesArePlatformInvariant(t *testing.T) {
+	root := writePlatformIdentityGenerationFixture(t)
+	const target = "ArchitectureProof"
+	const applicationModule = "example.com/servicefixture/internal/architectureproof"
+	const platformModule = "example.com/servicefixture/internal/processplatform"
+	const containmentModule = "example.com/servicefixture/internal/processcontainment"
+	const leafModule = "example.com/servicefixture/internal/processleaf"
+	const poisonModule = "example.com/servicefixture/internal/poisonidentity"
+	identityModules := []string{containmentModule, leafModule, poisonModule}
+
+	var baseline string
+	for _, goos := range []string{"darwin", "windows", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			environment := slices.Clone(os.Environ())
+			for name, value := range map[string]string{
+				"CGO_ENABLED": "0",
+				"GOARCH":      "amd64",
+				"GOENV":       "off",
+				"GOFLAGS":     "",
+				"GOOS":        goos,
+				"GOPROXY":     "off",
+				"GOSUMDB":     "off",
+				"GOTOOLCHAIN": "local",
+			} {
+				environment = replaceEnvironment(environment, name, value)
+			}
+			loads := 0
+			service, err := New(Config{
+				LoadOptions: load.Options{Env: environment},
+				Loader: func(
+					ctx context.Context,
+					options load.Options,
+					patterns ...string,
+				) (*load.Program, error) {
+					loads++
+					return load.Load(ctx, options, patterns...)
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			registerServiceCleanup(t, service)
+			request := Request{
+				WorkspaceRoot: root,
+				Patterns:      []string{"./internal/architectureproof"},
+				Target:        target,
+				Mode:          AnalysisGenerate,
+				ContentHash:   "platform-identity-generation-" + goos,
+			}
+			result, err := service.Analyze(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diagnostics := result.Diagnostics().Items(); len(diagnostics) != 0 {
+				t.Fatalf("diagnostics = %#v", diagnostics)
+			}
+			plan, found := result.GenerationPlan()
+			if !found {
+				t.Fatal("generation plan was not produced")
+			}
+
+			assembly := generationPlanRoleContent(t, plan, generate.FileRoleTargetAssembly)
+			for _, moduleID := range identityModules {
+				line := "{Module: \"" + moduleID + "\"}"
+				if count := strings.Count(assembly, line); count != 1 {
+					t.Fatalf("logging identity %q count = %d, want 1", moduleID, count)
+				}
+			}
+			for _, poison := range []string{
+				"ForeignApplication",
+				"NewForeignService",
+				"PoisonSettings",
+				"poison.enabled",
+			} {
+				if strings.Contains(generationPlanBytes(plan), poison) {
+					t.Fatalf("identity-only inventory merged poison %q", poison)
+				}
+			}
+			if targets := result.ApplicationModel().Targets(); len(targets) != 1 ||
+				targets[0].Name != target {
+				t.Fatalf("application targets = %#v", targets)
+			}
+			for _, item := range result.ProviderGraph().Providers {
+				if item.PackagePath == poisonModule {
+					t.Fatalf("poison provider joined host composition: %#v", item)
+				}
+			}
+			for _, item := range result.Configurations() {
+				if item.PackagePath == poisonModule {
+					t.Fatalf("poison configuration joined host composition: %#v", item)
+				}
+			}
+
+			modules := moduleIDs(result.ModuleGraph().Modules)
+			wantModules := []string{
+				applicationModule, platformModule,
+				"example.com/servicefixture/internal/runidentity",
+				"example.com/servicefixture/internal/workspace",
+			}
+			if goos != "windows" {
+				wantModules = append(wantModules, containmentModule)
+				sort.Strings(wantModules)
+			}
+			if !slices.Equal(modules, wantModules) {
+				t.Fatalf("host-selected modules = %v, want %v", modules, wantModules)
+			}
+			for _, inactive := range []string{leafModule, poisonModule} {
+				if slices.Contains(modules, inactive) {
+					t.Fatalf("inactive identity %q joined host graph", inactive)
+				}
+			}
+
+			snapshot := generationPlanBytes(plan)
+			if baseline == "" {
+				baseline = snapshot
+			} else if snapshot != baseline {
+				t.Fatal("generated plan or manifest changed across target platforms")
+			}
+			loadsAfterFirst := loads
+			cached, cacheErr := service.Analyze(t.Context(), request)
+			if cacheErr != nil {
+				t.Fatal(cacheErr)
+			}
+			cachedPlan, cachedFound := cached.GenerationPlan()
+			if !cachedFound || generationPlanBytes(cachedPlan) != snapshot {
+				t.Fatal("cached generation plan changed identity scopes")
+			}
+			if loads != loadsAfterFirst {
+				t.Fatalf("cached generation reloaded packages: %d -> %d", loadsAfterFirst, loads)
+			}
+		})
+	}
+}
+
+func generationPlanRoleContent(
+	t *testing.T,
+	plan generate.Plan,
+	role generate.FileRole,
+) string {
+	t.Helper()
+	for _, file := range plan.Files() {
+		if file.Role == role {
+			return string(file.Content())
+		}
+	}
+	t.Fatalf("generation plan lacks role %q", role)
+	return ""
+}
+
+func generationPlanBytes(plan generate.Plan) string {
+	var result strings.Builder
+	result.Write(plan.ManifestContent())
+	for _, file := range plan.Files() {
+		result.WriteByte(0)
+		result.WriteString(file.Path)
+		result.WriteByte(0)
+		result.Write(file.Content())
+	}
+	return result.String()
+}
+
+func writePlatformIdentityGenerationFixture(t *testing.T) string {
+	t.Helper()
+	root := writeGenerationModuleScopeFixture(t, false)
+	writeServiceFixtureFile(t, root, "internal/architectureproof/application.go", `package architectureproof
+
+// @import { Application } from "github.com/spice-framework/spice/annotation/core"
+// @import { Logging } from "github.com/spice-framework/spice/annotation/observability"
+
+// @Application
+// @Logging
+func ArchitectureProof(*Proof) {}
+`)
+	writeServiceFixtureFile(t, root, "internal/architectureproof/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package architectureproof owns the selected application.
+// @Module(allowedDependencies=["example.com/servicefixture/internal/poisonidentity", "example.com/servicefixture/internal/processplatform", "example.com/servicefixture/internal/runidentity", "example.com/servicefixture/internal/workspace"])
+package architectureproof
+`)
+	writeServiceFixtureFile(t, root, "internal/processplatform/process_unix.go", `//go:build linux || darwin
+
+package processplatform
+
+import _ "example.com/servicefixture/internal/processcontainment"
+`)
+	writeServiceFixtureFile(t, root, "internal/processplatform/process_windows.go", `//go:build windows
+
+package processplatform
+`)
+	writeServiceFixtureFile(t, root, "internal/processcontainment/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package processcontainment owns platform-selected process identity.
+// @Module(allowedDependencies=["example.com/servicefixture/internal/processleaf"])
+package processcontainment
+`)
+	writeServiceFixtureFile(t, root, "internal/processleaf/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package processleaf owns a transitively inactive identity.
+// @Module
+package processleaf
+`)
+	writeServiceFixtureFile(t, root, "internal/poisonidentity/doc.go", `// @import { Module } from "github.com/spice-framework/spice/annotation/modulith"
+
+// Package poisonidentity proves identity inventory cannot join composition.
+// @Module
+package poisonidentity
+`)
+	writeServiceFixtureFile(t, root, "internal/poisonidentity/poison.go", `package poisonidentity
+
+// @import { Application, Bean, ConfigurationProperties, Singleton } from "github.com/spice-framework/spice/annotation/core"
+
+// @ConfigurationProperties(prefix="poison")
+type PoisonSettings struct {
+	Enabled bool `+"`spice:\"enabled,default=false\"`"+`
+}
+
+type ForeignService struct{}
+
+// @Bean
+// @Singleton
+func NewForeignService(PoisonSettings) *ForeignService {
+	panic("identity inventory must not execute or join provider bodies")
+}
+
+// @Application
+func ForeignApplication(*ForeignService) {}
+`)
+	return root
 }
 
 func TestValidationInventoriesModuleIdentitiesWithoutMergingComposition(t *testing.T) {

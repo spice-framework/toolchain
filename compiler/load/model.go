@@ -102,6 +102,7 @@ type Package struct {
 // return copies of ordered record slices. Live type and syntax references must
 // never be combined with values from another Program.
 type Program struct {
+	generationScopeCarrier
 	packages    []Package
 	symbols     []Symbol
 	diagnostics []Diagnostic

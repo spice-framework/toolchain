@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spice-framework/toolchain/compiler/internal/generationscope"
 	"github.com/spice-framework/toolchain/compiler/modulith"
 )
 
@@ -149,7 +150,14 @@ func (service *Service) analyzeModuleIdentityScope(
 	}
 
 	request.moduleUniverse = universe
-	result, err := service.analyze(ctx, request)
+	request.generationIdentities = generationModuleIdentityIDs(models)
+	result, err := service.analyze(
+		generationscope.WithContext(
+			ctx,
+			generationscope.New(request.generationIdentities),
+		),
+		request,
+	)
 	if err != nil {
 		return Result{}, err
 	}
@@ -248,6 +256,16 @@ func generationModuleIdentities(models []modulith.Model) map[string]string {
 	return result
 }
 
+func generationModuleIdentityIDs(models []modulith.Model) []string {
+	identities := generationModuleIdentities(models)
+	result := make([]string, 0, len(identities))
+	for moduleID := range identities {
+		result = append(result, moduleID)
+	}
+	sort.Strings(result)
+	return result
+}
+
 func enqueueGenerationModuleDependencies(
 	model modulith.Model,
 	known map[string]string,
@@ -309,6 +327,7 @@ func generationModuleInventoryRequest(
 	request.generatedEntrypoint = false
 	request.applicationScope = false
 	request.generationInventory = true
+	request.generationIdentities = nil
 	request.moduleUniverse = modulith.Universe{}
 	return request
 }

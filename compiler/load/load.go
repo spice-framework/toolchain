@@ -14,8 +14,11 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/spice-framework/spice/annotation"
+	"github.com/spice-framework/toolchain/compiler/internal/generationscope"
 	annotationparser "github.com/spice-framework/toolchain/compiler/parser"
 )
+
+type generationScopeCarrier = generationscope.Carrier
 
 // Options configures one isolated package-loading operation.
 type Options struct {
@@ -52,7 +55,8 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		return nil, err
 	}
 	if diagnostics := requestDiagnostics(options, patterns); len(diagnostics) != 0 {
-		program := &Program{diagnostics: diagnostics}
+		program := newProgram(ctx)
+		program.diagnostics = diagnostics
 		return program, &LoadError{Diagnostics: program.Diagnostics()}
 	}
 
@@ -66,14 +70,16 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 			overlay,
 		)
 		if preparationErr != nil {
-			program := &Program{diagnostics: []Diagnostic{{
+			program := newProgram(ctx)
+			program.diagnostics = []Diagnostic{{
 				Kind:    "generated-entrypoint",
 				Message: preparationErr.Error(),
-			}}}
+			}}
 			return program, &LoadError{Diagnostics: program.Diagnostics()}
 		}
 		if len(preparationDiagnostics) != 0 {
-			program := &Program{diagnostics: preparationDiagnostics}
+			program := newProgram(ctx)
+			program.diagnostics = preparationDiagnostics
 			return program, &LoadError{Diagnostics: program.Diagnostics()}
 		}
 	}
@@ -128,6 +134,7 @@ func Load(ctx context.Context, options Options, patterns ...string) (*Program, e
 		}
 	}
 	program := programFromRoots(
+		ctx,
 		selectedRoots,
 		loadErr,
 		auxiliary,
@@ -191,11 +198,12 @@ func slicesCompact(values []string) []string {
 }
 
 func programFromRoots(
+	ctx context.Context,
 	roots []*packages.Package,
 	loadErr error,
 	auxiliaryPackages []string,
 ) *Program {
-	program := &Program{}
+	program := newProgram(ctx)
 	if loadErr != nil {
 		program.diagnostics = append(program.diagnostics, Diagnostic{
 			Kind:    "driver",
@@ -245,6 +253,12 @@ func programFromRoots(
 	})
 	sortDiagnostics(program.diagnostics)
 	return program
+}
+
+func newProgram(ctx context.Context) *Program {
+	return &Program{
+		generationScopeCarrier: generationscope.CarrierFromContext(ctx),
+	}
 }
 
 func packageIdentity(pkg *packages.Package) string {

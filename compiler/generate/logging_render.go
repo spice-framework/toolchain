@@ -20,6 +20,7 @@ func loggingScopes(
 	applicationTarget application.Target,
 	providers []provider.Provider,
 	providerModules map[string]string,
+	moduleIdentities []string,
 ) []generatedLoggingScope {
 	scopes := make(map[string]generatedLoggingScope)
 	add := func(module, component string) {
@@ -32,6 +33,9 @@ func loggingScopes(
 	add(applicationTarget.PackagePath, "")
 	for _, module := range model.Modules() {
 		add(module.ID, "")
+	}
+	for _, moduleID := range moduleIdentities {
+		add(moduleID, "")
 	}
 	for _, item := range providers {
 		module := effectiveProviderModule(item, providerModules)

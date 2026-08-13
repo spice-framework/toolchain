@@ -280,22 +280,23 @@ func normalizedSpiceVersion(value string) string {
 }
 
 type normalizedRequest struct {
-	root                string
-	target              string
-	patterns            []string
-	overlay             map[string]Document
-	mode                AnalysisMode
-	profile             compilerstyle.Profile
-	style               *compilerstyle.Configuration
-	selection           *compilerstyle.BuildSelection
-	content             string
-	sequence            uint64
-	styleInventory      bool
-	forceStyleInventory bool
-	generatedEntrypoint bool
-	applicationScope    bool
-	generationInventory bool
-	moduleUniverse      modulith.Universe
+	root                 string
+	target               string
+	patterns             []string
+	overlay              map[string]Document
+	mode                 AnalysisMode
+	profile              compilerstyle.Profile
+	style                *compilerstyle.Configuration
+	selection            *compilerstyle.BuildSelection
+	content              string
+	sequence             uint64
+	styleInventory       bool
+	forceStyleInventory  bool
+	generatedEntrypoint  bool
+	applicationScope     bool
+	generationInventory  bool
+	generationIdentities []string
+	moduleUniverse       modulith.Universe
 }
 
 // Analyze executes one read-only typed compiler analysis.
