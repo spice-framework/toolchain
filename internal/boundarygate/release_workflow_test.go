@@ -63,7 +63,7 @@ func TestProductionReleaseWorkflowRejectsAuthorityDrift(t *testing.T) {
 		mutate func(string) string
 	}{
 		{name: "stale reusable pin", mutate: func(value string) string {
-			return strings.Replace(value, productionWorkflowCommit, "e0a93a898fe39d59a33cbb3013fcbb3732a25db5", 2)
+			return strings.Replace(value, productionWorkflowCommit, "8735307890ba974ff7d2d998ac805ff390ebacdf", 2)
 		}},
 		{name: "mismatched repeated pin", mutate: func(value string) string {
 			index := strings.LastIndex(value, productionWorkflowCommit)
@@ -103,7 +103,7 @@ func TestProductionReleaseWorkflowRejectsAuthorityDrift(t *testing.T) {
 	}
 }
 
-const productionWorkflowCommit = "8735307890ba974ff7d2d998ac805ff390ebacdf"
+const productionWorkflowCommit = "35a9ce4d01d45d492f0798e57e3fdc6a5124a903"
 
 func validateProductionReleaseWorkflow(workflow string) error {
 	if workflow != expectedProductionReleaseWorkflow() {
@@ -141,9 +141,9 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    uses: spice-framework/.github/.github/workflows/go-distribution-release.yml@8735307890ba974ff7d2d998ac805ff390ebacdf
+    uses: spice-framework/.github/.github/workflows/go-distribution-release.yml@35a9ce4d01d45d492f0798e57e3fdc6a5124a903
     with:
       module: github.com/spice-framework/toolchain
-      workflow_commit: 8735307890ba974ff7d2d998ac805ff390ebacdf
+      workflow_commit: 35a9ce4d01d45d492f0798e57e3fdc6a5124a903
 `
 }

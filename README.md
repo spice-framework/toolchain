@@ -219,7 +219,7 @@ is deliberately untracked and recreated by verification.
 
 ## Generator compatibility
 
-The frozen `v0.1.0-preview.7` generator contract is recorded in
+The frozen `v0.1.0-preview.8` generator contract is recorded in
 [`compatibility/generator.json`](compatibility/generator.json): it
 writes ownership schema 6, accepts guarded migrations from schemas 1 through
 6, uses Go formatting line 1.26, and fails closed on manual edits, stale owned
@@ -246,16 +246,16 @@ published its exact ten-asset prerelease.
 ## Release
 
 [`RELEASING.md`](RELEASING.md) defines the current release contract. The
-preview.7 candidate first bootstraps only its five committed Go graphs through
+preview.8 candidate first bootstraps only its five committed Go graphs through
 the public proxy and checksum database, then runs the complete release gate
 offline. Development authority
-`28831e2aa1170a61dc8642d0159c780153428930` produces six deterministic
+`6529de261d28f98476babab397d7d3b1e22dd417` produces six deterministic
 platform archives, canonical release metadata, an SPDX 2.3 SBOM, and
 checksums. Independent Toolchain authority
-`e9dffae153316639121a65ca1fd6f178f7e7eb61` authenticates the tagged source
+`5929142cb75d8308d7e89b047479cf405ecb0694` authenticates the tagged source
 and graph, reconstructs every byte, and copies exactly those nine subjects into
 a verifier-owned directory. Organization caller authority
-`8735307890ba974ff7d2d998ac805ff390ebacdf` preserves that policy intersection.
+`35a9ce4d01d45d492f0798e57e3fdc6a5124a903` preserves that policy intersection.
 Linux and Windows then execute only the installed verified archive. Protected
 `release-attestation` approval mints keyless Sigstore provenance, its source
 and workflow identity are authenticated, and distinct `release-publish`
@@ -264,7 +264,7 @@ no secrets and no earlier job has repository write authority.
 
 The retained Ed25519 builder and its eleven-asset workflow describe the
 historical preview.2 release boundary. They remain available for verification
-and compatibility evidence, but they are not the preview.7 production
+and compatibility evidence, but they are not the preview.8 production
 authority.
 
 Signed source-only starter releases use a separate trust boundary. The
@@ -369,15 +369,17 @@ the [immutable ten-asset prerelease](https://github.com/spice-framework/toolchai
 Fresh proxy and SumDB resolution yields module sum
 `h1:XgNwiSCrnwh+iDxi3RJX8pbRTTpdL7NDiMedE861U6g=` and go.mod sum
 `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=`.
-Preview.8 is a separate pre-tag policy identity for the reviewed product line
-through core commit `9568be77a3dcb7ebdf61c5510cc1475e9cffe002`. Complete,
-compiler-validated local module identities now make generated logging scopes
-byte-stable across Windows, Linux, and Darwin while target composition remains
-host-selected. This authorization changes only Toolchain's distribution
-version from preview.7 to preview.8. It does not change candidate-owned version
-files, generator compatibility, the release caller, a tag, an approval, an
-attestation, or published assets, and it does not repin TUI preview.2 from
-Toolchain preview.4.
+Preview.8 is a distinct candidate for the reviewed product line through core
+commit `9568be77a3dcb7ebdf61c5510cc1475e9cffe002`. Its candidate-owned generator,
+release intent, CLI, independently installed-byte gate, and release caller all
+agree on preview.8. The no-secrets caller pins organization authority
+`35a9ce4d01d45d492f0798e57e3fdc6a5124a903`, which fixes Development authority
+`6529de261d28f98476babab397d7d3b1e22dd417` and Toolchain verifier authority
+`5929142cb75d8308d7e89b047479cf405ecb0694`. Complete compiler-validated local
+module identities make generated logging scopes byte-stable across Windows,
+Linux, and Darwin while target composition remains host-selected. Candidate
+preparation does not create a tag, approve an environment, attest bytes,
+publish assets, or repin TUI preview.2 from Toolchain preview.4.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
@@ -443,14 +445,14 @@ unset. Then run:
 make verify-release-artifacts
 ```
 
-The gate accepts only the preview.7 Toolchain nine-subject set: checksums,
+The gate accepts only the preview.8 Toolchain nine-subject set: checksums,
 release metadata, SPDX SBOM, and all six Linux/macOS/Windows amd64/arm64
 archives. Every archive must contain exactly one `spice` binary plus the
 committed LICENSE and README with canonical paths, bytes, and permissions. The
 host archive is extracted into private scratch space and its binary is executed
-offline; it must report exactly `spice 0.1.0-preview.7 (<40-character-commit>)`.
+offline; it must report exactly `spice 0.1.0-preview.8 (<40-character-commit>)`.
 Source builds report the honest development identity
-`spice v0.1.0-preview.7 (development)`. Release builds set the exported
+`spice v0.1.0-preview.8 (development)`. Release builds set the exported
 `internal/cli.Version` and `internal/cli.Commit` data symbols directly; mixed,
 empty, noncanonical, or malformed linker identities fail closed. This
 candidate check consumes independently verified bytes and does not replace
