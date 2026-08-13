@@ -60,7 +60,7 @@ func TestRunPolicyCheckAuthorizesExactComparablePolicies(t *testing.T) {
 		profile    string
 	}{
 		{name: "Spice foundation", repository: "spice", version: "v0.1.0-preview.4", profile: "go-module-v1"},
-		{name: "Toolchain distribution", repository: "toolchain", version: "v0.1.0-preview.7", profile: "go-distribution-v1"},
+		{name: "Toolchain distribution", repository: "toolchain", version: "v0.1.0-preview.8", profile: "go-distribution-v1"},
 		{name: "Agent core", repository: "spice-agent", version: "v0.1.0-preview.7", profile: "go-module-v1"},
 		{name: "Agent provider", repository: "spice-agent-provider-openai", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 		{name: "Agent coding tools", repository: "spice-agent-tools-coding", version: "v0.1.0-preview.1", profile: "go-module-v1"},
@@ -87,11 +87,11 @@ func TestRunPolicyCheckAuthorizesExactComparablePolicies(t *testing.T) {
 	}
 }
 
-func TestRunPolicyCheckEmitsCanonicalToolchainPreviewSevenTuple(t *testing.T) {
+func TestRunPolicyCheckEmitsCanonicalToolchainPreviewEightTuple(t *testing.T) {
 	t.Parallel()
 	const (
-		want       = "go-distribution-v1\ttoolchain\tgithub.com/spice-framework/toolchain\tv0.1.0-preview.7\n"
-		wantSHA256 = "8b335fcdbba2b099b1de707616662d10745bed2765e567302f49c07d09d119ad"
+		want       = "go-distribution-v1\ttoolchain\tgithub.com/spice-framework/toolchain\tv0.1.0-preview.8\n"
+		wantSHA256 = "08e8562e93ec3a39e06b977c1c0868b2fe6f3c0ef109eb8e50ed8ea05ad89702"
 	)
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
@@ -99,14 +99,14 @@ func TestRunPolicyCheckEmitsCanonicalToolchainPreviewSevenTuple(t *testing.T) {
 		"--repository=toolchain",
 		"--source=https://github.com/spice-framework/toolchain",
 		"--module=github.com/spice-framework/toolchain",
-		"--version=v0.1.0-preview.7",
+		"--version=v0.1.0-preview.8",
 		"--profile=go-distribution-v1",
 	}, &stdout, &stderr)
 	digest := sha256.Sum256(stdout.Bytes())
 	if code != 0 || stdout.String() != want ||
 		hex.EncodeToString(digest[:]) != wantSHA256 || stderr.Len() != 0 {
 		t.Fatalf(
-			"run(Toolchain preview.7 policy-check) = %d, stdout %q, sha256 %s, stderr %q",
+			"run(Toolchain preview.8 policy-check) = %d, stdout %q, sha256 %s, stderr %q",
 			code,
 			stdout.String(),
 			hex.EncodeToString(digest[:]),
@@ -147,6 +147,7 @@ func TestRunPolicyCheckRejectsStaleFoundationRecoveryPreviews(t *testing.T) {
 		{repository: "toolchain", version: "v0.1.0-preview.4", profile: "go-distribution-v1"},
 		{repository: "toolchain", version: "v0.1.0-preview.5", profile: "go-distribution-v1"},
 		{repository: "toolchain", version: "v0.1.0-preview.6", profile: "go-distribution-v1"},
+		{repository: "toolchain", version: "v0.1.0-preview.7", profile: "go-distribution-v1"},
 		{repository: "spice-agent-tui", version: "v0.1.0-preview.1", profile: "go-module-v1"},
 	} {
 		module := "github.com/spice-framework/" + test.repository

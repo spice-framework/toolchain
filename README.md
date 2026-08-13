@@ -310,14 +310,14 @@ the `spice-agent-coding` preview.4 distribution retain the immutable Spice
 foundation `v0.1.0-preview.2` and their exact historical Toolchain, Agent, and
 sibling selections. The separately authorized TUI preview.2 policy requires
 Spice preview.4 and the published Toolchain preview.4. The independent
-Toolchain distribution authority now permits preview.7 with the same Spice
+Toolchain distribution authority now permits preview.8 with the same Spice
 preview.4 requirement, one `spice` command, six targets, LICENSE, README, and
 two typed CLI identity symbols. TUI remains pinned to Toolchain preview.4; no
 Agent, provider, coding-tools, Coding, or historical selection moves with this
 authorization. Spice preview.3 is an immutable tag-only failed attempt that
 produced no authenticated release; it is rejected as a current foundation
 selection. This closed authority independently matches Development commit
-`28831e2aa1170a61dc8642d0159c780153428930`; neither repository can expand it
+`6529de261d28f98476babab397d7d3b1e22dd417`; neither repository can expand it
 alone.
 
 In the separate Toolchain distribution history, preview.1 release run
@@ -360,15 +360,24 @@ the [immutable ten-asset prerelease](https://github.com/spice-framework/toolchai
 Fresh proxy and SumDB resolution yields module sum
 `h1:aChpRT/e2DH7SC+FzL06FPzJxqLQ/jYQDP+xpXWlctI=` and go.mod sum
 `h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=`.
-Preview.7 is a distinct candidate for the reviewed product line through core
-commit `73d2189ee512c4988f1a223aa0b6afdf10bfb260`. Its candidate-owned generator,
-release intent, CLI, independently installed-byte gate, and release caller all
-agree on preview.7. The no-secrets caller pins organization authority
-`8735307890ba974ff7d2d998ac805ff390ebacdf`, which fixes Development authority
-`28831e2aa1170a61dc8642d0159c780153428930` and Toolchain verifier authority
-`e9dffae153316639121a65ca1fd6f178f7e7eb61`. Candidate preparation does not
-create a tag, approve an environment, attest bytes, publish assets, or repin
-TUI preview.2 from Toolchain preview.4.
+Preview.7 annotated tag object `5645e26fe2383713819554dccd1e92cfd03cc0bf`
+resolves to candidate commit `e83e4ff8639ed6e3aa49c6dd8b2e3ba0d5174e08`.
+Unique release run
+[`31655704075`](https://github.com/spice-framework/toolchain/actions/runs/31655704075),
+attempt 1, and protected deployments `5880057692` and `5880086379` published
+the [immutable ten-asset prerelease](https://github.com/spice-framework/toolchain/releases/tag/v0.1.0-preview.7).
+Fresh proxy and SumDB resolution yields module sum
+`h1:XgNwiSCrnwh+iDxi3RJX8pbRTTpdL7NDiMedE861U6g=` and go.mod sum
+`h1:nezzFkAq9TDdavVL5sYJm2nOKNWAu1p9VTz3XFihgUg=`.
+Preview.8 is a separate pre-tag policy identity for the reviewed product line
+through core commit `9568be77a3dcb7ebdf61c5510cc1475e9cffe002`. Complete,
+compiler-validated local module identities now make generated logging scopes
+byte-stable across Windows, Linux, and Darwin while target composition remains
+host-selected. This authorization changes only Toolchain's distribution
+version from preview.7 to preview.8. It does not change candidate-owned version
+files, generator compatibility, the release caller, a tag, an approval, an
+attestation, or published assets, and it does not repin TUI preview.2 from
+Toolchain preview.4.
 Provider and coding-tools releases and all three Coding distribution sibling
 selections remain preview.1; TUI's own policy alone advances to preview.2.
 Provider, coding-tools, and distribution policies require
@@ -395,10 +404,10 @@ the separately reviewed development plan through one tab-separated
 `profile`, `repository`, `module`, and `version` line. Toolchain validates the
 canonical `source` input before emitting that directly comparable tuple. Full
 post-tag verification remains mandatory.
-For Toolchain preview.7 the exact LF-terminated 83-byte tuple is
-`go-distribution-v1\ttoolchain\tgithub.com/spice-framework/toolchain\tv0.1.0-preview.7\n`;
+For Toolchain preview.8 the exact LF-terminated 83-byte tuple is
+`go-distribution-v1\ttoolchain\tgithub.com/spice-framework/toolchain\tv0.1.0-preview.8\n`;
 its SHA-256 is
-`8b335fcdbba2b099b1de707616662d10745bed2765e567302f49c07d09d119ad`.
+`08e8562e93ec3a39e06b977c1c0868b2fe6f3c0ef109eb8e50ed8ea05ad89702`.
 The dependency-free Spice policy omits both `go.sum` and vendor. It rejects
 requirements, tools, replacements, excludes, ignores, partial graph metadata,
 and every `vendor/` path, then independently proves the selected module and
@@ -413,7 +422,7 @@ renderer directory directly.
 Binary distributions use the sibling
 `cmd/spice-go-distribution-release-verify` boundary. Its closed
 `go-distribution-v1` policies authorize the unchanged `spice-agent-coding`
-surface and the separate Toolchain preview.7 surface. Each fixes its commands,
+surface and the separate Toolchain preview.8 surface. Each fixes its commands,
 six operating-system/architecture targets, committed payloads, required
 modules, and typed build-identity symbols. The verifier materializes
 the exact tagged Git tree, publicly authenticates and byte-compares regenerated

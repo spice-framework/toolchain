@@ -131,6 +131,7 @@ func TestCheckPolicyRejectsStaleFoundationAndToolchainIdentities(t *testing.T) {
 				"v0.1.0-preview.4",
 				"v0.1.0-preview.5",
 				"v0.1.0-preview.6",
+				"v0.1.0-preview.7",
 			},
 		},
 		{
